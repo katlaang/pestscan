@@ -26,34 +26,34 @@ dependencies {
 
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
+    //implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    //implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    //implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    runtimeOnly 'org.postgresql:postgresql'
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-postgresql'
+    // runtimeOnly 'org.postgresql:postgresql'
+    //implementation 'org.flywaydb:flyway-core'
+    // implementation 'org.flywaydb:flyway-database-postgresql'
 
-    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
-    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
-    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
+//    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
+//    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
+//    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
 
-    implementation 'software.amazon.awssdk:s3:2.21.0'
+    // implementation 'software.amazon.awssdk:s3:2.21.0'
 
-    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
-
-    compileOnly 'org.projectlombok:lombok'
-    annotationProcessor 'org.projectlombok:lombok'
-
-    implementation 'org.mapstruct:mapstruct:1.5.5.Final'
-    annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
-
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation 'com.h2database:h2'
-
-    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+//    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
+//
+//    compileOnly 'org.projectlombok:lombok'
+//    annotationProcessor 'org.projectlombok:lombok'
+//
+//    implementation 'org.mapstruct:mapstruct:1.5.5.Final'
+//    annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
+//
+//    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+//    testImplementation 'org.springframework.security:spring-security-test'
+//    testImplementation 'com.h2database:h2'
+//
+//    developmentOnly 'org.springframework.boot:spring-boot-devtools'
 }
 
 tasks.withType(JavaCompile).configureEach {
