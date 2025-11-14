@@ -5,5 +5,10 @@ package mofo.com.pestscout.common.exception;
  */
 public interface ErrorCodeCarrier {
 
+    /**
+     * Returns the application-specific error code that categorizes the associated exception.
+     *
+     * @return non-null error code representing the failure condition
+     */
     String getErrorCode();
 }

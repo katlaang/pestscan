@@ -1,6 +1,7 @@
 package mofo.com.pestscout.common.config;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,12 +13,14 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * CORS configuration for the application
- * Allows frontend applications (React Native mobile app and React web dashboard) to access the API
+ * Provides centralized Cross-Origin Resource Sharing configuration so that the React Native and React frontends can
+ * communicate with the backend. The configuration values are externalized to application properties and logged during
+ * bean initialization.
  */
 @Configuration
-@Slf4j
 public class CorsConfig {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CorsConfig.class);
 
     @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
@@ -34,35 +37,43 @@ public class CorsConfig {
     @Value("${app.cors.max-age}")
     private long maxAge;
 
+    /**
+     * Builds the {@link CorsConfigurationSource} bean using the configured values. The method logs the derived
+     * configuration components to aid in troubleshooting environment-specific deployments.
+     *
+     * @return a fully configured {@link CorsConfigurationSource} instance used by Spring Web MVC
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Parse and set allowed origins
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
         configuration.setAllowedOrigins(origins);
-        log.info("CORS allowed origins: {}", origins);
+        LOGGER.info("Configured CORS allowed origins: {}", origins);
 
-        // Set allowed methods
         List<String> methods = Arrays.asList(allowedMethods.split(","));
         configuration.setAllowedMethods(methods);
+        LOGGER.info("Configured CORS allowed methods: {}", methods);
 
-        // Set allowed headers
         if ("*".equals(allowedHeaders)) {
             configuration.addAllowedHeader("*");
+            LOGGER.info("Configured CORS allowed headers: wildcard");
         } else {
             List<String> headers = Arrays.asList(allowedHeaders.split(","));
             configuration.setAllowedHeaders(headers);
+            LOGGER.info("Configured CORS allowed headers: {}", headers);
         }
 
-        // Allow credentials (cookies, authorization headers)
         configuration.setAllowCredentials(allowCredentials);
+        LOGGER.info("Configured CORS allow credentials: {}", allowCredentials);
 
-        // Set max age for preflight requests
         configuration.setMaxAge(maxAge);
+        LOGGER.info("Configured CORS max age: {}", maxAge);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
+        LOGGER.debug("Initialized CorsConfigurationSource bean");
 
         return source;
     }
