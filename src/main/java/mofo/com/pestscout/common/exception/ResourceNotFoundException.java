@@ -4,8 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Indicates that a requested entity could not be located. Creation is logged to highlight missing resources during
- * troubleshooting.
+ * Indicates that a requested entity could not be located. Creation is logged to highlight
+ * missing resources during troubleshooting.
  */
 public class ResourceNotFoundException extends RuntimeException implements ErrorCodeCarrier {
 
@@ -22,7 +22,20 @@ public class ResourceNotFoundException extends RuntimeException implements Error
     }
 
     /**
-     * Returns the error code representing not found conditions.
+     * Creates a {@link ResourceNotFoundException} using structured information about the missing resource.
+     * <p>
+     * Example message: {@code "User not found with id = 1234-..."}.
+     *
+     * @param resourceName logical name of the resource type (for example, "User" or "Farm")
+     * @param fieldName    name of the lookup field (for example, "id" or "email")
+     * @param fieldValue   value used in the lookup
+     */
+    public ResourceNotFoundException(String resourceName, String fieldName, Object fieldValue) {
+        this(String.format("%s not found with %s = %s", resourceName, fieldName, fieldValue));
+    }
+
+    /**
+     * Returns the error code representing not-found conditions.
      *
      * @return the {@code NOT_FOUND} error code string
      */
