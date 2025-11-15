@@ -23,7 +23,6 @@ public class UserDto {
     private String email;
     private String firstName;
     private String lastName;
-    private String fullName;
     private String phoneNumber;
     private Role role;
     private Boolean isEnabled;

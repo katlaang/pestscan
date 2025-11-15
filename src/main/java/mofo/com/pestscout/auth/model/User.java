@@ -5,7 +5,6 @@ import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * User entity representing system users
@@ -20,8 +19,6 @@ import java.util.UUID;
 @Builder
 public class User extends BaseEntity {
 
-    @Column(name = "farm_id")
-    private UUID farmId;
 
     @Column(nullable = false, unique = true, length = 255)
     private String email;
@@ -49,16 +46,6 @@ public class User extends BaseEntity {
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 
-    /**
-     * Get user's full name
-     */
-    @Transient
-    public String getFullName() {
-        if (firstName == null && lastName == null) {
-            return email;
-        }
-        return (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
-    }
 
     /**
      * Check if user is active
@@ -83,7 +70,6 @@ public class User extends BaseEntity {
                 ", firstName='" + firstName + '\'' +
                 ", lastName='" + lastName + '\'' +
                 ", role=" + role +
-                ", farmId=" + farmId +
                 '}';
     }
 }
