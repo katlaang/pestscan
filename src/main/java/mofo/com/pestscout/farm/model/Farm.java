@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.math.BigDecimal;
+
 /**
  * One farm represents a commercial operation. Managers can own multiple farms.
  */
@@ -38,6 +40,19 @@ public class Farm extends BaseEntity {
     @Column(length = 255)
     private String address;
 
+    /**
+     * Optional latitude coordinate for the farm headquarters.
+     * Stored with high precision to support location-specific alerts.
+     */
+    @Column(precision = 10, scale = 7)
+    private BigDecimal latitude;
+
+    /**
+     * Optional longitude coordinate for the farm headquarters.
+     */
+    @Column(precision = 10, scale = 7)
+    private BigDecimal longitude;
+
     @Column(length = 100)
     private String city;
 
@@ -70,6 +85,40 @@ public class Farm extends BaseEntity {
     @Column(name = "billing_email", length = 255)
     private String billingEmail;
 
+    /**
+     * Total licensed area for quota calculations (in hectares).
+     */
+    @Column(name = "licensed_area_hectares", precision = 10, scale = 2)
+    private BigDecimal licensedAreaHectares;
+
+    /**
+     * Number of licensed production units tied to the subscription.
+     */
+    @Column(name = "licensed_unit_quota")
+    private Integer licensedUnitQuota;
+
+    /**
+     * Discount percentage applied to the farm's quota based on covered area.
+     */
+    @Column(name = "quota_discount_percentage", precision = 5, scale = 2)
+    private BigDecimal quotaDiscountPercentage;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "structure_type", nullable = false, length = 20)
+    private FarmStructureType structureType;
+
+    @Column(name = "bay_count")
+    private Integer bayCount;
+
+    @Column(name = "benches_per_bay")
+    private Integer benchesPerBay;
+
+    @Column(name = "spot_checks_per_bench")
+    private Integer spotChecksPerBench;
+
+    @Column(name = "timezone", length = 100)
+    private String timezone;
+
     @Column(name = "stripe_customer_id", length = 255)
     private String stripeCustomerId;
 
@@ -101,6 +150,18 @@ public class Farm extends BaseEntity {
         return subscriptionStatus == SubscriptionStatus.ACTIVE;
     }
 
+    public int resolveBayCount() {
+        return bayCount != null ? bayCount : 6;
+    }
+
+    public int resolveBenchesPerBay() {
+        return benchesPerBay != null ? benchesPerBay : 5;
+    }
+
+    public int resolveSpotChecksPerBench() {
+        return spotChecksPerBench != null ? spotChecksPerBench : 3;
+    }
+
     @Override
     public String toString() {
         return "Farm{" +
@@ -108,6 +169,8 @@ public class Farm extends BaseEntity {
                 ", name='" + name + '\'' +
                 ", city='" + city + '\'' +
                 ", province='" + province + '\'' +
+                ", structureType=" + structureType +
+                ", bayCount=" + bayCount +
                 ", subscriptionStatus=" + subscriptionStatus +
                 ", subscriptionTier=" + subscriptionTier +
                 '}';
