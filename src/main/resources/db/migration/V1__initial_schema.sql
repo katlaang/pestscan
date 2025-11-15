@@ -89,6 +89,7 @@ CREATE TABLE users
     password   VARCHAR(255) NOT NULL,
     first_name VARCHAR(100),
     last_name  VARCHAR(100),
+    phone_number VARCHAR(50),
     role       VARCHAR(50)  NOT NULL,
     is_enabled BOOLEAN                  DEFAULT TRUE,
     last_login TIMESTAMP WITH TIME ZONE,
@@ -285,6 +286,25 @@ CREATE INDEX idx_audit_log_farm_id ON audit_log (farm_id);
 CREATE INDEX idx_audit_log_user_id ON audit_log (user_id);
 CREATE INDEX idx_audit_log_entity ON audit_log (entity_type, entity_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log (created_at);
+
+-- User farm memberships: link users to farms they manage or work on
+
+CREATE TABLE user_farm_memberships
+(
+    id         UUID PRIMARY KEY         DEFAULT uuid_generate_v4(),
+    user_id    UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    farm_id    UUID        NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
+    role       VARCHAR(50) NOT NULL,
+    is_active  BOOLEAN                  DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_user_farm UNIQUE (user_id, farm_id),
+    CONSTRAINT chk_membership_role CHECK (role IN ('SCOUT', 'MANAGER', 'FARM_ADMIN', 'SUPER_ADMIN'))
+);
+
+CREATE INDEX idx_user_farm_memberships_user_id ON user_farm_memberships (user_id);
+CREATE INDEX idx_user_farm_memberships_farm_id ON user_farm_memberships (farm_id);
+CREATE INDEX idx_user_farm_memberships_role ON user_farm_memberships (role);
 
 -- ========================================
 -- TRIGGERS FOR UPDATED_AT

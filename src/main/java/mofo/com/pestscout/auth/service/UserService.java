@@ -245,11 +245,13 @@ public class UserService {
             org.springframework.data.domain.Pageable pageable,
             UUID requestingUserId) {
 
+        // Resolve and validate the requesting user
         User requester = userRepository.findById(requestingUserId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
 
         Role requesterRole = requester.getRole();
 
+        // SUPER_ADMIN can search any farm
         if (requesterRole != Role.SUPER_ADMIN) {
             boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
             if (!hasMembership) {
@@ -259,12 +261,13 @@ public class UserService {
             }
         }
 
-        // Uses the custom search method you already defined in UserRepository
+        // Use membership-based search instead of userRepository.searchUsers(...)
         org.springframework.data.domain.Page<User> page =
-                userRepository.searchUsers(farmId, query, pageable);
+                membershipRepository.searchActiveUsersInFarm(farmId, query, pageable);
 
         return page.map(this::convertToDto);
     }
+
 
     /**
      * Count distinct users attached to a farm.

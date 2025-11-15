@@ -1,8 +1,13 @@
 package mofo.com.pestscout.auth.repository;
 
 import mofo.com.pestscout.auth.model.Role;
+import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.model.UserFarmMembership;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -38,4 +43,23 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
      * Quick check if user belongs to a farm at all.
      */
     boolean existsByUser_IdAndFarmId(UUID userId, UUID farmId);
+
+    /**
+     * Search active users in a given farm by name or email.
+     */
+    @Query("""
+            select u
+            from UserFarmMembership m
+            join m.user u
+            where m.farmId = :farmId
+              and m.isActive = true
+              and (
+                   lower(u.firstName) like lower(concat('%', :searchTerm, '%'))
+                or lower(u.lastName)  like lower(concat('%', :searchTerm, '%'))
+                or lower(u.email)     like lower(concat('%', :searchTerm, '%'))
+              )
+            """)
+    Page<User> searchActiveUsersInFarm(@Param("farmId") UUID farmId,
+                                       @Param("searchTerm") String searchTerm,
+                                       Pageable pageable);
 }

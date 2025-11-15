@@ -24,13 +24,11 @@ import java.util.UUID;
 
 /**
  * Authentication Controller.
- * <p>
  * Exposes endpoints for:
- * <ul>
- *     <li>User authentication (login, refresh, current user)</li>
- *     <li>User management within the multi-tenant farm context</li>
- * </ul>
- */
+ *     User authentication (login, refresh, current user)
+ *     User management within the multi-tenant farm context
+ *  */
+
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -244,10 +242,7 @@ public class AuthController {
      */
     @GetMapping("/users/search")
     @SecurityRequirement(name = "bearerAuth")
-    @Operation(
-            summary = "Search users",
-            description = "Search users by name or email within the current farm."
-    )
+    @Operation(summary = "Search users", description = "Search users by name or email")
     public ResponseEntity<Page<UserDto>> searchUsers(
             @RequestParam String q,
             @RequestAttribute("farmId") UUID farmId,
@@ -255,11 +250,12 @@ public class AuthController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        LOGGER.info("Search users '{}' for farm {} by requester {}", q, farmId, requestingUserId);
+        LOGGER.info("Search users request: '{}' for farm: {} by user: {}", q, farmId, requestingUserId);
         Pageable pageable = PageRequest.of(page, size);
         Page<UserDto> users = userService.searchUsers(farmId, q, pageable, requestingUserId);
         return ResponseEntity.ok(users);
     }
+
 
     /**
      * Update a user's details.
