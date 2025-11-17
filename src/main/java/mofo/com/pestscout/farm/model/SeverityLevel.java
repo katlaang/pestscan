@@ -4,6 +4,7 @@ import lombok.Getter;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,7 +20,9 @@ public enum SeverityLevel {
     VERY_HIGH(21, 30, "#c0392b"),
     EMERGENCY(31, Integer.MAX_VALUE, "#7f0000");
 
+    @Getter
     private final int minInclusive;
+    @Getter
     private final int maxInclusive;
     @Getter
     private final String colorHex;
@@ -47,6 +50,10 @@ public enum SeverityLevel {
             legend.put(level.name(), level.minInclusive + "-" + level.maxInclusive);
         }
         return legend;
+    }
+
+    public static List<SeverityLevel> orderedLevels() {
+        return Arrays.asList(values());
     }
 
 }
