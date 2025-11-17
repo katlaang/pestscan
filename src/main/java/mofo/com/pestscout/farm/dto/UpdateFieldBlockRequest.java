@@ -17,6 +17,8 @@ public record UpdateFieldBlockRequest(
         @Min(0)
         Integer spotChecksPerBay,
 
+        java.util.List<String> bayTags,
+
         Boolean active
 ) {
 }

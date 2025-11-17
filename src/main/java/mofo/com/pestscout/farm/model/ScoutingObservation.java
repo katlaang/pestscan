@@ -12,7 +12,7 @@ import mofo.com.pestscout.common.model.BaseEntity;
         name = "scouting_observations",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_session_cell_species",
-                columnNames = {"session_id", "bay_index", "bench_index", "spot_index", "species_code"}
+                columnNames = {"session_id", "session_target_id", "bay_index", "bench_index", "spot_index", "species_code"}
         ),
         indexes = {
                 @Index(name = "idx_scouting_observations_session", columnList = "session_id"),
@@ -30,6 +30,10 @@ public class ScoutingObservation extends BaseEntity {
     @JoinColumn(name = "session_id", nullable = false)
     private ScoutingSession session;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "session_target_id", nullable = false)
+    private ScoutingSessionTarget sessionTarget;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "species_code", nullable = false, length = 50)
     private SpeciesCode speciesCode;
@@ -37,8 +41,14 @@ public class ScoutingObservation extends BaseEntity {
     @Column(name = "bay_index", nullable = false)
     private Integer bayIndex;
 
+    @Column(name = "bay_label", length = 255)
+    private String bayLabel;
+
     @Column(name = "bench_index", nullable = false)
     private Integer benchIndex;
+
+    @Column(name = "bench_label", length = 255)
+    private String benchLabel;
 
     @Column(name = "spot_index", nullable = false)
     private Integer spotIndex;

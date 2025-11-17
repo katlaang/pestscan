@@ -3,6 +3,7 @@ package mofo.com.pestscout.farm.repository;
 import mofo.com.pestscout.farm.model.Farm;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +29,14 @@ public interface FarmRepository extends JpaRepository<Farm, UUID> {
      * Used when creating or editing farms to enforce unique tags.
      */
     boolean existsByFarmTag(String farmTag);
+
+    /**
+     * Return all farms owned by the specified user.
+     */
+    List<Farm> findByOwnerId(UUID ownerId);
+
+    /**
+     * Return all farms a scout is assigned to (should be at most one).
+     */
+    List<Farm> findByScoutId(UUID scoutId);
 }

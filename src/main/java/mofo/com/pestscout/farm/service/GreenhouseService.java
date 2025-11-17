@@ -9,6 +9,7 @@ import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
+import mofo.com.pestscout.farm.security.FarmAccessService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +23,14 @@ public class GreenhouseService {
 
     private final FarmRepository farmRepository;
     private final GreenhouseRepository greenhouseRepository;
+    private final FarmAccessService farmAccessService;
 
     @Transactional
     public GreenhouseDto createGreenhouse(UUID farmId, CreateGreenhouseRequest request) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+
+        farmAccessService.requireSuperAdmin();
 
         Greenhouse greenhouse = Greenhouse.builder()
                 .farm(farm)
@@ -35,7 +39,8 @@ public class GreenhouseService {
                 .bayCount(request.bayCount())
                 .benchesPerBay(request.benchesPerBay())
                 .spotChecksPerBench(request.spotChecksPerBench())
-                .active(Boolean.TRUE.equals(request.active()))
+                .bayTags(normalizeTags(request.bayTags()))
+                .benchTags(normalizeTags(request.benchTags()))
                 .build();
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
@@ -47,11 +52,20 @@ public class GreenhouseService {
         Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
 
-        if (request.name() != null) {
+        farmAccessService.requireAdminOrSuperAdmin(greenhouse.getFarm());
+        boolean isSuperAdmin = farmAccessService.isSuperAdmin();
+
+        if (isSuperAdmin && request.name() != null) {
             greenhouse.setName(request.name());
         }
-        if (request.description() != null) {
+        if (isSuperAdmin && request.description() != null) {
             greenhouse.setDescription(request.description());
+        }
+        if (isSuperAdmin && request.bayTags() != null) {
+            greenhouse.setBayTags(normalizeTags(request.bayTags()));
+        }
+        if (isSuperAdmin && request.benchTags() != null) {
+            greenhouse.setBenchTags(normalizeTags(request.benchTags()));
         }
         if (request.bayCount() != null) {
             greenhouse.setBayCount(request.bayCount());
@@ -61,9 +75,6 @@ public class GreenhouseService {
         }
         if (request.spotChecksPerBench() != null) {
             greenhouse.setSpotChecksPerBench(request.spotChecksPerBench());
-        }
-        if (request.active() != null) {
-            greenhouse.setActive(request.active());
         }
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
@@ -75,6 +86,7 @@ public class GreenhouseService {
         Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
 
+        farmAccessService.requireSuperAdmin();
         greenhouseRepository.delete(greenhouse);
     }
 
@@ -97,17 +109,28 @@ public class GreenhouseService {
     private GreenhouseDto toDto(Greenhouse greenhouse) {
         return new GreenhouseDto(
                 greenhouse.getId(),
+                greenhouse.getVersion(),
                 greenhouse.getFarm().getId(),
                 greenhouse.getName(),
                 greenhouse.getDescription(),
                 greenhouse.getBayCount(),
                 greenhouse.getBenchesPerBay(),
                 greenhouse.getSpotChecksPerBench(),
-                greenhouse.resolvedBayCount(),
-                greenhouse.resolvedBenchesPerBay(),
-                greenhouse.resolvedSpotChecksPerBench(),
+                List.copyOf(greenhouse.getBayTags()),
+                List.copyOf(greenhouse.getBenchTags()),
                 greenhouse.getActive()
         );
+    }
+
+    private List<String> normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return tags.stream()
+                .filter(tag -> tag != null && !tag.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
 }

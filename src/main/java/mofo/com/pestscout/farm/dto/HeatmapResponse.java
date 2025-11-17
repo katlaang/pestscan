@@ -3,19 +3,30 @@ package mofo.com.pestscout.farm.dto;
 import lombok.Builder;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Heat map for one farm and one ISO week.
+ * - "cells" is the farm-level overview grid (aggregated by bay and bench across all targets).
+ * - "sections" contains separate grids for each greenhouse or field block.
+ * - "severityLegend" tells the UI how to render colors and numeric ranges.
+ */
 @Builder
 public record HeatmapResponse(
         UUID farmId,
         String farmName,
         int week,
         int year,
-        int bayCount,
-        int benchesPerBay,
+
+        // Farm level overview grid (conceptual layout based on farm defaults)
+        Integer bayCount,
+        Integer benchesPerBay,
         List<HeatmapCellResponse> cells,
-        Map<String, String> severityLegend
+
+        // Per section (per greenhouse or field block) heatmaps
+        List<HeatmapSectionResponse> sections,
+
+        // Legend entries for the Green to Dark Red scale
+        List<SeverityLegendEntry> severityLegend
 ) {
 }
-

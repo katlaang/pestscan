@@ -1,24 +1,24 @@
 package mofo.com.pestscout.farm.dto;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Manager creates a new scouting session for a specific greenhouse or field block.
- * Exactly one of greenhouseId or fieldBlockId must be provided.
+ * Manager creates a new scouting session for one or more greenhouses/fields.
  * Scout is taken from the farm's assigned scout and NOT passed from the client.
  */
 public record CreateScoutingSessionRequest(
 
         @NotNull UUID farmId,
 
-        // Structure: exactly one of these should be non-null
-        UUID greenhouseId,
-        UUID fieldBlockId,
+        @NotEmpty List<@Valid SessionTargetRequest> targets,
 
         @NotNull LocalDate sessionDate,
 

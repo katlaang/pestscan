@@ -7,6 +7,8 @@ public record UpdateGreenhouseRequest(
         Integer benchesPerBay,
         Integer spotChecksPerBench,
         Boolean active,
-        String description
+        String description,
+        java.util.List<String> bayTags,
+        java.util.List<String> benchTags
 ) {
 }

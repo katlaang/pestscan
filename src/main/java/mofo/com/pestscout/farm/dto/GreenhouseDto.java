@@ -1,6 +1,7 @@
 package mofo.com.pestscout.farm.dto;
 
 import java.util.UUID;
+import java.util.List;
 
 public record GreenhouseDto(
         UUID id,
@@ -11,6 +12,8 @@ public record GreenhouseDto(
         Integer bayCount,
         Integer benchesPerBay,
         Integer spotChecksPerBench,
+        List<String> bayTags,
+        List<String> benchTags,
         Boolean active
 ) {
 }

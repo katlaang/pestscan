@@ -36,8 +36,9 @@ public interface ScoutingObservationRepository extends JpaRepository<ScoutingObs
      * Find an observation at a specific grid cell for a specific species within a session.
      * This supports the "upsert cell" operation: if a row exists, update its count; if not, insert a new one.
      */
-    Optional<ScoutingObservation> findBySessionIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+    Optional<ScoutingObservation> findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
             UUID sessionId,
+            UUID sessionTargetId,
             Integer bayIndex,
             Integer benchIndex,
             Integer spotIndex,
