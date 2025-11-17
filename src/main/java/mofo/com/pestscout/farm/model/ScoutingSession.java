@@ -4,9 +4,13 @@ import jakarta.persistence.*;
 import lombok.*;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.common.model.BaseEntity;
+import mofo.com.pestscout.farm.model.Greenhouse;
+import mofo.com.pestscout.farm.model.FieldBlock;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -43,8 +47,19 @@ public class ScoutingSession extends BaseEntity {
     @JoinColumn(name = "scout_id")
     private User scout;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "greenhouse_id")
+    private Greenhouse greenhouse;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "field_block_id")
+    private FieldBlock fieldBlock;
+
     @Column(name = "session_date", nullable = false)
     private LocalDate sessionDate;
+
+    @Column(name = "week_number")
+    private Integer weekNumber;
 
     @Column(name = "crop_type", length = 255)
     private String cropType;
@@ -57,6 +72,18 @@ public class ScoutingSession extends BaseEntity {
 
     @Column(name = "notes", length = 2000)
     private String notes;
+
+    @Column(name = "temperature_celsius", precision = 10, scale = 2)
+    private BigDecimal temperatureCelsius;
+
+    @Column(name = "relative_humidity_percent", precision = 10, scale = 2)
+    private BigDecimal relativeHumidityPercent;
+
+    @Column(name = "observation_time")
+    private LocalTime observationTime;
+
+    @Column(name = "weather_notes", length = 2000)
+    private String weatherNotes;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -78,6 +105,10 @@ public class ScoutingSession extends BaseEntity {
     @Builder.Default
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ScoutingObservation> observations = new ArrayList<>();
+
+    @Builder.Default
+    @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ScoutingSessionTarget> targets = new ArrayList<>();
 
     @Builder.Default
     @ElementCollection
@@ -124,6 +155,12 @@ public class ScoutingSession extends BaseEntity {
     public void removeObservation(ScoutingObservation observation) {
         observations.remove(observation);
         observation.setSession(null);
+        observation.setSessionTarget(null);
+    }
+
+    public void addTarget(ScoutingSessionTarget target) {
+        targets.add(target);
+        target.setSession(this);
     }
 }
 

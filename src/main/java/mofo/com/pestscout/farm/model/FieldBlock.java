@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(
         name = "field_blocks",
@@ -31,6 +34,12 @@ public class FieldBlock extends BaseEntity {
 
     @Column(name = "spot_checks_per_bay")
     private Integer spotChecksPerBay;
+
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "field_block_bay_tags", joinColumns = @JoinColumn(name = "field_block_id"))
+    @Column(name = "bay_tag", length = 255)
+    private List<String> bayTags = new ArrayList<>();
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

@@ -10,6 +10,7 @@ import mofo.com.pestscout.farm.model.SubscriptionTier;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -54,6 +55,9 @@ public record CreateFarmRequest(
         Integer defaultBayCount,
         Integer defaultBenchesPerBay,
         Integer defaultSpotChecksPerBench,
+
+        List<CreateGreenhouseRequest> greenhouses,
+        List<CreateFieldBlockRequest> fieldBlocks,
 
         String timezone,
 

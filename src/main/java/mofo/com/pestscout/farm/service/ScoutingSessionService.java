@@ -1,15 +1,20 @@
 package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.model.User;
-import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
+import mofo.com.pestscout.farm.repository.FieldBlockRepository;
+import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.repository.ScoutingObservationRepository;
+import mofo.com.pestscout.farm.repository.ScoutingSessionTargetRepository;
 import mofo.com.pestscout.farm.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.farm.security.CurrentUserService;
+import mofo.com.pestscout.farm.security.FarmAccessService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +25,17 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScoutingSessionService {
 
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
+    private final ScoutingSessionTargetRepository sessionTargetRepository;
     private final FarmRepository farmRepository;
-    private final UserRepository userRepository;
+    private final FieldBlockRepository fieldBlockRepository;
+    private final GreenhouseRepository greenhouseRepository;
+    private final CurrentUserService currentUserService;
+    private final FarmAccessService farmAccessService;
 
     /**
      * Create a new scouting session for a farm.
@@ -36,24 +46,33 @@ public class ScoutingSessionService {
         Farm farm = farmRepository.findById(request.farmId())
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.farmId()));
 
-        User manager = resolveUser(request.managerId());
-        User scout = resolveUser(request.scoutId());
+        farmAccessService.requireAdminOrSuperAdmin(farm);
+
+        User manager = resolveManager(farm);
+        User scout = farm.getScout();
 
         ScoutingSession session = ScoutingSession.builder()
                 .farm(farm)
                 .manager(manager)
                 .scout(scout)
                 .sessionDate(request.sessionDate())
-                .cropType(request.cropType())
-                .cropVariety(request.cropVariety())
-                .weather(request.weather())
+                .weekNumber(resolveWeekNumber(request.sessionDate(), request.weekNumber()))
+                .cropType(request.crop())
+                .cropVariety(request.variety())
+                .temperatureCelsius(request.temperatureCelsius())
+                .relativeHumidityPercent(request.relativeHumidityPercent())
+                .observationTime(request.observationTime())
+                .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
                 .status(SessionStatus.DRAFT)
                 .confirmationAcknowledged(false)
-                .recommendations(copyRecommendations(request.recommendations()))
+                .recommendations(new EnumMap<>(RecommendationType.class))
                 .build();
 
+        request.targets().forEach(targetRequest -> session.addTarget(buildTarget(targetRequest, farm)));
+
         ScoutingSession saved = sessionRepository.save(session);
+        log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
         return mapToDetailDto(saved);
     }
 
@@ -66,35 +85,45 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
         ensureSessionEditableForMetadata(session);
 
         if (request.sessionDate() != null) {
             session.setSessionDate(request.sessionDate());
+            session.setWeekNumber(resolveWeekNumber(request.sessionDate(), request.weekNumber()));
         }
-        if (request.cropType() != null) {
-            session.setCropType(request.cropType());
+        if (request.weekNumber() != null) {
+            session.setWeekNumber(request.weekNumber());
         }
-        if (request.cropVariety() != null) {
-            session.setCropVariety(request.cropVariety());
+        if (request.crop() != null) {
+            session.setCropType(request.crop());
         }
-        if (request.weather() != null) {
-            session.setWeather(request.weather());
+        if (request.variety() != null) {
+            session.setCropVariety(request.variety());
+        }
+        if (request.temperatureCelsius() != null) {
+            session.setTemperatureCelsius(request.temperatureCelsius());
+        }
+        if (request.relativeHumidityPercent() != null) {
+            session.setRelativeHumidityPercent(request.relativeHumidityPercent());
+        }
+        if (request.observationTime() != null) {
+            session.setObservationTime(request.observationTime());
+        }
+        if (request.weatherNotes() != null) {
+            session.setWeatherNotes(request.weatherNotes());
         }
         if (request.notes() != null) {
             session.setNotes(request.notes());
         }
-        if (request.recommendations() != null) {
-            session.setRecommendations(copyRecommendations(request.recommendations()));
-        }
 
-        if (request.managerId() != null) {
-            session.setManager(resolveUser(request.managerId()));
-        }
-        if (request.scoutId() != null) {
-            session.setScout(resolveUser(request.scoutId()));
+        if (request.targets() != null && !request.targets().isEmpty()) {
+            session.getTargets().clear();
+            request.targets().forEach(targetRequest -> session.addTarget(buildTarget(targetRequest, session.getFarm())));
         }
 
         ScoutingSession saved = sessionRepository.save(session);
+        log.info("Updated scouting session {}", saved.getId());
         return mapToDetailDto(saved);
     }
 
@@ -106,6 +135,8 @@ public class ScoutingSessionService {
     public ScoutingSessionDetailDto startSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
 
         if (session.getStatus() == SessionStatus.COMPLETED) {
             throw new BadRequestException("Cannot start a session that has already been completed.");
@@ -128,6 +159,8 @@ public class ScoutingSessionService {
     public ScoutingSessionDetailDto completeSession(UUID sessionId, CompleteSessionRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
 
         if (session.getStatus() == SessionStatus.COMPLETED) {
             throw new BadRequestException("Session is already completed.");
@@ -156,6 +189,8 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+
         if (session.getStatus() != SessionStatus.COMPLETED) {
             throw new BadRequestException("Only completed sessions can be reopened.");
         }
@@ -177,15 +212,25 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
+        farmAccessService.requireScoutOfFarm(session.getFarm());
         ensureSessionEditableForObservations(session);
+
+        if (!sessionId.equals(request.sessionId())) {
+            throw new BadRequestException("Observation payload does not match session.");
+        }
+
+        ScoutingSessionTarget target = sessionTargetRepository.findByIdAndSessionId(request.sessionTargetId(), sessionId)
+                .orElseThrow(() -> new BadRequestException("Session target not found for this session."));
+        assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
 
         if (request.speciesCode() == null) {
             throw new BadRequestException("Species must be provided for an observation.");
         }
 
         var existingOpt = observationRepository
-                .findBySessionIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
                         sessionId,
+                        target.getId(),
                         request.bayIndex(),
                         request.benchIndex(),
                         request.spotIndex(),
@@ -195,9 +240,12 @@ public class ScoutingSessionService {
         ScoutingObservation observation = existingOpt.orElseGet(() -> {
             ScoutingObservation created = ScoutingObservation.builder()
                     .session(session)
+                    .sessionTarget(target)
                     .speciesCode(request.speciesCode())
                     .bayIndex(request.bayIndex())
+                    .bayLabel(request.bayTag())
                     .benchIndex(request.benchIndex())
+                    .benchLabel(request.benchTag())
                     .spotIndex(request.spotIndex())
                     .build();
             session.addObservation(created);
@@ -206,6 +254,9 @@ public class ScoutingSessionService {
 
         observation.setCount(request.count());
         observation.setNotes(request.notes());
+        observation.setSessionTarget(target);
+        observation.setBayLabel(request.bayTag());
+        observation.setBenchLabel(request.benchTag());
 
         ScoutingObservation saved = observationRepository.save(observation);
         return mapToObservationDto(saved);
@@ -220,6 +271,7 @@ public class ScoutingSessionService {
                 .findByIdAndSessionId(observationId, sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
 
+        farmAccessService.requireScoutOfFarm(observation.getSession().getFarm());
         ensureSessionEditableForObservations(observation.getSession());
         observation.getSession().removeObservation(observation);
         observationRepository.delete(observation);
@@ -232,6 +284,7 @@ public class ScoutingSessionService {
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+        farmAccessService.requireViewAccess(session.getFarm());
         return mapToDetailDto(session);
     }
 
@@ -240,6 +293,10 @@ public class ScoutingSessionService {
      */
     @Transactional(readOnly = true)
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+        farmAccessService.requireViewAccess(farm);
+
         return sessionRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
                 .map(this::mapToDetailDto)
@@ -286,12 +343,11 @@ public class ScoutingSessionService {
         }
     }
 
-    private User resolveUser(UUID userId) {
-        if (userId == null) {
-            return null;
+    private User resolveManager(Farm farm) {
+        if (farmAccessService.isSuperAdmin()) {
+            return farm.getOwner();
         }
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        return currentUserService.getCurrentUser();
     }
 
     /**
@@ -308,12 +364,41 @@ public class ScoutingSessionService {
      * Convert a session entity into a detailed DTO including observations and recommendations.
      */
     private ScoutingSessionDetailDto mapToDetailDto(ScoutingSession session) {
-        List<ScoutingObservationDto> observationDtos = session.getObservations().stream()
-                .sorted(Comparator
-                        .comparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Integer::compareTo))
-                        .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
-                        .thenComparing(ScoutingObservation::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
-                .map(this::mapToObservationDto)
+        Map<UUID, List<ScoutingObservation>> observationsByTarget = session.getObservations().stream()
+                .collect(Collectors.groupingBy(observation -> observation.getSessionTarget().getId()));
+
+        List<ScoutingSessionSectionDto> sectionDtos = session.getTargets().stream()
+                .sorted(Comparator.comparing(target -> {
+                    if (target.getGreenhouse() != null) {
+                        return target.getGreenhouse().getName();
+                    }
+                    return target.getFieldBlock() != null ? target.getFieldBlock().getName() : "";
+                }, String.CASE_INSENSITIVE_ORDER))
+                .map(target -> {
+                    List<ScoutingObservationDto> targetObservations = observationsByTarget
+                            .getOrDefault(target.getId(), List.of())
+                            .stream()
+                            .sorted(Comparator
+                                    .comparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Integer::compareTo))
+                                    .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
+                                    .thenComparing(ScoutingObservation::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
+                            .map(this::mapToObservationDto)
+                            .toList();
+
+                    UUID greenhouseId = target.getGreenhouse() != null ? target.getGreenhouse().getId() : null;
+                    UUID fieldBlockId = target.getFieldBlock() != null ? target.getFieldBlock().getId() : null;
+
+                    return new ScoutingSessionSectionDto(
+                            target.getId(),
+                            greenhouseId,
+                            fieldBlockId,
+                            target.getIncludeAllBays(),
+                            target.getIncludeAllBenches(),
+                            List.copyOf(target.getBayTags()),
+                            List.copyOf(target.getBenchTags()),
+                            targetObservations
+                    );
+                })
                 .toList();
 
         List<RecommendationEntryDto> recommendationDtos = session.getRecommendations().entrySet().stream()
@@ -327,20 +412,22 @@ public class ScoutingSessionService {
                 session.getId(),
                 null, // version, if you add @Version to BaseEntity you can expose it here
                 session.getFarm().getId(),
-                null, // greenhouseId if you add that relation
-                null, // fieldBlockId if you add that relation
                 session.getSessionDate(),
+                session.getWeekNumber(),
                 session.getStatus(),
                 managerId,
                 scoutId,
                 session.getCropType(),
                 session.getCropVariety(),
-                session.getWeather(),
+                session.getTemperatureCelsius(),
+                session.getRelativeHumidityPercent(),
+                session.getObservationTime(),
+                session.getWeatherNotes(),
                 session.getNotes(),
                 session.getStartedAt(),
                 session.getCompletedAt(),
                 session.isConfirmationAcknowledged(),
-                observationDtos,
+                sectionDtos,
                 recommendationDtos
         );
     }
@@ -355,13 +442,93 @@ public class ScoutingSessionService {
                 observation.getId(),
                 null, // version placeholder
                 observation.getSession().getId(),
+                observation.getSessionTarget().getId(),
+                observation.getSessionTarget().getGreenhouse() != null ? observation.getSessionTarget().getGreenhouse().getId() : null,
+                observation.getSessionTarget().getFieldBlock() != null ? observation.getSessionTarget().getFieldBlock().getId() : null,
                 observation.getSpeciesCode(),
                 category,
                 observation.getBayIndex(),
+                observation.getBayLabel(),
                 observation.getBenchIndex(),
+                observation.getBenchLabel(),
                 observation.getSpotIndex(),
                 observation.getCount() != null ? observation.getCount() : 0,
                 observation.getNotes()
         );
+    }
+
+    private ScoutingSessionTarget buildTarget(SessionTargetRequest targetRequest, Farm farm) {
+        UUID greenhouseId = targetRequest.greenhouseId();
+        UUID fieldBlockId = targetRequest.fieldBlockId();
+        Greenhouse greenhouse = loadGreenhouse(greenhouseId, farm.getId());
+        FieldBlock fieldBlock = loadFieldBlock(fieldBlockId, farm.getId());
+
+        boolean includeAllBays = targetRequest.includeAllBays() == null || targetRequest.includeAllBays();
+        boolean includeAllBenches = targetRequest.includeAllBenches() == null || targetRequest.includeAllBenches();
+
+        List<String> bayTags = normalizeTags(targetRequest.bayTags());
+        List<String> benchTags = normalizeTags(targetRequest.benchTags());
+
+        if (!includeAllBays && bayTags.isEmpty()) {
+            throw new BadRequestException("Provide bayTags when includeAllBays is false.");
+        }
+        if (!includeAllBenches && benchTags.isEmpty()) {
+            throw new BadRequestException("Provide benchTags when includeAllBenches is false.");
+        }
+
+        return ScoutingSessionTarget.builder()
+                .greenhouse(greenhouse)
+                .fieldBlock(fieldBlock)
+                .includeAllBays(includeAllBays)
+                .includeAllBenches(includeAllBenches)
+                .bayTags(bayTags)
+                .benchTags(benchTags)
+                .build();
+    }
+
+    private List<String> normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return tags.stream()
+                .filter(tag -> tag != null && !tag.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+    }
+
+    private void assertTargetSelectionsAllowCell(ScoutingSessionTarget target, String bayTag, String benchTag) {
+        if (!Boolean.TRUE.equals(target.getIncludeAllBays()) && bayTag != null && !target.getBayTags().contains(bayTag)) {
+            throw new BadRequestException("Selected bay is not part of this session target.");
+        }
+        if (!Boolean.TRUE.equals(target.getIncludeAllBenches()) && benchTag != null && !target.getBenchTags().contains(benchTag)) {
+            throw new BadRequestException("Selected bench is not part of this session target.");
+        }
+    }
+
+    private Greenhouse loadGreenhouse(UUID greenhouseId, UUID farmId) {
+        if (greenhouseId == null) {
+            return null;
+        }
+        return greenhouseRepository.findById(greenhouseId)
+                .filter(gh -> gh.getFarm().getId().equals(farmId))
+                .orElseThrow(() -> new BadRequestException("Greenhouse does not belong to this farm."));
+    }
+
+    private FieldBlock loadFieldBlock(UUID fieldBlockId, UUID farmId) {
+        if (fieldBlockId == null) {
+            return null;
+        }
+        return fieldBlockRepository.findById(fieldBlockId)
+                .filter(block -> block.getFarm().getId().equals(farmId))
+                .orElseThrow(() -> new BadRequestException("Field block does not belong to this farm."));
+    }
+
+    private int resolveWeekNumber(java.time.LocalDate date, Integer requestedWeek) {
+        if (requestedWeek != null) {
+            return requestedWeek;
+        }
+        WeekFields weekFields = WeekFields.of(Locale.getDefault());
+        return date.get(weekFields.weekOfWeekBasedYear());
     }
 }

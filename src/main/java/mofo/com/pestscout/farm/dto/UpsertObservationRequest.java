@@ -7,9 +7,12 @@ import java.util.UUID;
 
 public record UpsertObservationRequest(
         @NotNull UUID sessionId,
+        @NotNull UUID sessionTargetId,
         @NotNull SpeciesCode speciesCode,
         @NotNull Integer bayIndex,
+        String bayTag,
         @NotNull Integer benchIndex,
+        String benchTag,
         @NotNull Integer spotIndex,
         @NotNull Integer count,
         String notes,
