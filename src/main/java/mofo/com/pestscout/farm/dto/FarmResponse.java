@@ -5,6 +5,7 @@ import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record FarmResponse(
@@ -20,6 +21,7 @@ public record FarmResponse(
         String province,
         String postalCode,
         String country,
+
         String contactName,
         String contactEmail,
         String contactPhone,
@@ -28,19 +30,24 @@ public record FarmResponse(
         SubscriptionTier subscriptionTier,
         String billingEmail,
 
-        BigDecimal latitude,
-        BigDecimal longitude,
-
+        // license
         BigDecimal licensedAreaHectares,
         Integer licensedUnitQuota,
         BigDecimal quotaDiscountPercentage,
+        LocalDate licenseExpiryDate,
+        Boolean autoRenewEnabled,
+        Boolean accessLocked,
 
         FarmStructureType structureType,
 
         Integer defaultBayCount,
         Integer defaultBenchesPerBay,
         Integer defaultSpotChecksPerBench,
+        java.time.Instant createdAt,     // ← new
+        java.time.Instant updatedAt,
+        String timezone,
 
-        String timezone
+        UUID ownerId,
+        UUID scoutId
 ) {
 }

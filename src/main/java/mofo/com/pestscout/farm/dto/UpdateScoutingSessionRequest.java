@@ -1,33 +1,32 @@
 package mofo.com.pestscout.farm.dto;
 
 
-import jakarta.validation.constraints.NotNull;
-import mofo.com.pestscout.farm.model.RecommendationType;
-
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Map;
+import java.time.LocalTime;
 import java.util.UUID;
 
 /**
  * Payload for updating an existing scouting session.
  * All fields are optional; only non-null values will be applied.
- */
+ * Manager may edit non-locked metadata.
+ * */
 public record UpdateScoutingSessionRequest(
 
-        @NotNull
-        UUID farmId,   // used to validate that the session stays in the same farm
-
         LocalDate sessionDate,
-        String cropType,
-        String cropVariety,
-        String weather,
-        String notes,
+        Integer weekNumber,
 
-        // optional recommendation text per type
-        Map<RecommendationType, String> recommendations,
+        UUID greenhouseId,
+        UUID fieldBlockId,
 
-        // optional reassignment of manager / scout
-        UUID managerId,
-        UUID scoutId
+        String crop,
+        String variety,
+
+        BigDecimal temperatureCelsius,
+        BigDecimal relativeHumidityPercent,
+        LocalTime observationTime,
+        String weatherNotes,
+        String notes
 ) {
 }
+

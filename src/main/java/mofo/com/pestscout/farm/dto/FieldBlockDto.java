@@ -10,6 +10,7 @@ import java.util.UUID;
  * after applying farm level defaults.
  */
 @Builder
+
 public record FieldBlockDto(
         UUID id,
         Long version,
@@ -20,3 +21,4 @@ public record FieldBlockDto(
         Boolean active
 ) {
 }
+

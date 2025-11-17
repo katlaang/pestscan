@@ -1,78 +1,66 @@
 package mofo.com.pestscout.farm.dto;
 
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import mofo.com.pestscout.farm.model.FarmStructureType;
+import mofo.com.pestscout.farm.model.SubscriptionStatus;
+import mofo.com.pestscout.farm.model.SubscriptionTier;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Request to create a new farm.
- * Only SUPER_ADMIN can perform this operation.
+ * DTO used to create a farm.
+ * Only SUPER_ADMIN can use this.
+ * Includes license and billing fields.
  */
 public record CreateFarmRequest(
 
-        @NotNull
-        UUID ownerId,
-
-        @NotBlank
-        @Size(max = 255)
-        String name,
-
-        @Size(max = 500)
+        @NotBlank String name,
         String description,
-
-        @Size(max = 255)
         String externalId,
 
-        @Size(max = 255)
         String address,
-
-        @Size(max = 100)
         String city,
-
-        @Size(max = 100)
         String province,
-
-        @Size(max = 20)
         String postalCode,
-
-        @Size(max = 100)
         String country,
 
-        @Size(max = 255)
+        @NotNull UUID ownerId,
+
+        // Optional scout assignment on creation
+        UUID scoutId,
+
         String contactName,
-
-        @Email
-        @Size(max = 255)
-        String contactEmail,
-
-        @Size(max = 50)
+        @Email String contactEmail,
         String contactPhone,
 
-        @NotNull
-        @DecimalMin("0.0")
-        BigDecimal licensedAreaHectares,
+        // Licensing fields (Superadmin only)
+        @NotNull SubscriptionStatus subscriptionStatus,
+        @NotNull SubscriptionTier subscriptionTier,
 
-        @Min(0)
+        @Email String billingEmail,
+
+        @NotNull @DecimalMin("0.0") BigDecimal licensedAreaHectares,
         Integer licensedUnitQuota,
-
-        @DecimalMin("0.0")
         BigDecimal quotaDiscountPercentage,
 
         FarmStructureType structureType,
 
-        @Min(0)
+        // Defaults for layout
         Integer defaultBayCount,
-
-        @Min(0)
         Integer defaultBenchesPerBay,
-
-        @Min(0)
         Integer defaultSpotChecksPerBench,
 
-        @Size(max = 100)
-        String timezone
+        String timezone,
+
+        // License lifecycle management
+        LocalDate licenseExpiryDate,
+        Boolean autoRenewEnabled
 ) {
 }
+
 

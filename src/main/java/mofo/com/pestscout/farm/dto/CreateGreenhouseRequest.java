@@ -1,17 +1,23 @@
 package mofo.com.pestscout.farm.dto;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-import java.util.UUID;
-
 public record CreateGreenhouseRequest(
-        @NotNull UUID farmId,
+
         @NotBlank String name,
+        String description,
+
+        @NotNull @Min(1)
         Integer bayCount,
+
+        @NotNull @Min(0)
         Integer benchesPerBay,
-        Integer spotChecksPerBench,
-        Boolean active,
-        String description
+
+        @NotNull @Min(1)
+        Integer spotChecksPerBench
 ) {
 }
+
+

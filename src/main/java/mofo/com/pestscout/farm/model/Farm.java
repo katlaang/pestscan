@@ -2,15 +2,18 @@ package mofo.com.pestscout.farm.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One farm represents a commercial operation. Managers can own multiple farms.
+ * Represents a licensed farm operation.
+ * Licensing, subscription, ownership, and assigned scout are all enforced here.
  */
 @Entity
 @Table(
@@ -26,12 +29,13 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Slf4j
 public class Farm extends BaseEntity {
 
-    /**
-     * Optional short human friendly identifier for the farm.
-     * Example: PS-0001 or FARM-123. This is what you can show in the UI.
-     */
+    // ─────────────────────────────────────────────────────────────
+    // General Info
+    // ─────────────────────────────────────────────────────────────
+
     @Column(name = "farm_tag", length = 32, unique = true)
     private String farmTag;
 
@@ -41,27 +45,15 @@ public class Farm extends BaseEntity {
     @Column(length = 500)
     private String description;
 
-    /**
-     * Optional external reference used for imports or integration
-     * with third party systems or legacy farm identifiers.
-     * If you do not use external systems, keep this null.
-     */
     @Column(name = "external_id", length = 255)
     private String externalId;
 
     @Column(length = 255)
     private String address;
 
-    /**
-     * Latitude coordinate for the farm headquarters.
-     * Stored with high precision to support location specific alerts.
-     */
     @Column(precision = 10, scale = 7)
     private BigDecimal latitude;
 
-    /**
-     * Longitude coordinate for the farm headquarters.
-     */
     @Column(precision = 10, scale = 7)
     private BigDecimal longitude;
 
@@ -77,13 +69,29 @@ public class Farm extends BaseEntity {
     @Column(length = 100)
     private String country;
 
+    // ─────────────────────────────────────────────────────────────
+    // Ownership & Assigned Staff
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * The farm owner (manager/farm admin).
+     * Has full operational permissions.
+     */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
 
+    /**
+     * The primary scout assigned to this farm (optional).
+     * Used for all session assignments.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "scout_id")
     private User scout;
+
+    // ─────────────────────────────────────────────────────────────
+    // Contact Info
+    // ─────────────────────────────────────────────────────────────
 
     @Column(name = "contact_name", length = 255)
     private String contactName;
@@ -93,6 +101,10 @@ public class Farm extends BaseEntity {
 
     @Column(name = "contact_phone", length = 50)
     private String contactPhone;
+
+    // ─────────────────────────────────────────────────────────────
+    // Subscription & License Data
+    // ─────────────────────────────────────────────────────────────
 
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_status", nullable = false, length = 20)
@@ -106,28 +118,60 @@ public class Farm extends BaseEntity {
     private String billingEmail;
 
     /**
-     * Total licensed area for quota calculations (in hectares).
+     * Licensed area (hectares). Only super admin can modify this.
      */
     @Column(name = "licensed_area_hectares", precision = 10, scale = 2, nullable = false)
     private BigDecimal licensedAreaHectares;
 
     /**
-     * Number of licensed production units tied to the subscription.
+     * Licensed quota units. Only super admin can modify this.
      */
     @Column(name = "licensed_unit_quota")
     private Integer licensedUnitQuota;
 
-    /**
-     * Discount percentage applied to the farm quota based on covered area.
-     */
     @Column(name = "quota_discount_percentage", precision = 5, scale = 2)
     private BigDecimal quotaDiscountPercentage;
 
+    // ─────────────────────────────────────────────────────────────
+    // LICENSE LIFE CYCLE
+    // ─────────────────────────────────────────────────────────────
+
     /**
-     * High level profile for the farm.
-     * You can keep GREENHOUSE, FIELD, MIXED, OTHER.
-     * Detailed layouts live in Greenhouse and FieldBlock.
+     * The subscription expiry date.
      */
+    @Column(name = "license_expiry_date")
+    private LocalDate licenseExpiryDate;
+
+    /**
+     * Expiry + 30 days: read-only mode.
+     * After this, farm owner loses ALL access.
+     */
+    @Column(name = "license_grace_period_end")
+    private LocalDate licenseGracePeriodEnd;
+
+    /**
+     * Grace period + 30 days: data is archived.
+     */
+    @Column(name = "license_archived_date")
+    private LocalDate licenseArchivedDate;
+
+    /**
+     * Whether the farm is fully archived and inaccessible.
+     */
+    @Column(name = "is_archived")
+    private Boolean isArchived;
+
+    /**
+     * If enabled, renewals happen automatically when Stripe confirms payment.
+     * Super admin can toggle this.
+     */
+    @Column(name = "auto_renew_enabled")
+    private Boolean autoRenewEnabled;
+
+    // ─────────────────────────────────────────────────────────────
+    // Structural Configuration
+    // ─────────────────────────────────────────────────────────────
+
     @Enumerated(EnumType.STRING)
     @Column(name = "structure_type", nullable = false, length = 20)
     private FarmStructureType structureType;
@@ -135,10 +179,6 @@ public class Farm extends BaseEntity {
     @Column(name = "timezone", length = 100)
     private String timezone;
 
-    /**
-     * Optional default layout for this farm.
-     * Individual greenhouses or field blocks can override these values.
-     */
     @Column(name = "default_bay_count")
     private Integer defaultBayCount;
 
@@ -148,92 +188,78 @@ public class Farm extends BaseEntity {
     @Column(name = "default_spot_checks_per_bench")
     private Integer defaultSpotChecksPerBench;
 
-
+    // Stripe Integration
     @Column(name = "stripe_customer_id", length = 255)
     private String stripeCustomerId;
 
     @Column(name = "stripe_subscription_id", length = 255)
     private String stripeSubscriptionId;
 
-    /**
-     * Greenhouse units belonging to this farm.
-     */
+    // ─────────────────────────────────────────────────────────────
+    // Child Structures
+    // ─────────────────────────────────────────────────────────────
+
     @Builder.Default
     @OneToMany(mappedBy = "farm", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Greenhouse> greenhouses = new ArrayList<>();
 
-    /**
-     * Open field blocks belonging to this farm.
-     */
     @Builder.Default
     @OneToMany(mappedBy = "farm", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<FieldBlock> fieldBlocks = new ArrayList<>();
 
-    /**
-     * Ensure safe defaults for new farms.
-     * Activation must be done explicitly by billing or super admin.
-     */
+    // ─────────────────────────────────────────────────────────────
+    // DEFAULTS & UTILITIES
+    // ─────────────────────────────────────────────────────────────
+
     @Override
     protected void applyPrePersistDefaults() {
-        if (subscriptionStatus == null) {
-            subscriptionStatus = SubscriptionStatus.PENDING_ACTIVATION;
-        }
-        if (subscriptionTier == null) {
-            subscriptionTier = SubscriptionTier.BASIC;
-        }
-        if (country == null) {
-            country = "Canada";
-        }
-        if (structureType == null) {
-            structureType = FarmStructureType.GREENHOUSE;
-        }
+        if (subscriptionStatus == null) subscriptionStatus = SubscriptionStatus.PENDING_ACTIVATION;
+        if (subscriptionTier == null) subscriptionTier = SubscriptionTier.BASIC;
+        if (country == null) country = "Canada";
+        if (structureType == null) structureType = FarmStructureType.GREENHOUSE;
+        if (isArchived == null) isArchived = false;
+        if (autoRenewEnabled == null) autoRenewEnabled = false;
     }
 
-    /**
-     * Convenience method for subscription checks inside domain logic.
-     */
     @Transient
     public boolean isActive() {
         return subscriptionStatus == SubscriptionStatus.ACTIVE;
     }
 
-    /**
-     * Resolve the default number of bays for this farm.
-     * Greenhouses call this when they do not have a bayCount set explicitly.
-     */
+    @Transient
+    public boolean isExpired() {
+        return licenseExpiryDate != null && LocalDate.now().isAfter(licenseExpiryDate);
+    }
+
+    @Transient
+    public boolean inGracePeriod() {
+        return licenseGracePeriodEnd != null &&
+                LocalDate.now().isAfter(licenseExpiryDate) &&
+                LocalDate.now().isBefore(licenseGracePeriodEnd);
+    }
+
+    @Transient
+    public boolean beyondGracePeriod() {
+        return licenseGracePeriodEnd != null && LocalDate.now().isAfter(licenseGracePeriodEnd);
+    }
+
+    @Transient
+    public boolean fullyArchived() {
+        return isArchived != null && isArchived;
+    }
+
     @Transient
     public int resolveBayCount() {
-        // Farm level default, can be configured per farm
         return defaultBayCount != null ? defaultBayCount : 1;
     }
 
-    /**
-     * Resolve the default number of benches per bay for this farm.
-     */
     @Transient
     public int resolveBenchesPerBay() {
         return defaultBenchesPerBay != null ? defaultBenchesPerBay : 0;
     }
 
-    /**
-     * Resolve the default number of spot checks per bench for this farm.
-     */
     @Transient
     public int resolveSpotChecksPerBench() {
         return defaultSpotChecksPerBench != null ? defaultSpotChecksPerBench : 1;
-    }
-
-
-    @Override
-    public String toString() {
-        return "Farm{" +
-                "id=" + getId() +
-                ", name='" + name + '\'' +
-                ", city='" + city + '\'' +
-                ", province='" + province + '\'' +
-                ", structureType=" + structureType +
-                ", subscriptionStatus=" + subscriptionStatus +
-                ", subscriptionTier=" + subscriptionTier +
-                '}';
     }
 }
