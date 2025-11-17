@@ -5,17 +5,8 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
-import mofo.com.pestscout.farm.dto.ObservationRequest;
-import mofo.com.pestscout.farm.dto.ObservationResponse;
-import mofo.com.pestscout.farm.dto.ScoutingSessionRequest;
-import mofo.com.pestscout.farm.dto.ScoutingSessionResponse;
-import mofo.com.pestscout.farm.dto.SessionCompletionRequest;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.ObservationCategory;
-import mofo.com.pestscout.farm.model.RecommendationType;
-import mofo.com.pestscout.farm.model.ScoutingObservation;
-import mofo.com.pestscout.farm.model.ScoutingSession;
-import mofo.com.pestscout.farm.model.SessionStatus;
+import mofo.com.pestscout.farm.dto.*;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.farm.repository.ScoutingSessionRepository;
@@ -24,12 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.temporal.WeekFields;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,59 +27,83 @@ public class ScoutingSessionService {
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
 
+    /**
+     * Create a new scouting session for a farm.
+     * The manager assigns a scout and defines basic metadata.
+     */
     @Transactional
-    public ScoutingSessionResponse createSession(ScoutingSessionRequest request) {
-        Farm farm = farmRepository.findById(request.getFarmId())
-                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.getFarmId()));
+    public ScoutingSessionDetailDto createSession(CreateScoutingSessionRequest request) {
+        Farm farm = farmRepository.findById(request.farmId())
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.farmId()));
 
-        User manager = resolveUser(request.getManagerId());
-        User scout = resolveUser(request.getScoutId());
+        User manager = resolveUser(request.managerId());
+        User scout = resolveUser(request.scoutId());
 
         ScoutingSession session = ScoutingSession.builder()
                 .farm(farm)
                 .manager(manager)
                 .scout(scout)
-                .sessionDate(request.getSessionDate())
-                .cropType(request.getCropType())
-                .cropVariety(request.getCropVariety())
-                .weather(request.getWeather())
-                .notes(request.getNotes())
+                .sessionDate(request.sessionDate())
+                .cropType(request.cropType())
+                .cropVariety(request.cropVariety())
+                .weather(request.weather())
+                .notes(request.notes())
                 .status(SessionStatus.DRAFT)
                 .confirmationAcknowledged(false)
-                .recommendations(copyRecommendations(request.getRecommendations()))
+                .recommendations(copyRecommendations(request.recommendations()))
                 .build();
 
-        return mapToResponse(sessionRepository.save(session));
+        ScoutingSession saved = sessionRepository.save(session);
+        return mapToDetailDto(saved);
     }
 
+    /**
+     * Update the metadata of a session.
+     * Completed sessions must be reopened first.
+     */
     @Transactional
-    public ScoutingSessionResponse updateSession(UUID sessionId, ScoutingSessionRequest request) {
+    public ScoutingSessionDetailDto updateSession(UUID sessionId, UpdateScoutingSessionRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
-        if (session.getStatus() == SessionStatus.COMPLETED) {
-            throw new BadRequestException("Completed sessions must be reopened before editing.");
+        ensureSessionEditableForMetadata(session);
+
+        if (request.sessionDate() != null) {
+            session.setSessionDate(request.sessionDate());
+        }
+        if (request.cropType() != null) {
+            session.setCropType(request.cropType());
+        }
+        if (request.cropVariety() != null) {
+            session.setCropVariety(request.cropVariety());
+        }
+        if (request.weather() != null) {
+            session.setWeather(request.weather());
+        }
+        if (request.notes() != null) {
+            session.setNotes(request.notes());
+        }
+        if (request.recommendations() != null) {
+            session.setRecommendations(copyRecommendations(request.recommendations()));
         }
 
-        if (!session.getFarm().getId().equals(request.getFarmId())) {
-            throw new BadRequestException("Cannot move session to another farm");
+        if (request.managerId() != null) {
+            session.setManager(resolveUser(request.managerId()));
+        }
+        if (request.scoutId() != null) {
+            session.setScout(resolveUser(request.scoutId()));
         }
 
-        session.setSessionDate(request.getSessionDate());
-        session.setCropType(request.getCropType());
-        session.setCropVariety(request.getCropVariety());
-        session.setWeather(request.getWeather());
-        session.setNotes(request.getNotes());
-        session.setRecommendations(copyRecommendations(request.getRecommendations()));
-
-        session.setManager(resolveUser(request.getManagerId()));
-        session.setScout(resolveUser(request.getScoutId()));
-
-        return mapToResponse(sessionRepository.save(session));
+        ScoutingSession saved = sessionRepository.save(session);
+        return mapToDetailDto(saved);
     }
 
+    /**
+     * Mark a session as started.
+     * This moves the status to IN_PROGRESS and sets startedAt if missing.
+     */
     @Transactional
-    public ScoutingSessionResponse startSession(UUID sessionId) {
+    public ScoutingSessionDetailDto startSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
@@ -101,15 +111,21 @@ public class ScoutingSessionService {
             throw new BadRequestException("Cannot start a session that has already been completed.");
         }
 
-        session.setStatus(SessionStatus.IN_PROGRESS);
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
-        return mapToResponse(sessionRepository.save(session));
+        session.setStatus(SessionStatus.IN_PROGRESS);
+
+        ScoutingSession saved = sessionRepository.save(session);
+        return mapToDetailDto(saved);
     }
 
+    /**
+     * Complete a session after the scout confirms the data is correct.
+     * Once completed, editing observations is blocked until the session is reopened.
+     */
     @Transactional
-    public ScoutingSessionResponse completeSession(UUID sessionId, SessionCompletionRequest request) {
+    public ScoutingSessionDetailDto completeSession(UUID sessionId, CompleteSessionRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
@@ -117,21 +133,26 @@ public class ScoutingSessionService {
             throw new BadRequestException("Session is already completed.");
         }
 
-        if (request == null || !request.isConfirmationAcknowledged()) {
+        if (request == null || !Boolean.TRUE.equals(request.confirmationAcknowledged())) {
             throw new BadRequestException("Please confirm all information is correct before completing the session.");
         }
 
-        session.setStatus(SessionStatus.COMPLETED);
-        session.setCompletedAt(LocalDateTime.now());
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
-        session.setConfirmationAcknowledged(request.isConfirmationAcknowledged());
-        return mapToResponse(sessionRepository.save(session));
+        session.setStatus(SessionStatus.COMPLETED);
+        session.setCompletedAt(LocalDateTime.now());
+        session.setConfirmationAcknowledged(true);
+
+        ScoutingSession saved = sessionRepository.save(session);
+        return mapToDetailDto(saved);
     }
 
+    /**
+     * Reopen a completed session so that observations can be edited again.
+     */
     @Transactional
-    public ScoutingSessionResponse reopenSession(UUID sessionId) {
+    public ScoutingSessionDetailDto reopenSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
@@ -142,93 +163,126 @@ public class ScoutingSessionService {
         session.setStatus(SessionStatus.IN_PROGRESS);
         session.setConfirmationAcknowledged(false);
         session.setCompletedAt(null);
-        return mapToResponse(sessionRepository.save(session));
+
+        ScoutingSession saved = sessionRepository.save(session);
+        return mapToDetailDto(saved);
     }
 
+    /**
+     * Create or update a single observation cell (bay, bench, spot, species).
+     * If a row exists, its count and notes are updated; otherwise a new row is created.
+     */
     @Transactional
-    public ObservationResponse addObservation(UUID sessionId, ObservationRequest request) {
+    public ScoutingObservationDto upsertObservation(UUID sessionId, UpsertObservationRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
-        ensureSessionEditable(session);
-        validateObservation(request);
+        ensureSessionEditableForObservations(session);
 
-        ScoutingObservation observation = ScoutingObservation.builder()
-                .session(session)
-                .category(request.getCategory())
-                .pestType(request.getPestType())
-                .diseaseType(request.getDiseaseType())
-                .bayIndex(request.getBayIndex())
-                .benchIndex(request.getBenchIndex())
-                .spotIndex(request.getSpotIndex())
-                .count(request.getCount())
-                .notes(request.getNotes())
-                .build();
+        if (request.speciesCode() == null) {
+            throw new BadRequestException("Species must be provided for an observation.");
+        }
 
-        session.addObservation(observation);
-        sessionRepository.save(session);
-        return mapToObservationResponse(observation);
+        var existingOpt = observationRepository
+                .findBySessionIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                        sessionId,
+                        request.bayIndex(),
+                        request.benchIndex(),
+                        request.spotIndex(),
+                        request.speciesCode()
+                );
+
+        ScoutingObservation observation = existingOpt.orElseGet(() -> {
+            ScoutingObservation created = ScoutingObservation.builder()
+                    .session(session)
+                    .speciesCode(request.speciesCode())
+                    .bayIndex(request.bayIndex())
+                    .benchIndex(request.benchIndex())
+                    .spotIndex(request.spotIndex())
+                    .build();
+            session.addObservation(created);
+            return created;
+        });
+
+        observation.setCount(request.count());
+        observation.setNotes(request.notes());
+
+        ScoutingObservation saved = observationRepository.save(observation);
+        return mapToObservationDto(saved);
     }
 
-    @Transactional
-    public ObservationResponse updateObservation(UUID sessionId, UUID observationId, ObservationRequest request) {
-        ScoutingObservation observation = observationRepository.findByIdAndSession_Id(observationId, sessionId)
-                .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
-
-        ensureSessionEditable(observation.getSession());
-        validateObservation(request);
-
-        observation.setCategory(request.getCategory());
-        observation.setPestType(request.getPestType());
-        observation.setDiseaseType(request.getDiseaseType());
-        observation.setBayIndex(request.getBayIndex());
-        observation.setBenchIndex(request.getBenchIndex());
-        observation.setSpotIndex(request.getSpotIndex());
-        observation.setCount(request.getCount());
-        observation.setNotes(request.getNotes());
-
-        return mapToObservationResponse(observationRepository.save(observation));
-    }
-
+    /**
+     * Delete a single observation from a session.
+     */
     @Transactional
     public void deleteObservation(UUID sessionId, UUID observationId) {
-        ScoutingObservation observation = observationRepository.findByIdAndSession_Id(observationId, sessionId)
+        ScoutingObservation observation = observationRepository
+                .findByIdAndSessionId(observationId, sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
 
-        ensureSessionEditable(observation.getSession());
+        ensureSessionEditableForObservations(observation.getSession());
         observation.getSession().removeObservation(observation);
         observationRepository.delete(observation);
     }
 
+    /**
+     * Load one session with all its observations and recommendations.
+     */
     @Transactional(readOnly = true)
-    public ScoutingSessionResponse getSession(UUID sessionId) {
+    public ScoutingSessionDetailDto getSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
-        return mapToResponse(session);
+        return mapToDetailDto(session);
     }
 
+    /**
+     * List all sessions for a farm, newest first.
+     */
     @Transactional(readOnly = true)
-    public List<ScoutingSessionResponse> listSessions(UUID farmId) {
-        return sessionRepository.findByFarm_Id(farmId).stream()
+    public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
+        return sessionRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
-                .map(this::mapToResponse)
+                .map(this::mapToDetailDto)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Count how many sessions a farm completed in the current calendar week.
+     */
     @Transactional(readOnly = true)
     public long countCompletedSessionsThisWeek(UUID farmId) {
         WeekFields weekFields = WeekFields.of(Locale.getDefault());
         LocalDateTime now = LocalDateTime.now();
-        return sessionRepository.findByFarm_Id(farmId).stream()
+        int currentWeek = now.get(weekFields.weekOfWeekBasedYear());
+        int currentYear = now.get(weekFields.weekBasedYear());
+
+        return sessionRepository.findByFarmId(farmId).stream()
                 .filter(session -> session.getStatus() == SessionStatus.COMPLETED)
                 .filter(session -> session.getCompletedAt() != null)
-                .filter(session -> session.getCompletedAt().get(weekFields.weekOfWeekBasedYear()) == now.get(weekFields.weekOfWeekBasedYear()))
+                .filter(session -> {
+                    LocalDateTime completedAt = session.getCompletedAt();
+                    int sessionWeek = completedAt.get(weekFields.weekOfWeekBasedYear());
+                    int sessionYear = completedAt.get(weekFields.weekBasedYear());
+                    return sessionWeek == currentWeek && sessionYear == currentYear;
+                })
                 .count();
     }
 
-    private void ensureSessionEditable(ScoutingSession session) {
+    /**
+     * Only sessions in DRAFT or IN_PROGRESS can have their metadata changed.
+     */
+    private void ensureSessionEditableForMetadata(ScoutingSession session) {
         if (session.getStatus() == SessionStatus.COMPLETED) {
-            throw new BadRequestException("Reopen the session to edit observations.");
+            throw new BadRequestException("Completed sessions must be reopened before editing.");
+        }
+    }
+
+    /**
+     * Only sessions in DRAFT or IN_PROGRESS can have their observations changed.
+     */
+    private void ensureSessionEditableForObservations(ScoutingSession session) {
+        if (session.getStatus() == SessionStatus.COMPLETED || session.getStatus() == SessionStatus.CANCELLED) {
+            throw new BadRequestException("Completed or cancelled sessions cannot be edited.");
         }
     }
 
@@ -240,18 +294,9 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
     }
 
-    private void validateObservation(ObservationRequest request) {
-        if (request.getCategory() == ObservationCategory.PEST && request.getPestType() == null) {
-            throw new BadRequestException("Pest observations require a pest type");
-        }
-        if (request.getCategory() == ObservationCategory.DISEASE && request.getDiseaseType() == null) {
-            throw new BadRequestException("Disease observations require a disease type");
-        }
-        if (request.getCategory() == ObservationCategory.BENEFICIAL && request.getPestType() != null) {
-            throw new BadRequestException("Beneficial observations should not specify a pest type");
-        }
-    }
-
+    /**
+     * Copy recommendations into a fresh EnumMap to avoid exposing internal maps.
+     */
     private Map<RecommendationType, String> copyRecommendations(Map<RecommendationType, String> recommendations) {
         if (recommendations == null || recommendations.isEmpty()) {
             return new EnumMap<>(RecommendationType.class);
@@ -259,48 +304,64 @@ public class ScoutingSessionService {
         return new EnumMap<>(recommendations);
     }
 
-    private ScoutingSessionResponse mapToResponse(ScoutingSession session) {
-        List<ObservationResponse> observations = session.getObservations().stream()
+    /**
+     * Convert a session entity into a detailed DTO including observations and recommendations.
+     */
+    private ScoutingSessionDetailDto mapToDetailDto(ScoutingSession session) {
+        List<ScoutingObservationDto> observationDtos = session.getObservations().stream()
                 .sorted(Comparator
                         .comparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(ScoutingObservation::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
-                .map(this::mapToObservationResponse)
-                .collect(Collectors.toList());
+                .map(this::mapToObservationDto)
+                .toList();
 
-        return ScoutingSessionResponse.builder()
-                .id(session.getId())
-                .farmId(session.getFarm().getId())
-                .farmName(session.getFarm().getName())
-                .managerId(session.getManager() != null ? session.getManager().getId() : null)
-                .scoutId(session.getScout() != null ? session.getScout().getId() : null)
-                .managerName(session.getManager() != null ? session.getManager().getFirstName() + " " + session.getManager().getLastName() : null)
-                .scoutName(session.getScout() != null ? session.getScout().getFirstName() + " " + session.getScout().getLastName() : null)
-                .sessionDate(session.getSessionDate())
-                .cropType(session.getCropType())
-                .cropVariety(session.getCropVariety())
-                .weather(session.getWeather())
-                .notes(session.getNotes())
-                .status(session.getStatus())
-                .startedAt(session.getStartedAt())
-                .completedAt(session.getCompletedAt())
-                .confirmationAcknowledged(session.isConfirmationAcknowledged())
-                .recommendations(session.getRecommendations())
-                .observations(observations)
-                .build();
+        List<RecommendationEntryDto> recommendationDtos = session.getRecommendations().entrySet().stream()
+                .map(entry -> new RecommendationEntryDto(entry.getKey(), entry.getValue()))
+                .toList();
+
+        UUID managerId = session.getManager() != null ? session.getManager().getId() : null;
+        UUID scoutId = session.getScout() != null ? session.getScout().getId() : null;
+
+        return new ScoutingSessionDetailDto(
+                session.getId(),
+                null, // version, if you add @Version to BaseEntity you can expose it here
+                session.getFarm().getId(),
+                null, // greenhouseId if you add that relation
+                null, // fieldBlockId if you add that relation
+                session.getSessionDate(),
+                session.getStatus(),
+                managerId,
+                scoutId,
+                session.getCropType(),
+                session.getCropVariety(),
+                session.getWeather(),
+                session.getNotes(),
+                session.getStartedAt(),
+                session.getCompletedAt(),
+                session.isConfirmationAcknowledged(),
+                observationDtos,
+                recommendationDtos
+        );
     }
 
-    private ObservationResponse mapToObservationResponse(ScoutingObservation observation) {
-        return ObservationResponse.builder()
-                .id(observation.getId())
-                .category(observation.getCategory())
-                .pestType(observation.getPestType())
-                .diseaseType(observation.getDiseaseType())
-                .bayIndex(observation.getBayIndex())
-                .benchIndex(observation.getBenchIndex())
-                .spotIndex(observation.getSpotIndex())
-                .count(observation.getCount() != null ? observation.getCount() : 0)
-                .notes(observation.getNotes())
-                .build();
+    /**
+     * Convert an observation entity into a DTO for the API.
+     */
+    private ScoutingObservationDto mapToObservationDto(ScoutingObservation observation) {
+        ObservationCategory category = observation.getCategory(); // derived from speciesCode in the entity
+
+        return new ScoutingObservationDto(
+                observation.getId(),
+                null, // version placeholder
+                observation.getSession().getId(),
+                observation.getSpeciesCode(),
+                category,
+                observation.getBayIndex(),
+                observation.getBenchIndex(),
+                observation.getSpotIndex(),
+                observation.getCount() != null ? observation.getCount() : 0,
+                observation.getNotes()
+        );
     }
 }

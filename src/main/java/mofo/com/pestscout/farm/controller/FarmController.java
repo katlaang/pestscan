@@ -2,8 +2,8 @@ package mofo.com.pestscout.farm.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.farm.dto.FarmRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
+import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
 import mofo.com.pestscout.farm.service.FarmService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,14 +20,14 @@ public class FarmController {
     private final FarmService farmService;
 
     @PostMapping
-    public ResponseEntity<FarmResponse> createFarm(@Valid @RequestBody FarmRequest request) {
+    public ResponseEntity<FarmResponse> createFarm(@Valid @RequestBody UpdateFarmRequest request) {
         FarmResponse farm = farmService.createFarm(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(farm);
     }
 
     @PutMapping("/{farmId}")
     public ResponseEntity<FarmResponse> updateFarm(@PathVariable UUID farmId,
-                                                   @Valid @RequestBody FarmRequest request) {
+                                                   @Valid @RequestBody UpdateFarmRequest request) {
         return ResponseEntity.ok(farmService.updateFarm(farmId, request));
     }
 

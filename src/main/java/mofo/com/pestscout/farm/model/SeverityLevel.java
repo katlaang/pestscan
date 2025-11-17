@@ -1,5 +1,7 @@
 package mofo.com.pestscout.farm.model;
 
+import lombok.Getter;
+
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -19,16 +21,13 @@ public enum SeverityLevel {
 
     private final int minInclusive;
     private final int maxInclusive;
+    @Getter
     private final String colorHex;
 
     SeverityLevel(int minInclusive, int maxInclusive, String colorHex) {
         this.minInclusive = minInclusive;
         this.maxInclusive = maxInclusive;
         this.colorHex = colorHex;
-    }
-
-    public String getColorHex() {
-        return colorHex;
     }
 
     public boolean matches(int count) {
@@ -45,8 +44,9 @@ public enum SeverityLevel {
     public static Map<String, String> legend() {
         Map<String, String> legend = new LinkedHashMap<>();
         for (SeverityLevel level : values()) {
-            legend.put(level.name(), level.getColorHex());
+            legend.put(level.name(), level.minInclusive + "-" + level.maxInclusive);
         }
         return legend;
     }
+
 }

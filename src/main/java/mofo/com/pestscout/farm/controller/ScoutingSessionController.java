@@ -2,11 +2,6 @@ package mofo.com.pestscout.farm.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.farm.dto.ObservationRequest;
-import mofo.com.pestscout.farm.dto.ObservationResponse;
-import mofo.com.pestscout.farm.dto.ScoutingSessionRequest;
-import mofo.com.pestscout.farm.dto.ScoutingSessionResponse;
-import mofo.com.pestscout.farm.dto.SessionCompletionRequest;
 import mofo.com.pestscout.farm.service.ScoutingSessionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

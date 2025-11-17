@@ -13,15 +13,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Represents a scouting session which groups together observations captured by scouts. Sessions are
- * the core unit for analytics, heat map generation and alerting.
+ * Represents a scouting session which groups together observations captured by scouts.
+ * Sessions are the unit for reports, heat maps and alerts.
  */
 @Entity
-@Table(name = "scouting_sessions",
+@Table(
+        name = "scouting_sessions",
         indexes = {
                 @Index(name = "idx_scouting_sessions_farm", columnList = "farm_id"),
                 @Index(name = "idx_scouting_sessions_date", columnList = "session_date")
-        })
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -66,6 +68,10 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    /**
+     * True when the scout (or manager) has confirmed that all data is correct
+     * at the time of completion.
+     */
     @Column(name = "confirmation_acknowledged")
     private boolean confirmationAcknowledged;
 
@@ -81,6 +87,35 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "recommendation", length = 2000)
     private Map<RecommendationType, String> recommendations = new EnumMap<>(RecommendationType.class);
 
+
+    /**
+     * A session is editable while it is draft or in progress.
+     */
+    public boolean isEditable() {
+        return status == SessionStatus.DRAFT || status == SessionStatus.IN_PROGRESS;
+    }
+
+    /**
+     * Mark the session as started when the scout actually begins work.
+     */
+    public void markStarted() {
+        if (startedAt == null) {
+            startedAt = LocalDateTime.now();
+        }
+        status = SessionStatus.IN_PROGRESS;
+    }
+
+    /**
+     * Mark the session as completed. The caller must pass whether the user
+     * checked the "I confirm this data is correct" box.
+     */
+    public void markCompleted(boolean acknowledged) {
+        this.status = SessionStatus.COMPLETED;
+        this.completedAt = LocalDateTime.now();
+        this.confirmationAcknowledged = acknowledged;
+    }
+
+
     public void addObservation(ScoutingObservation observation) {
         observations.add(observation);
         observation.setSession(this);
@@ -91,3 +126,4 @@ public class ScoutingSession extends BaseEntity {
         observation.setSession(null);
     }
 }
+

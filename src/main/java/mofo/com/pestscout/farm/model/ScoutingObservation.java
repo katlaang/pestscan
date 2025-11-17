@@ -5,14 +5,20 @@ import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 /**
- * Observation captured during a scouting session for a specific bay, bench and spot check.
+ * One row = one species at one grid cell (bay, bench, spot) in a session.
  */
 @Entity
-@Table(name = "scouting_observations",
+@Table(
+        name = "scouting_observations",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_session_cell_species",
+                columnNames = {"session_id", "bay_index", "bench_index", "spot_index", "species_code"}
+        ),
         indexes = {
                 @Index(name = "idx_scouting_observations_session", columnList = "session_id"),
-                @Index(name = "idx_scouting_observations_category", columnList = "category")
-        })
+                @Index(name = "idx_scouting_observations_species", columnList = "species_code")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -25,29 +31,29 @@ public class ScoutingObservation extends BaseEntity {
     private ScoutingSession session;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private ObservationCategory category;
+    @Column(name = "species_code", nullable = false, length = 50)
+    private SpeciesCode speciesCode;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "pest_type", length = 50)
-    private PestType pestType;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "disease_type", length = 50)
-    private DiseaseType diseaseType;
-
-    @Column(name = "bay_index")
+    @Column(name = "bay_index", nullable = false)
     private Integer bayIndex;
 
-    @Column(name = "bench_index")
+    @Column(name = "bench_index", nullable = false)
     private Integer benchIndex;
 
-    @Column(name = "spot_index")
+    @Column(name = "spot_index", nullable = false)
     private Integer spotIndex;
 
-    @Column(name = "count_value")
+    @Column(name = "count_value", nullable = false)
     private Integer count;
 
     @Column(name = "notes", length = 2000)
     private String notes;
+
+    /**
+     * Derived category for convenience in code and queries.
+     */
+    @Transient
+    public ObservationCategory getCategory() {
+        return speciesCode.getCategory();
+    }
 }

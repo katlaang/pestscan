@@ -44,6 +44,8 @@ public abstract class BaseEntity {
         if (updatedAt == null) {
             updatedAt = LocalDateTime.now();
         }
+        // hook for subclasses
+        applyPrePersistDefaults();
     }
 
     @PreUpdate
@@ -61,5 +63,17 @@ public abstract class BaseEntity {
     @Override
     public int hashCode() {
         return getClass().hashCode();
+    }
+
+    @Version
+    @Column(name = "version")
+    private Long version;
+
+    /**
+     * Hook method for entities that need extra defaults on persist.
+     * Default is no-op.
+     */
+    protected void applyPrePersistDefaults() {
+        // no default implementation
     }
 }
