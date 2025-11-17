@@ -17,8 +17,6 @@ public record ScoutingSessionDetailDto(
         UUID id,
         Long version,
         UUID farmId,
-        UUID greenhouseId,
-        UUID fieldBlockId,
 
         LocalDate sessionDate,
         Integer weekNumber,
@@ -44,7 +42,7 @@ public record ScoutingSessionDetailDto(
         LocalDateTime completedAt,
         boolean confirmationAcknowledged,
 
-        List<ScoutingObservationDto> observations,
+        List<ScoutingSessionSectionDto> sections,
         List<RecommendationEntryDto> recommendations
 ) {
 }

@@ -4,7 +4,7 @@ package mofo.com.pestscout.farm.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.UUID;
+import java.util.List;
 
 /**
  * Payload for updating an existing scouting session.
@@ -16,8 +16,7 @@ public record UpdateScoutingSessionRequest(
         LocalDate sessionDate,
         Integer weekNumber,
 
-        UUID greenhouseId,
-        UUID fieldBlockId,
+        List<SessionTargetRequest> targets,
 
         String crop,
         String variety,

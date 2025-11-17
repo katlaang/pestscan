@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(
         name = "greenhouses",
@@ -37,6 +40,18 @@ public class Greenhouse extends BaseEntity {
 
     @Column(name = "spot_checks_per_bench")
     private Integer spotChecksPerBench;
+
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "greenhouse_bay_tags", joinColumns = @JoinColumn(name = "greenhouse_id"))
+    @Column(name = "bay_tag", length = 255)
+    private List<String> bayTags = new ArrayList<>();
+
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "greenhouse_bench_tags", joinColumns = @JoinColumn(name = "greenhouse_id"))
+    @Column(name = "bench_tag", length = 255)
+    private List<String> benchTags = new ArrayList<>();
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

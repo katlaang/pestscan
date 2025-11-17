@@ -69,13 +69,13 @@ public class UserService {
             List<UUID> requesterFarmIds = membershipRepository.findByUser_Id(requester.getId())
                     .stream()
                     .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
-                    .map(UserFarmMembership::getFarmId)
+                    .map(m -> m.getFarm().getId())
                     .toList();
 
             List<UUID> targetFarmIds = membershipRepository.findByUser_Id(targetUser.getId())
                     .stream()
                     .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
-                    .map(UserFarmMembership::getFarmId)
+                    .map(m -> m.getFarm().getId())
                     .toList();
 
             boolean sharedFarm = targetFarmIds.stream()

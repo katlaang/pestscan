@@ -4,17 +4,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.model.Role;
+import mofo.com.pestscout.farm.dto.CreateFarmRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.FarmStructureType;
-import mofo.com.pestscout.farm.model.SubscriptionStatus;
-import mofo.com.pestscout.farm.model.SubscriptionTier;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.farm.security.CurrentUserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -27,13 +31,15 @@ public class FarmService {
 
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
+    private final CurrentUserService currentUserService;
+    private final UserRepository userRepository;
 
     /**
      * SUPER_ADMIN ONLY.
      * Creates a new farm and assigns initial licensing settings.
      */
     @Transactional
-    public FarmResponse createFarm(UpdateFarmRequest request) {
+    public FarmResponse createFarm(CreateFarmRequest request) {
         farmAccess.requireSuperAdmin();
         log.info("Creating farm '{}'", request.name());
 
@@ -91,7 +97,17 @@ public class FarmService {
     @Transactional(readOnly = true)
     public List<FarmResponse> listFarms() {
         log.info("Listing farms for current user");
-        List<Farm> farms = farmAccess.getFarmsVisibleToUser();
+        List<Farm> farms;
+
+        switch (farmAccess.getCurrentUserRole()) {
+            case SUPER_ADMIN -> farms = farmRepository.findAll();
+            case FARM_ADMIN, MANAGER -> {
+                farms = farmRepository.findByOwnerId(currentUserService.getCurrentUserId());
+            }
+            case SCOUT -> farms = farmRepository.findByScoutId(currentUserService.getCurrentUserId());
+            default -> farms = List.of();
+        }
+
         return farms.stream()
                 .sorted(Comparator.comparing(Farm::getName, String.CASE_INSENSITIVE_ORDER))
                 .map(this::mapToResponse)
@@ -114,8 +130,16 @@ public class FarmService {
     // INTERNAL HELPERS
     // -------------------------------
 
-    private Farm toFarmEntity(UpdateFarmRequest request) {
-        return Farm.builder()
+    private Farm toFarmEntity(CreateFarmRequest request) {
+        User owner = userRepository.findById(request.ownerId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.ownerId()));
+        User scout = null;
+        if (request.scoutId() != null) {
+            scout = userRepository.findById(request.scoutId())
+                    .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
+        }
+
+        Farm farm = Farm.builder()
                 .name(request.name())
                 .description(request.description())
                 .externalId(request.externalId())
@@ -124,18 +148,14 @@ public class FarmService {
                 .province(request.province())
                 .postalCode(request.postalCode())
                 .country(request.country())
+                .owner(owner)
+                .scout(scout)
                 .contactName(request.contactName())
                 .contactEmail(request.contactEmail())
                 .contactPhone(request.contactPhone())
-                .subscriptionStatus(
-                        request.subscriptionStatus() != null ? request.subscriptionStatus() : SubscriptionStatus.PENDING_ACTIVATION
-                )
-                .subscriptionTier(
-                        request.subscriptionTier() != null ? request.subscriptionTier() : SubscriptionTier.BASIC
-                )
+                .subscriptionStatus(request.subscriptionStatus())
+                .subscriptionTier(request.subscriptionTier())
                 .billingEmail(request.billingEmail())
-                .latitude(request.latitude())
-                .longitude(request.longitude())
                 .licensedAreaHectares(request.licensedAreaHectares())
                 .licensedUnitQuota(request.licensedUnitQuota())
                 .quotaDiscountPercentage(request.quotaDiscountPercentage())
@@ -144,15 +164,47 @@ public class FarmService {
                 .defaultBenchesPerBay(request.defaultBenchesPerBay())
                 .defaultSpotChecksPerBench(request.defaultSpotChecksPerBench())
                 .timezone(request.timezone())
+                .licenseExpiryDate(request.licenseExpiryDate())
+                .autoRenewEnabled(request.autoRenewEnabled())
                 .build();
+
+        if (request.greenhouses() != null) {
+            request.greenhouses().forEach(ghRequest -> {
+                Greenhouse greenhouse = Greenhouse.builder()
+                        .farm(farm)
+                        .name(ghRequest.name())
+                        .description(ghRequest.description())
+                        .bayCount(ghRequest.bayCount())
+                        .benchesPerBay(ghRequest.benchesPerBay())
+                        .spotChecksPerBench(ghRequest.spotChecksPerBench())
+                        .bayTags(normalizeTags(ghRequest.bayTags()))
+                        .benchTags(normalizeTags(ghRequest.benchTags()))
+                        .build();
+                farm.getGreenhouses().add(greenhouse);
+            });
+        }
+
+        if (request.fieldBlocks() != null) {
+            request.fieldBlocks().forEach(blockRequest -> {
+                FieldBlock block = FieldBlock.builder()
+                        .farm(farm)
+                        .name(blockRequest.name())
+                        .bayCount(blockRequest.bayCount())
+                        .spotChecksPerBay(blockRequest.spotChecksPerBay())
+                        .bayTags(normalizeTags(blockRequest.bayTags()))
+                        .active(Boolean.TRUE.equals(blockRequest.active()))
+                        .build();
+                farm.getFieldBlocks().add(block);
+            });
+        }
+
+        return farm;
     }
 
     /**
      * Applies allowed updates depending on user role.
      */
     private void applyAllowedFarmUpdates(Farm farm, UpdateFarmRequest request) {
-
-        boolean isSuperAdmin = farmAccess.isSuperAdmin();
 
         // Common fields editable by FARM_MANAGER or SUPER_ADMIN
         farm.setName(request.name());
@@ -166,7 +218,6 @@ public class FarmService {
         farm.setContactName(request.contactName());
         farm.setContactEmail(request.contactEmail());
         farm.setContactPhone(request.contactPhone());
-        farm.setBillingEmail(request.billingEmail());
         farm.setTimezone(request.timezone());
 
         // Defaults (manager allowed)
@@ -177,19 +228,17 @@ public class FarmService {
         if (request.defaultSpotChecksPerBench() != null)
             farm.setDefaultSpotChecksPerBench(request.defaultSpotChecksPerBench());
 
-        // License-only fields (SUPER_ADMIN ONLY)
-        if (isSuperAdmin) {
-            farm.setSubscriptionStatus(request.subscriptionStatus());
-            farm.setSubscriptionTier(request.subscriptionTier());
-            farm.setLicensedAreaHectares(request.licensedAreaHectares());
-            farm.setLicensedUnitQuota(request.licensedUnitQuota());
-            farm.setQuotaDiscountPercentage(request.quotaDiscountPercentage());
+        if (farmAccess.isSuperAdmin()) {
             farm.setLatitude(request.latitude());
             farm.setLongitude(request.longitude());
         }
     }
 
     private FarmResponse mapToResponse(Farm farm) {
+        // Map in the context of the current user's role so we can hide licensing data from scouts.
+        Role role = farmAccess.getCurrentUserRole();
+        boolean hideLicense = role == Role.SCOUT;
+
         return new FarmResponse(
                 farm.getId(),
                 farm.getFarmTag(),
@@ -209,35 +258,46 @@ public class FarmService {
 
                 farm.getSubscriptionStatus(),
                 farm.getSubscriptionTier(),
-                farm.getBillingEmail(),
+                hideLicense ? null : farm.getBillingEmail(),
 
                 farm.getLicensedAreaHectares(),
-                farm.getLicensedUnitQuota(),
-                farm.getQuotaDiscountPercentage(),
-                farm.getLicenseExpiryDate(),
-                farm.getAutoRenewEnabled(),
-                farm.getLongitude(),
-                farm.getLatitude(),
-                farm.getAccessLocked(),
-
+                hideLicense ? null : farm.getLicensedUnitQuota(),
+                hideLicense ? null : farm.getQuotaDiscountPercentage(),
+                hideLicense ? null : farm.getLicenseExpiryDate(),
+                hideLicense ? null : farm.getAutoRenewEnabled(),
+                // accessLocked is a view-only flag that mirrors license state for non-scouters; scouts do not see it.
+                hideLicense ? null : farm.isExpired() || farm.inGracePeriod() || Boolean.TRUE.equals(farm.getIsArchived()),
                 farm.getStructureType(),
 
                 farm.getDefaultBayCount(),
                 farm.getDefaultBenchesPerBay(),
                 farm.getDefaultSpotChecksPerBench(),
-
+                toInstant(farm.getCreatedAt()),
+                toInstant(farm.getUpdatedAt()),
                 farm.getTimezone(),
-
-                farm.getOwnerId(),
-                farm.getScoutId(),
-
-                farm.getCreatedAt(),
-                farm.getUpdatedAt()
+                farm.getOwner() != null ? farm.getOwner().getId() : null,
+                farm.getScout() != null ? farm.getScout().getId() : null
         );
+    }
+
+
+    private List<String> normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return tags.stream()
+                .filter(tag -> tag != null && !tag.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
 
     private FarmStructureType resolveStructureType(FarmStructureType requested) {
         return requested != null ? requested : FarmStructureType.GREENHOUSE;
+    }
+
+    private Instant toInstant(java.time.LocalDateTime value) {
+        return value != null ? value.toInstant(ZoneOffset.UTC) : null;
     }
 }
