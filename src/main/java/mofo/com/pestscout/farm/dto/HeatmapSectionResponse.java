@@ -1,7 +1,12 @@
 package mofo.com.pestscout.farm.dto;
 
+import lombok.Builder;
+
 import java.util.List;
 import java.util.UUID;
+
+
+@Builder
 
 public record HeatmapSectionResponse(
         UUID targetId,
@@ -13,3 +18,5 @@ public record HeatmapSectionResponse(
         List<HeatmapCellResponse> cells
 ) {
 }
+
+

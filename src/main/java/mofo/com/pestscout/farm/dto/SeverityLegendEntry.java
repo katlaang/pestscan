@@ -1,11 +1,13 @@
 package mofo.com.pestscout.farm.dto;
 
+import lombok.Builder;
 import mofo.com.pestscout.farm.model.SeverityLevel;
 
 /**
  * API-friendly legend entry for the heat map so the UI can render the
- * Green → Dark Red scale with numeric thresholds.
+ * Green to Dark Red scale with numeric thresholds.
  */
+@Builder
 public record SeverityLegendEntry(
         String level,
         int minInclusive,
@@ -21,3 +23,4 @@ public record SeverityLegendEntry(
         );
     }
 }
+

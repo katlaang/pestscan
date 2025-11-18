@@ -7,14 +7,7 @@ import mofo.com.pestscout.farm.dto.HeatmapCellResponse;
 import mofo.com.pestscout.farm.dto.HeatmapResponse;
 import mofo.com.pestscout.farm.dto.HeatmapSectionResponse;
 import mofo.com.pestscout.farm.dto.SeverityLegendEntry;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.FieldBlock;
-import mofo.com.pestscout.farm.model.Greenhouse;
-import mofo.com.pestscout.farm.model.ObservationCategory;
-import mofo.com.pestscout.farm.model.ScoutingObservation;
-import mofo.com.pestscout.farm.model.ScoutingSession;
-import mofo.com.pestscout.farm.model.ScoutingSessionTarget;
-import mofo.com.pestscout.farm.model.SeverityLevel;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.farm.repository.ScoutingSessionRepository;
@@ -24,20 +17,15 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Builds weekly heat maps for a farm.
  *
  * Supports:
- * - Farm level overview grid (aggregated across all session targets).
- * - Per section grids for each greenhouse or field block used in sessions.
+ *  - Farm level overview grid (aggregated across all session targets).
+ *  - Per section grids for each greenhouse or field block used in sessions.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,7 +51,7 @@ public class HeatmapService {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
-        // Farm level access control: super admin, owner/manager, or assigned scout.
+        // Security
         farmAccessService.requireViewAccess(farm);
 
         LocalDate weekStart = resolveWeekStart(year, week);
@@ -82,10 +70,10 @@ public class HeatmapService {
                 .map(ScoutingSession::getId)
                 .toList();
 
-        // All targets across the sessions - used to build per section grids
+        // All targets across the sessions, for per-section grids
         List<ScoutingSessionTarget> targets = targetRepository.findBySessionIdIn(sessionIds);
 
-        // All observations across the sessions - used for overview and sections
+        // All observations across the sessions
         List<ScoutingObservation> observations = observationRepository.findBySessionIdIn(sessionIds);
 
         // Farm level overview: aggregate by (bay, bench) across all observations
@@ -130,7 +118,7 @@ public class HeatmapService {
                 .map(HeatmapAccumulator::toResponse)
                 .collect(Collectors.toList());
 
-        // Convert per section accumulators to section DTOs
+        // Convert per-section accumulators to section DTOs
         List<HeatmapSectionResponse> sectionResponses = sectionMap.values().stream()
                 .sorted(Comparator.comparing(SectionAccumulator::getTargetName, String.CASE_INSENSITIVE_ORDER))
                 .map(SectionAccumulator::toResponse)
@@ -217,6 +205,7 @@ public class HeatmapService {
         }
 
         HeatmapCellResponse toResponse() {
+            // Severity is based on harmful pressure only (pests + diseases)
             int totalHarmful = pestCount + diseaseCount;
             SeverityLevel severityLevel = SeverityLevel.fromCount(totalHarmful);
 
@@ -228,7 +217,7 @@ public class HeatmapService {
                     .beneficialCount(beneficialCount)
                     .totalCount(totalHarmful)
                     .severityLevel(severityLevel)
-                    .color(severityLevel.getColorHex())
+                    .colorHex(severityLevel.getColorHex())
                     .build();
         }
 
@@ -242,7 +231,7 @@ public class HeatmapService {
     }
 
     /**
-     * Aggregator for one section (one session target - greenhouse or field block).
+     * Aggregator for one section (one session target: greenhouse or field block).
      */
     private static class SectionAccumulator {
 

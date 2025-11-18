@@ -12,7 +12,8 @@ public record HeatmapCellResponse(
         int beneficialCount,
         int totalCount,
         SeverityLevel severityLevel,
-        String color
+        String colorHex
 ) {
 }
+
 

@@ -18,9 +18,9 @@ public record HeatmapResponse(
         int week,
         int year,
 
-        // Farm level overview grid (conceptual layout based on farm defaults)
-        Integer bayCount,
-        Integer benchesPerBay,
+        // Farm level overview grid dimensions and cells
+        int bayCount,
+        int benchesPerBay,
         List<HeatmapCellResponse> cells,
 
         // Per section (per greenhouse or field block) heatmaps
@@ -30,3 +30,7 @@ public record HeatmapResponse(
         List<SeverityLegendEntry> severityLegend
 ) {
 }
+
+
+
+
