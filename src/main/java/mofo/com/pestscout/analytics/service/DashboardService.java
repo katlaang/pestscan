@@ -6,6 +6,7 @@ import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
@@ -21,6 +22,7 @@ public class DashboardService {
     private final HeatmapService heatmapService;
     private final TrendAnalysisService trendService;
 
+    @Transactional(readOnly = true)
     public DashboardSummaryDto getDashboard(UUID farmId) {
 
         farmRepo.findById(farmId)
@@ -29,13 +31,24 @@ public class DashboardService {
         LocalDate today = LocalDate.now();
         LocalDate weekStart = today.minusDays(6);
 
-        // Count sessions
-        int totalSessions = sessionRepo.findByFarmId(farmId).size();
+        var allSessions = sessionRepo.findByFarmId(farmId);
+        int totalSessions = allSessions.size();
 
         // Average severity comparisons
         double avgSeverityThisWeek = calculateAverageSeverity(farmId, weekStart, today);
         double avgSeverityLastWeek =
                 calculateAverageSeverity(farmId, weekStart.minusDays(7), weekStart.minusDays(1));
+
+        int activeScouts = (int) sessionRepo.findByFarmIdAndSessionDateBetween(farmId, weekStart, today).stream()
+                .filter(s -> s.getScout() != null)
+                .map(s -> s.getScout().getId())
+                .distinct()
+                .count();
+
+        int treatmentsApplied = sessionRepo.findByFarmIdAndSessionDateBetween(farmId, weekStart, today).stream()
+                .filter(s -> s.getRecommendations() != null)
+                .mapToInt(s -> s.getRecommendations().size())
+                .sum();
 
         // ISO week number
         int weekNumber = today.get(WeekFields.ISO.weekOfWeekBasedYear());
@@ -55,11 +68,11 @@ public class DashboardService {
         return new DashboardSummaryDto(
                 farmId,
                 totalSessions,
-                1,                                       // placeholder until scout tracking added
+                activeScouts,
                 avgSeverityThisWeek,
                 avgSeverityLastWeek,
                 countPestsDetected(farmId, weekStart, today),
-                0,                                       // placeholder for treatment integration
+                treatmentsApplied,
                 List.of(new WeeklyHeatmapResponse(
                         weekNumber,
                         weekStart,
@@ -71,7 +84,10 @@ public class DashboardService {
     }
 
     private int countPestsDetected(UUID farmId, LocalDate start, LocalDate end) {
-        return sessionRepo.findByFarmIdAndSessionDateBetween(farmId, start, end).size();
+        return sessionRepo.findByFarmIdAndSessionDateBetween(farmId, start, end).stream()
+                .flatMap(s -> s.getObservations().stream())
+                .mapToInt(o -> o.getCount() == null ? 0 : o.getCount())
+                .sum();
     }
 
     private double calculateAverageSeverity(UUID farmId, LocalDate from, LocalDate to) {
