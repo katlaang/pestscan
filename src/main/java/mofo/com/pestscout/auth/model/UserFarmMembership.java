@@ -3,8 +3,7 @@ package mofo.com.pestscout.auth.model;
 import jakarta.persistence.*;
 import lombok.*;
 import mofo.com.pestscout.common.model.BaseEntity;
-
-import java.util.UUID;
+import mofo.com.pestscout.farm.model.Farm;
 
 /**
  * Links a user to a specific farm with a specific role.
@@ -39,12 +38,10 @@ public class UserFarmMembership extends BaseEntity {
 
     /**
      * Farm (tenant) this membership applies to.
-     * <p>
-     * NOTE: using UUID here so we do not depend on a Farm entity yet.
-     * Later you can refactor this to a @ManyToOne Farm relation.
      */
-    @Column(name = "farm_id", nullable = false)
-    private UUID farmId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "farm_id", nullable = false)
+    private Farm farm;
 
     /**
      * Role of the user in this specific farm.

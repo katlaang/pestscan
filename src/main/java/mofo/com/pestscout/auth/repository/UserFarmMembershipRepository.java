@@ -51,7 +51,7 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
             select u
             from UserFarmMembership m
             join m.user u
-            where m.farmId = :farmId
+            where m.farm.id = :farmId
               and m.isActive = true
               and (
                    lower(u.firstName) like lower(concat('%', :searchTerm, '%'))
@@ -59,7 +59,10 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
                 or lower(u.email)     like lower(concat('%', :searchTerm, '%'))
               )
             """)
-    Page<User> searchActiveUsersInFarm(@Param("farmId") UUID farmId,
-                                       @Param("searchTerm") String searchTerm,
-                                       Pageable pageable);
+    Page<User> searchActiveUsersInFarm(
+            @Param("farmId") UUID farmId,
+            @Param("searchTerm") String searchTerm,
+            Pageable pageable
+    );
+
 }
