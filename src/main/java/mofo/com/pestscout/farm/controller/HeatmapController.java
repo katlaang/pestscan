@@ -1,7 +1,7 @@
 package mofo.com.pestscout.farm.controller;
 
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.farm.dto.HeatmapResponse;
+import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.farm.service.HeatmapService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

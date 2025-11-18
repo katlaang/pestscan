@@ -2,17 +2,20 @@ package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import mofo.com.pestscout.analytics.dto.HeatmapCellResponse;
+import mofo.com.pestscout.analytics.dto.HeatmapResponse;
+import mofo.com.pestscout.analytics.dto.HeatmapSectionResponse;
+import mofo.com.pestscout.analytics.dto.SeverityLegendEntry;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
-import mofo.com.pestscout.farm.dto.HeatmapCellResponse;
-import mofo.com.pestscout.farm.dto.HeatmapResponse;
-import mofo.com.pestscout.farm.dto.HeatmapSectionResponse;
-import mofo.com.pestscout.farm.dto.SeverityLegendEntry;
-import mofo.com.pestscout.farm.model.*;
+import mofo.com.pestscout.farm.model.Farm;
+import mofo.com.pestscout.farm.model.FieldBlock;
+import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
-import mofo.com.pestscout.farm.repository.ScoutingObservationRepository;
-import mofo.com.pestscout.farm.repository.ScoutingSessionRepository;
-import mofo.com.pestscout.farm.repository.ScoutingSessionTargetRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.scouting.model.*;
+import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;

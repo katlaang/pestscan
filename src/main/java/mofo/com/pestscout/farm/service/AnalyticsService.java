@@ -1,12 +1,13 @@
 package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.FarmWeeklyAnalyticsDto;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
-import mofo.com.pestscout.farm.dto.FarmWeeklyAnalyticsDto;
-import mofo.com.pestscout.farm.model.*;
+import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
-import mofo.com.pestscout.farm.repository.ScoutingObservationRepository;
-import mofo.com.pestscout.farm.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.scouting.model.*;
+import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
