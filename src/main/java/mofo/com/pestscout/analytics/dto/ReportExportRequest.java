@@ -1,4 +1,16 @@
 package mofo.com.pestscout.analytics.dto;
 
-public class ReportExportRequest {
+import java.util.UUID;
+
+public record ReportExportRequest(
+        UUID farmId,
+        int year,
+        int month,
+        ExportFormat format
+) {
+
+    public enum ExportFormat {
+        PDF,
+        EXCEL
+    }
 }

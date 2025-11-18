@@ -1,4 +1,4 @@
-package mofo.com.pestscout.farm.service;
+package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -302,4 +302,13 @@ public class HeatmapService {
             return targetName;
         }
     }
+
+
+    /**
+     * Public accessor for legend (used by analytics monthly service)
+     */
+    public List<SeverityLegendEntry> getSeverityLegend() {
+        return toLegend();
+    }
+
 }

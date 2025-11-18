@@ -1,4 +1,10 @@
 package mofo.com.pestscout.analytics.dto;
 
-public class TrendPointDto {
+import java.time.LocalDate;
+
+public record TrendPointDto(
+        LocalDate date,
+        double severity
+) {
 }
+
