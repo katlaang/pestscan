@@ -6,8 +6,8 @@ import mofo.com.pestscout.analytics.dto.SeverityTrendPointDto;
 import mofo.com.pestscout.analytics.dto.TrendPointDto;
 import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
 import mofo.com.pestscout.scouting.model.ObservationCategory;
-import mofo.com.pestscout.scouting.model.SeverityLevel;
 import mofo.com.pestscout.scouting.model.ScoutingObservation;
+import mofo.com.pestscout.scouting.model.SeverityLevel;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
@@ -72,7 +72,9 @@ public class TrendAnalysisService {
                             counts.redSpider,
                             counts.whiteflies,
                             counts.mealybugs,
-                            counts.fcm
+                            counts.caterpillars,
+                            counts.fcm,
+                            counts.otherPests
                     );
                 })
                 .toList();
@@ -164,7 +166,9 @@ public class TrendAnalysisService {
         int redSpider;
         int whiteflies;
         int mealybugs;
+        int caterpillars;
         int fcm;
+        int otherPests;
 
         void apply(ScoutingObservation observation) {
             int count = Optional.ofNullable(observation.getCount()).orElse(0);

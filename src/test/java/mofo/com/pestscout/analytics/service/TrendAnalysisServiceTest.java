@@ -17,7 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,7 +54,7 @@ class TrendAnalysisServiceTest {
             WeekFields weekFields = WeekFields.ISO;
             int sessionWeek = session.getSessionDate().get(weekFields.weekOfWeekBasedYear());
             WeeklyPestTrendDto matchingWeek = result.stream()
-                    .filter(dto -> dto.weekLabel().equals("W" + sessionWeek))
+                    .filter(dto -> dto.week().equals("W" + sessionWeek))
                     .findFirst()
                     .orElseThrow();
 
@@ -72,8 +71,12 @@ class TrendAnalysisServiceTest {
         LocalDate referenceMonday = LocalDate.of(2024, 6, 3);
 
         ScoutingSession session = sessionOnDate(referenceMonday.minusWeeks(1));
-        ScoutingObservation lowSeverity = observation(session, SpeciesCode.THRIPS, SeverityLevel.LOW.minThreshold());
-        ScoutingObservation highSeverity = observation(session, SpeciesCode.MEALYBUGS, SeverityLevel.HIGH.minThreshold());
+
+        // Use the SeverityLevel overload so the count always falls into the correct bucket
+        ScoutingObservation lowSeverity =
+                observation(session, SpeciesCode.THRIPS, SeverityLevel.LOW);
+        ScoutingObservation highSeverity =
+                observation(session, SpeciesCode.MEALYBUGS, SeverityLevel.HIGH);
 
         mockCurrentDate(referenceMonday, () -> {
             when(sessionRepository.findByFarmIdAndSessionDateBetween(Mockito.eq(farmId), Mockito.any(), Mockito.any()))
@@ -85,7 +88,7 @@ class TrendAnalysisServiceTest {
             WeekFields weekFields = WeekFields.ISO;
             int weekNumber = session.getSessionDate().get(weekFields.weekOfWeekBasedYear());
             SeverityTrendPointDto point = trend.stream()
-                    .filter(dto -> dto.weekLabel().equals("W" + weekNumber))
+                    .filter(dto -> dto.week().equals("W" + weekNumber))
                     .findFirst()
                     .orElseThrow();
 
@@ -120,8 +123,9 @@ class TrendAnalysisServiceTest {
 
         List<TrendPointDto> points = response.points();
         assertThat(points).hasSize(2);
-        assertThat(points.getFirst().count()).isEqualTo(4);
-        assertThat(points.get(1).count()).isEqualTo(6);
+        assertThat(points.getFirst().severity()).isEqualTo(4d);
+        assertThat(points.get(1).severity()).isEqualTo(6d);
+
     }
 
     private ScoutingSession sessionOnDate(LocalDate date) {
@@ -147,19 +151,23 @@ class TrendAnalysisServiceTest {
         return observation;
     }
 
+    // Uses SeverityLevel API (getMinInclusive) instead of a nonexistent minThreshold()
     private ScoutingObservation observation(ScoutingSession session, SpeciesCode species, SeverityLevel level) {
-        int count = Optional.ofNullable(level.minThreshold()).orElse(0);
+        int count = level.getMinInclusive();   // any value in the level’s range would work
         return observation(session, species, count);
     }
 
     private void mockCurrentDate(LocalDate referenceDate, Runnable runnable) {
-        try (MockedStatic<LocalDate> mocked = Mockito.mockStatic(LocalDate.class, invocation -> {
-            if ("now".equals(invocation.getMethod().getName()) && invocation.getArgumentCount() == 0) {
-                return referenceDate;
-            }
-            return invocation.callRealMethod();
-        })) {
+        // Make all LocalDate static calls real methods by default
+        try (MockedStatic<LocalDate> mocked =
+                     Mockito.mockStatic(LocalDate.class, Mockito.CALLS_REAL_METHODS)) {
+
+            // Override only LocalDate.now()
+            mocked.when(LocalDate::now).thenReturn(referenceDate);
+
+            // Run the test code inside this scope
             runnable.run();
         }
     }
+
 }

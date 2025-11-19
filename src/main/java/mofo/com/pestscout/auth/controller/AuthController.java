@@ -10,6 +10,7 @@ import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.service.AuthService;
 import mofo.com.pestscout.auth.service.UserService;
 import mofo.com.pestscout.common.dto.ErrorResponse;
+import mofo.com.pestscout.common.dto.PagedResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -243,7 +244,7 @@ public class AuthController {
     @GetMapping("/users/search")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Search users", description = "Search users by name or email")
-    public ResponseEntity<Page<UserDto>> searchUsers(
+    public ResponseEntity<PagedResponse<UserDto>> searchUsers(
             @RequestParam String q,
             @RequestAttribute("farmId") UUID farmId,
             @RequestAttribute("userId") UUID requestingUserId,
@@ -251,9 +252,20 @@ public class AuthController {
             @RequestParam(defaultValue = "20") int size) {
 
         LOGGER.info("Search users request: '{}' for farm: {} by user: {}", q, farmId, requestingUserId);
+
         Pageable pageable = PageRequest.of(page, size);
         Page<UserDto> users = userService.searchUsers(farmId, q, pageable, requestingUserId);
-        return ResponseEntity.ok(users);
+
+        PagedResponse<UserDto> body = new PagedResponse<>(
+                users.getContent(),
+                users.getNumber(),
+                users.getSize(),
+                users.getTotalElements(),
+                users.getTotalPages(),
+                users.isLast()
+        );
+
+        return ResponseEntity.ok(body);
     }
 
 

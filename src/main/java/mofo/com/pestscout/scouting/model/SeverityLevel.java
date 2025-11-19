@@ -56,4 +56,20 @@ public enum SeverityLevel {
         return Arrays.asList(values());
     }
 
+
+    /**
+     * Backwards-compatible accessor used in tests: returns the minimum inclusive threshold for this level.
+     * Returning an Integer keeps it usable with Optional.ofNullable(...) in tests.
+     */
+    public Integer minThreshold() {
+        return minInclusive;
+    }
+
+    /**
+     * Symmetric accessor for the maximum inclusive threshold.
+     */
+    public Integer maxThreshold() {
+        return maxInclusive;
+    }
+
 }

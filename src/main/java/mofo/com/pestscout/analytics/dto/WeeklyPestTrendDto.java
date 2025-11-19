@@ -6,7 +6,11 @@ public record WeeklyPestTrendDto(
         int redSpider,
         int whiteflies,
         int mealybugs,
-        int fcm
+        int caterpillars,
+        int fcm,
+        int otherPests
 ) {
 }
+
+
 

@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.common.model.BaseEntity;
@@ -26,10 +27,10 @@ import java.util.List;
 )
 @Getter
 @Setter
+@Slf4j
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-@Slf4j
 public class Farm extends BaseEntity {
 
     // ─────────────────────────────────────────────────────────────
