@@ -1,19 +1,26 @@
 package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import mofo.com.pestscout.common.exception.ConflictException;
-import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
-import mofo.com.pestscout.auth.model.Role;
+import mofo.com.pestscout.common.exception.ConflictException;
+import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
-import mofo.com.pestscout.farm.model.*;
+import mofo.com.pestscout.farm.model.Farm;
+import mofo.com.pestscout.farm.model.FarmStructureType;
+import mofo.com.pestscout.farm.model.FieldBlock;
+import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
-import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.farm.security.CurrentUserService;
+import mofo.com.pestscout.farm.security.FarmAccessService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,13 +33,15 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class FarmService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FarmService.class);
 
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
     private final UserRepository userRepository;
+    private final CacheService cacheService;
 
     /**
      * SUPER_ADMIN ONLY.
@@ -41,7 +50,7 @@ public class FarmService {
     @Transactional
     public FarmResponse createFarm(CreateFarmRequest request) {
         farmAccess.requireSuperAdmin();
-        log.info("Creating farm '{}'", request.name());
+        LOGGER.info("Creating farm '{}'", request.name());
 
         farmRepository.findByNameIgnoreCase(request.name()).ifPresent(existing -> {
             throw new ConflictException("Farm already exists: " + request.name());
@@ -50,7 +59,7 @@ public class FarmService {
         Farm farm = toFarmEntity(request);
         Farm saved = farmRepository.save(farm);
 
-        log.info("Farm '{}' created with id {}", saved.getName(), saved.getId());
+        LOGGER.info("Farm '{}' created with id {}", saved.getName(), saved.getId());
         return mapToResponse(saved);
     }
 
@@ -58,8 +67,11 @@ public class FarmService {
      * Updates farm information.
      * SUPER_ADMIN can update all fields.
      * FARM_ADMIN/MANAGER can only update non-license fields.
+     *
+     * Cache is evicted after update to ensure fresh data.
      */
     @Transactional
+    @CacheEvict(value = "farms", key = "#farmId.toString()")
     public FarmResponse updateFarm(UUID farmId, UpdateFarmRequest request) {
 
         Farm farm = farmRepository.findById(farmId)
@@ -68,7 +80,7 @@ public class FarmService {
         // Access: super admin OR farm owner/manager
         farmAccess.requireAdminOrSuperAdmin(farm);
 
-        log.info("Updating farm {} ({})", farm.getName(), farm.getId());
+        LOGGER.info("Updating farm {} ({})", farm.getName(), farm.getId());
 
         // Enforce name uniqueness
         if (!farm.getName().equalsIgnoreCase(request.name())) {
@@ -84,7 +96,10 @@ public class FarmService {
 
         Farm saved = farmRepository.save(farm);
 
-        log.info("Farm '{}' updated successfully", saved.getName());
+        // Clear all related caches (greenhouses, sessions, analytics, etc.)
+        cacheService.evictFarmCaches(farmId);
+
+        LOGGER.info("Farm '{}' updated successfully", saved.getName());
         return mapToResponse(saved);
     }
 
@@ -93,10 +108,17 @@ public class FarmService {
      * SUPER_ADMIN sees all.
      * FARM_ADMIN/MANAGER sees only farms they own.
      * SCOUT sees only the farm they are assigned to.
+     *
+     * Cached per user role to improve performance.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "farms-list",
+            key = "#root.target.currentUserService.currentUserId.toString() + '::' + #root.target.farmAccess.currentUserRole.name()",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<FarmResponse> listFarms() {
-        log.info("Listing farms for current user");
+        LOGGER.info("Listing farms for current user");
         List<Farm> farms;
 
         switch (farmAccess.getCurrentUserRole()) {
@@ -116,8 +138,14 @@ public class FarmService {
 
     /**
      * Loads a single farm.
+     * Cached for 2 hours since farm metadata rarely changes.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "farms",
+            key = "#farmId.toString()",
+            unless = "#result == null"
+    )
     public FarmResponse getFarm(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));

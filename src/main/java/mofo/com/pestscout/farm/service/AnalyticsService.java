@@ -8,6 +8,9 @@ import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +22,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class AnalyticsService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AnalyticsService.class);
+
     private final FarmRepository farmRepository;
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
@@ -26,9 +31,19 @@ public class AnalyticsService {
     /**
      * Compute basic weekly analytics for a farm:
      * session counts, observation counts and severity distribution.
+     *
+     * Cached for 30 minutes since this is an expensive aggregation query.
+     * Cache key includes farmId, week, and year to ensure correct data per time period.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "analytics",
+            key = "#farmId.toString() + '::week=' + #week + '::year=' + #year",
+            unless = "#result == null || #result.totalObservations() == 0"
+    )
     public FarmWeeklyAnalyticsDto computeWeeklyAnalytics(UUID farmId, int week, int year) {
+        LOGGER.info("Computing weekly analytics for farm {} week {} year {}", farmId, week, year);
+
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
@@ -50,6 +65,7 @@ public class AnalyticsService {
                 .count();
 
         if (sessions.isEmpty()) {
+            LOGGER.debug("No sessions found for farm {} week {} year {}", farmId, week, year);
             return new FarmWeeklyAnalyticsDto(
                     farm.getId(),
                     farm.getName(),
@@ -101,6 +117,9 @@ public class AnalyticsService {
         long totalObservations =
                 pestObservations + diseaseObservations + beneficialObservations;
 
+        LOGGER.debug("Computed analytics for farm {} week {} year {}: {} observations",
+                farmId, week, year, totalObservations);
+
         return new FarmWeeklyAnalyticsDto(
                 farm.getId(),
                 farm.getName(),
@@ -118,4 +137,3 @@ public class AnalyticsService {
         );
     }
 }
-

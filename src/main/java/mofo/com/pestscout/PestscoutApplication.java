@@ -8,10 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Entry point for the Pestscout Spring Boot application. Bootstraps the application context and logs lifecycle events.
  */
-@SpringBootApplication(exclude = {
-        org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration.class,
-        org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration.class
-})
+@SpringBootApplication
 public class PestscoutApplication {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PestscoutApplication.class);
