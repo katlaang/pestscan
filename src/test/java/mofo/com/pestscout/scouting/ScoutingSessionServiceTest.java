@@ -4,7 +4,9 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.common.exception.BadRequestException;
+import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
@@ -28,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 
@@ -63,6 +66,9 @@ class ScoutingSessionServiceTest {
 
     @Mock
     private FarmAccessService farmAccessService;
+
+    @Mock
+    private CacheService cacheService;
 
     @InjectMocks
     private ScoutingSessionService scoutingSessionService;
@@ -542,6 +548,7 @@ class ScoutingSessionServiceTest {
         ScoutingObservation observation = ScoutingObservation.builder()
                 .id(UUID.randomUUID())
                 .session(testSession)
+                .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
                 .build();
         testSession.addObservation(observation);
 
@@ -553,7 +560,7 @@ class ScoutingSessionServiceTest {
 
         // Assert
         verify(farmAccessService).requireScoutOfFarm(testFarm);
-        verify(observationRepository).delete(observation);
+        verify(observationRepository).save(argThat(saved -> saved.isDeleted() && saved.getDeletedAt() != null));
     }
 
     @Test
@@ -571,7 +578,261 @@ class ScoutingSessionServiceTest {
         ))
                 .isInstanceOf(ResourceNotFoundException.class);
 
-        verify(observationRepository, never()).delete(any());
+        verify(observationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should reject bulk payload with mismatched session id")
+    void bulkUpsertObservations_WithMismatchedSession_ThrowsBadRequest() {
+        BulkUpsertObservationsRequest request = new BulkUpsertObservationsRequest(
+                UUID.randomUUID(),
+                List.of()
+        );
+
+        assertThatThrownBy(() -> scoutingSessionService.bulkUpsertObservations(testSession.getId(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Bulk payload does not match session");
+    }
+
+    @Test
+    @DisplayName("Should perform bulk upsert and return observations")
+    void bulkUpsertObservations_WithValidPayload_ProcessesAll() {
+        // Arrange
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest obsRequest = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.THRIPS,
+                0,
+                "Bay-0",
+                0,
+                "Bench-0",
+                0,
+                2,
+                "Bulk",
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
+                .thenReturn(Optional.of(target));
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                any(), any(), any(), any(), any(), any()
+        ))
+                .thenReturn(Optional.empty());
+        when(observationRepository.save(any(ScoutingObservation.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        BulkUpsertObservationsRequest bulkRequest = new BulkUpsertObservationsRequest(
+                testSession.getId(),
+                List.of(obsRequest)
+        );
+
+        // Act
+        List<ScoutingObservationDto> results = scoutingSessionService.bulkUpsertObservations(testSession.getId(), bulkRequest);
+
+        // Assert
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().count()).isEqualTo(2);
+        verify(observationRepository, times(1)).save(any(ScoutingObservation.class));
+    }
+
+    @Test
+    @DisplayName("Should enforce idempotency across sessions")
+    void upsertObservation_WithDuplicateClientRequestInOtherSession_ThrowsConflict() {
+        // Arrange
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UUID requestId = UUID.randomUUID();
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.WHITEFLY,
+                1,
+                "Bay-1",
+                1,
+                "Bench-1",
+                1,
+                4,
+                "note",
+                null,
+                requestId
+        );
+
+        ScoutingSession otherSession = ScoutingSession.builder()
+                .id(UUID.randomUUID())
+                .farm(testFarm)
+                .manager(manager)
+                .scout(scout)
+                .observations(new ArrayList<>())
+                .targets(new ArrayList<>())
+                .recommendations(new EnumMap<>(RecommendationType.class))
+                .build();
+
+        ScoutingObservation existing = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(otherSession)
+                .clientRequestId(requestId)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.WHITEFLY)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(3)
+                .build();
+
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
+                .thenReturn(Optional.of(target));
+        when(observationRepository.findByClientRequestId(requestId))
+                .thenReturn(Optional.of(existing));
+
+        // Act & Assert
+        assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Idempotency key already used for another session");
+    }
+
+    @Test
+    @DisplayName("Should reject stale version when updating observation")
+    void upsertObservation_WithStaleVersion_ThrowsConflict() {
+        // Arrange
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        ScoutingObservation existing = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.APHIDS)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(1)
+                .build();
+        existing.setVersion(5L);
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.APHIDS,
+                1,
+                "Bay-1",
+                1,
+                "Bench-1",
+                1,
+                2,
+                "stale",
+                1L
+        );
+
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
+                .thenReturn(Optional.of(target));
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                any(), any(), any(), any(), any(), any()
+        ))
+                .thenReturn(Optional.of(existing));
+
+        // Act & Assert
+        assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("has changed on the server");
+    }
+
+    @Test
+    @DisplayName("Should return changed sessions and observations since timestamp")
+    void syncChanges_WithUpdates_ReturnsOnlyChangedRecords() {
+        // Arrange
+        LocalDateTime since = LocalDateTime.now().minusDays(1);
+        ScoutingSession updatedSession = testSession;
+        updatedSession.setUpdatedAt(LocalDateTime.now());
+
+        ScoutingObservation changedObs = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
+                .speciesCode(SpeciesCode.WHITEFLY)
+                .bayIndex(0)
+                .benchIndex(0)
+                .spotIndex(0)
+                .count(2)
+                .build();
+        changedObs.setUpdatedAt(LocalDateTime.now());
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(sessionRepository.findByFarmIdAndUpdatedAtAfter(testFarm.getId(), since))
+                .thenReturn(List.of(updatedSession));
+        when(sessionRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(testSession));
+        when(observationRepository.findBySessionIdInAndUpdatedAtAfter(anyList(), eq(since)))
+                .thenReturn(List.of(changedObs));
+        when(sessionRepository.findAllById(anyIterable())).thenReturn(List.of(updatedSession));
+
+        // Act
+        ScoutingSyncResponse response = scoutingSessionService.syncChanges(testFarm.getId(), since, false);
+
+        // Assert
+        assertThat(response.sessions()).hasSize(1);
+        assertThat(response.observations()).hasSize(1);
+        assertThat(response.observations().getFirst().deleted()).isFalse();
+        verify(farmAccessService).requireViewAccess(testFarm);
+    }
+
+    @Test
+    @DisplayName("Should include soft-deleted observations when requested")
+    void syncChanges_WithIncludeDeleted_ReturnsDeletedObservations() {
+        // Arrange
+        LocalDateTime since = LocalDateTime.now().minusDays(1);
+        ScoutingObservation deletedObs = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
+                .speciesCode(SpeciesCode.WHITEFLY)
+                .bayIndex(0)
+                .benchIndex(0)
+                .spotIndex(0)
+                .count(2)
+                .build();
+        deletedObs.markDeleted();
+        deletedObs.setUpdatedAt(LocalDateTime.now());
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(sessionRepository.findByFarmIdAndUpdatedAtAfter(testFarm.getId(), since))
+                .thenReturn(List.of());
+        when(sessionRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(testSession));
+        when(observationRepository.findBySessionIdInAndUpdatedAtAfter(anyList(), eq(since)))
+                .thenReturn(List.of(deletedObs));
+        when(sessionRepository.findAllById(anyIterable())).thenReturn(List.of(testSession));
+
+        // Act
+        ScoutingSyncResponse response = scoutingSessionService.syncChanges(testFarm.getId(), since, true);
+
+        // Assert
+        assertThat(response.observations()).hasSize(1);
+        assertThat(response.observations().getFirst().deleted()).isTrue();
     }
 
     @Test
