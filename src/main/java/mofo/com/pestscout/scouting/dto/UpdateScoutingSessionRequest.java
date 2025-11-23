@@ -27,7 +27,8 @@ public record UpdateScoutingSessionRequest(
         BigDecimal relativeHumidityPercent,
         LocalTime observationTime,
         String weatherNotes,
-        String notes
+        String notes,
+        Long version
 ) {
 }
 
