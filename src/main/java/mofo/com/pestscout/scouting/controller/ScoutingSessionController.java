@@ -6,11 +6,13 @@ import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -70,6 +72,15 @@ public class ScoutingSessionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(observation);
     }
 
+    @PostMapping("/{sessionId}/observations/bulk")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','SCOUT')")
+    public ResponseEntity<List<ScoutingObservationDto>> bulkUpsertObservations(@PathVariable UUID sessionId,
+                                                                               @Valid @RequestBody BulkUpsertObservationsRequest request) {
+        LOGGER.info("POST /api/scouting/sessions/{}/observations/bulk — bulk upsert {} rows", sessionId, request.observations().size());
+        List<ScoutingObservationDto> observations = sessionService.bulkUpsertObservations(sessionId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(observations);
+    }
+
     @DeleteMapping("/{sessionId}/observations/{observationId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','SCOUT')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -91,5 +102,16 @@ public class ScoutingSessionController {
     public ResponseEntity<List<ScoutingSessionDetailDto>> listSessions(@RequestParam UUID farmId) {
         LOGGER.info("GET /api/scouting/sessions — listing sessions for farm {}", farmId);
         return ResponseEntity.ok(sessionService.listSessions(farmId));
+    }
+
+    @GetMapping("/sync")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ScoutingSyncResponse> syncSessions(
+            @RequestParam UUID farmId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since,
+            @RequestParam(defaultValue = "false") boolean includeDeleted
+    ) {
+        LOGGER.info("GET /api/scouting/sessions/sync — changes for farm {} since {}", farmId, since);
+        return ResponseEntity.ok(sessionService.syncChanges(farmId, since, includeDeleted));
     }
 }

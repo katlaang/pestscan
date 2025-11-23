@@ -5,6 +5,8 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.util.UUID;
+
 /**
  * One row = one species at one grid cell (bay, bench, spot) in a session.
  */
@@ -59,6 +61,9 @@ public class ScoutingObservation extends BaseEntity {
 
     @Column(name = "notes", length = 2000)
     private String notes;
+
+    @Column(name = "client_request_id", unique = true)
+    private UUID clientRequestId;
 
     /**
      * Derived category for convenience in code and queries.
