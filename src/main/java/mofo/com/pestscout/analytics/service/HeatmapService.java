@@ -1,7 +1,6 @@
-package mofo.com.pestscout.farm.service;
+package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.analytics.dto.HeatmapCellResponse;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.HeatmapSectionResponse;
@@ -16,6 +15,9 @@ import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -32,8 +34,9 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class HeatmapService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(HeatmapService.class);
 
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
@@ -47,9 +50,17 @@ public class HeatmapService {
      * - Uses ISO week and year.
      * - Aggregates all sessions in that week.
      * - Enforces farm view access using FarmAccessService.
+     *
+     * Cached for 15 minutes since heatmap calculation is expensive
+     * but must reflect recent observation data.
      */
+    @Cacheable(
+            value = "heatmap",
+            key = "#farmId.toString() + '::week=' + #week + '::year=' + #year",
+            unless = "#result == null || #result.cells().isEmpty()"
+    )
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {
-        log.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);
+        LOGGER.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);
 
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
@@ -65,7 +76,7 @@ public class HeatmapService {
                 .findByFarmIdAndSessionDateBetween(farmId, weekStart, weekEnd);
 
         if (sessions.isEmpty()) {
-            log.info("No scouting sessions found for farm {} in week {} of {}", farmId, week, year);
+            LOGGER.info("No scouting sessions found for farm {} in week {} of {}", farmId, week, year);
             return emptyResponse(farm, week, year);
         }
 
@@ -126,6 +137,9 @@ public class HeatmapService {
                 .sorted(Comparator.comparing(SectionAccumulator::getTargetName, String.CASE_INSENSITIVE_ORDER))
                 .map(SectionAccumulator::toResponse)
                 .toList();
+
+        LOGGER.debug("Generated heatmap for farm {} week {} year {}: {} cells, {} sections",
+                farmId, week, year, farmCells.size(), sectionResponses.size());
 
         return HeatmapResponse.builder()
                 .farmId(farmId)
@@ -302,4 +316,13 @@ public class HeatmapService {
             return targetName;
         }
     }
+
+
+    /**
+     * Public accessor for legend (used by analytics monthly service)
+     */
+    public List<SeverityLegendEntry> getSeverityLegend() {
+        return toLegend();
+    }
+
 }

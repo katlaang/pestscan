@@ -4,14 +4,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.annotation.EnableCaching;
 
 /**
  * Entry point for the Pestscout Spring Boot application. Bootstraps the application context and logs lifecycle events.
  */
-@SpringBootApplication(exclude = {
-        org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration.class,
-        org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration.class
-})
+@SpringBootApplication
+@EnableCaching
 public class PestscoutApplication {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PestscoutApplication.class);

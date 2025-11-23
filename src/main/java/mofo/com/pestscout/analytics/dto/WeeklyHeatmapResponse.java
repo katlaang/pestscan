@@ -1,4 +1,13 @@
 package mofo.com.pestscout.analytics.dto;
 
-public class WeeklyHeatmapResponse {
+import java.time.LocalDate;
+import java.util.List;
+
+public record WeeklyHeatmapResponse(
+        int weekNumber,
+        LocalDate rangeStart,
+        LocalDate rangeEnd,
+        List<HeatmapSectionResponse> sections
+) {
 }
+

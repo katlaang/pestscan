@@ -6,6 +6,7 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.model.Greenhouse;
@@ -19,6 +20,7 @@ import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class ScoutingSessionService {
     private final GreenhouseRepository greenhouseRepository;
     private final CurrentUserService currentUserService;
     private final FarmAccessService farmAccessService;
+    private final CacheService cacheService;
 
     /**
      * Create a new scouting session for a farm.
@@ -77,6 +80,7 @@ public class ScoutingSessionService {
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
+        cacheService.evictSessionCaches(farm.getId(), saved.getId());
         return mapToDetailDto(saved);
     }
 
@@ -128,6 +132,7 @@ public class ScoutingSessionService {
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Updated scouting session {}", saved.getId());
+        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -152,6 +157,7 @@ public class ScoutingSessionService {
         session.setStatus(SessionStatus.IN_PROGRESS);
 
         ScoutingSession saved = sessionRepository.save(session);
+        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -182,6 +188,7 @@ public class ScoutingSessionService {
         session.setConfirmationAcknowledged(true);
 
         ScoutingSession saved = sessionRepository.save(session);
+        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -204,6 +211,7 @@ public class ScoutingSessionService {
         session.setCompletedAt(null);
 
         ScoutingSession saved = sessionRepository.save(session);
+        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -263,6 +271,7 @@ public class ScoutingSessionService {
         observation.setBenchLabel(request.benchTag());
 
         ScoutingObservation saved = observationRepository.save(observation);
+        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
         return mapToObservationDto(saved);
     }
 
@@ -279,12 +288,18 @@ public class ScoutingSessionService {
         ensureSessionEditableForObservations(observation.getSession());
         observation.getSession().removeObservation(observation);
         observationRepository.delete(observation);
+        cacheService.evictSessionCaches(observation.getSession().getFarm().getId(), observation.getSession().getId());
     }
 
     /**
      * Load one session with all its observations and recommendations.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "session-detail",
+            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            unless = "#result == null"
+    )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
@@ -296,6 +311,11 @@ public class ScoutingSessionService {
      * List all sessions for a farm, newest first.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "sessions-list",
+            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));

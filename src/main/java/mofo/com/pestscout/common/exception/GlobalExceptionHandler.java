@@ -8,8 +8,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -143,5 +145,47 @@ public class GlobalExceptionHandler {
      */
     private String formatFieldError(FieldError error) {
         return "%s: %s".formatted(error.getField(), error.getDefaultMessage());
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingRequestParam(
+            MissingServletRequestParameterException ex,
+            HttpServletRequest request
+    ) {
+        String detail = "Missing required request parameter: " + ex.getParameterName();
+
+        LOGGER.warn("Missing request parameter [param={}, path={}]", ex.getParameterName(), request.getRequestURI());
+
+        ErrorResponse body = ErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .errorCode("BAD_REQUEST")
+                .message("Required request parameter is missing")
+                .path(request.getRequestURI())
+                .details(List.of(detail))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request
+    ) {
+        String detail = "Invalid value for parameter '%s': '%s'"
+                .formatted(ex.getName(), ex.getValue());
+
+        LOGGER.warn("Type mismatch for request parameter [param={}, value={}, path={}]",
+                ex.getName(), ex.getValue(), request.getRequestURI());
+
+        ErrorResponse body = ErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .errorCode("BAD_REQUEST")
+                .message("Request parameter has invalid format")
+                .path(request.getRequestURI())
+                .details(List.of(detail))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 }

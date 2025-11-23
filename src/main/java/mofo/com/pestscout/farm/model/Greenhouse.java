@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.util.ArrayList;
@@ -17,9 +18,9 @@ import java.util.List;
 )
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@SuperBuilder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class Greenhouse extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

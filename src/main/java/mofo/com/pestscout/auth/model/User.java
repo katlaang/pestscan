@@ -2,6 +2,7 @@ package mofo.com.pestscout.auth.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.time.LocalDateTime;
@@ -10,13 +11,14 @@ import java.time.LocalDateTime;
  * User entity representing system users
  * Maps to the 'users' table in the database
  */
+
 @Entity
 @Table(name = "users")
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@SuperBuilder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseEntity {
 
 
