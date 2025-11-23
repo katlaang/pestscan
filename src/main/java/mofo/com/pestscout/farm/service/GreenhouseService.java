@@ -10,6 +10,8 @@ import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.common.service.CacheService;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ public class GreenhouseService {
     private final FarmRepository farmRepository;
     private final GreenhouseRepository greenhouseRepository;
     private final FarmAccessService farmAccessService;
+    private final CacheService cacheService;
 
     @Transactional
     public GreenhouseDto createGreenhouse(UUID farmId, CreateGreenhouseRequest request) {
@@ -44,6 +47,7 @@ public class GreenhouseService {
                 .build();
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
+        cacheService.evictFarmCaches(farmId);
         return toDto(saved);
     }
 
@@ -78,6 +82,7 @@ public class GreenhouseService {
         }
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
+        cacheService.evictFarmCaches(greenhouse.getFarm().getId());
         return toDto(saved);
     }
 
@@ -88,9 +93,15 @@ public class GreenhouseService {
 
         farmAccessService.requireSuperAdmin();
         greenhouseRepository.delete(greenhouse);
+        cacheService.evictFarmCaches(greenhouse.getFarm().getId());
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "greenhouses",
+            key = "'detail::' + #greenhouseId.toString()",
+            unless = "#result == null"
+    )
     public GreenhouseDto getGreenhouse(UUID greenhouseId) {
         Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
@@ -99,6 +110,11 @@ public class GreenhouseService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "greenhouses",
+            key = "'farm::' + #farmId.toString()",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<GreenhouseDto> listGreenhouses(UUID farmId) {
         return greenhouseRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(Greenhouse::getName, String.CASE_INSENSITIVE_ORDER))

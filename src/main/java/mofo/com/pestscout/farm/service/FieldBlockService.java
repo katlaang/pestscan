@@ -10,6 +10,8 @@ import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.FieldBlockRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.common.service.CacheService;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ public class FieldBlockService {
     private final FarmRepository farmRepository;
     private final FieldBlockRepository fieldBlockRepository;
     private final FarmAccessService farmAccessService;
+    private final CacheService cacheService;
 
     @Transactional
     public FieldBlockDto createFieldBlock(UUID farmId, CreateFieldBlockRequest request) {
@@ -42,6 +45,7 @@ public class FieldBlockService {
                 .build();
 
         FieldBlock saved = fieldBlockRepository.save(block);
+        cacheService.evictFarmCaches(farmId);
         return toDto(saved);
     }
 
@@ -72,6 +76,7 @@ public class FieldBlockService {
         }
 
         FieldBlock saved = fieldBlockRepository.save(block);
+        cacheService.evictFarmCaches(block.getFarm().getId());
         return toDto(saved);
     }
 
@@ -82,9 +87,15 @@ public class FieldBlockService {
 
         farmAccessService.requireSuperAdmin();
         fieldBlockRepository.delete(block);
+        cacheService.evictFarmCaches(block.getFarm().getId());
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "field-blocks",
+            key = "'detail::' + #fieldBlockId.toString()",
+            unless = "#result == null"
+    )
     public FieldBlockDto getFieldBlock(UUID fieldBlockId) {
         FieldBlock block = fieldBlockRepository.findById(fieldBlockId)
                 .orElseThrow(() -> new ResourceNotFoundException("FieldBlock", "id", fieldBlockId));
@@ -93,6 +104,11 @@ public class FieldBlockService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "field-blocks",
+            key = "'farm::' + #farmId.toString()",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<FieldBlockDto> listFieldBlocks(UUID farmId) {
         return fieldBlockRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(FieldBlock::getName, String.CASE_INSENSITIVE_ORDER))

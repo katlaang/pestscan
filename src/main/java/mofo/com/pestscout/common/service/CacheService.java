@@ -40,10 +40,10 @@ public class CacheService {
     public void evictFarmCaches(UUID farmId) {
         LOGGER.info("Evicting all caches for farm {}", farmId);
 
-        evictCache(RedisCacheConfig.CACHE_FARMS, farmId.toString());
-        evictCache(RedisCacheConfig.CACHE_GREENHOUSES, farmId.toString());
-        evictCache(RedisCacheConfig.CACHE_FIELD_BLOCKS, farmId.toString());
-        evictCache(RedisCacheConfig.CACHE_SESSIONS_LIST, farmId.toString());
+        clearCache(RedisCacheConfig.CACHE_FARMS);
+        clearCache(RedisCacheConfig.CACHE_GREENHOUSES);
+        clearCache(RedisCacheConfig.CACHE_FIELD_BLOCKS);
+        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
 
         // Analytics and heatmap caches use composite keys, clear all for this farm
         evictCachesByPrefix(RedisCacheConfig.CACHE_ANALYTICS, farmId.toString());
@@ -61,8 +61,8 @@ public class CacheService {
     public void evictSessionCaches(UUID farmId, UUID sessionId) {
         LOGGER.info("Evicting session caches for session {} in farm {}", sessionId, farmId);
 
-        evictCache(RedisCacheConfig.CACHE_SESSION_DETAIL, sessionId.toString());
-        evictCache(RedisCacheConfig.CACHE_SESSIONS_LIST, farmId.toString());
+        clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
+        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
 
         // Session changes affect analytics and heatmaps
         evictCachesByPrefix(RedisCacheConfig.CACHE_ANALYTICS, farmId.toString());
@@ -95,7 +95,10 @@ public class CacheService {
      */
     public void evictUserCache(UUID userId) {
         LOGGER.info("Evicting user cache for user {}", userId);
-        evictCache(RedisCacheConfig.CACHE_USERS, userId.toString());
+        // User cache keys include the requesting user id (for permission-aware responses).
+        // Because we cannot enumerate every requester combination here, clear by prefix
+        // to avoid leaving behind stale permission-scoped entries after updates.
+        evictCachesByPrefix(RedisCacheConfig.CACHE_USERS, userId.toString());
     }
 
     /**
@@ -150,6 +153,16 @@ public class CacheService {
         if (cache != null) {
             cache.evict(key);
             LOGGER.trace("Evicted cache entry: {} -> {}", cacheName, key);
+        } else {
+            LOGGER.warn("Cache not found: {}", cacheName);
+        }
+    }
+
+    private void clearCache(String cacheName) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.clear();
+            LOGGER.trace("Cleared entire cache: {}", cacheName);
         } else {
             LOGGER.warn("Cache not found: {}", cacheName);
         }
