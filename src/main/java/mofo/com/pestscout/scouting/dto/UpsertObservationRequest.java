@@ -16,6 +16,7 @@ public record UpsertObservationRequest(
         @NotNull Integer spotIndex,
         @NotNull Integer count,
         String notes,
+        UUID clientRequestId,
         Long version    // can be null when inserting a new observation
 ) {
 }

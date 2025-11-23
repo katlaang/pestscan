@@ -40,6 +40,7 @@ public record ScoutingSessionDetailDto(
 
         LocalDateTime startedAt,
         LocalDateTime completedAt,
+        LocalDateTime updatedAt,
         boolean confirmationAcknowledged,
 
         List<ScoutingSessionSectionDto> sections,
