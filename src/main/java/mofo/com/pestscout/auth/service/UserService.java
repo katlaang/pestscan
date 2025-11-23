@@ -13,6 +13,9 @@ import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
+import mofo.com.pestscout.common.service.CacheService;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +40,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserFarmMembershipRepository membershipRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CacheService cacheService;
 
     /**
      * Validate if the requesting user is allowed to access the target user.
@@ -93,6 +97,11 @@ public class UserService {
      * Get a single user by ID with authorization.
      */
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = "users",
+            key = "#userId.toString() + '::requester=' + #requestingUserId",
+            unless = "#result == null"
+    )
     public UserDto getUserById(UUID userId, UUID requestingUserId) {
         User requester = userRepository.findById(requestingUserId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
@@ -142,6 +151,7 @@ public class UserService {
      * Update user details with authorization.
      */
     @Transactional
+    @CacheEvict(value = "users", allEntries = true)
     public UserDto updateUser(UUID userId, UpdateUserRequest request, UUID requestingUserId) {
         User requester = userRepository.findById(requestingUserId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
@@ -183,6 +193,8 @@ public class UserService {
         User updated = userRepository.save(targetUser);
         log.info("User updated successfully: {}", updated.getEmail());
 
+        cacheService.evictUserCache(userId);
+
         return convertToDto(updated);
     }
 
@@ -190,6 +202,7 @@ public class UserService {
      * Soft delete a user by disabling them.
      */
     @Transactional
+    @CacheEvict(value = "users", allEntries = true)
     public void deleteUser(UUID userId, UUID requestingUserId) {
         User requester = userRepository.findById(requestingUserId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
@@ -203,6 +216,8 @@ public class UserService {
         userRepository.save(targetUser);
 
         log.info("User {} disabled user {}", requestingUserId, userId);
+
+        cacheService.evictUserCache(userId);
     }
 
     /**
