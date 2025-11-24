@@ -34,14 +34,14 @@ class ReportExportServiceTest {
     @Test
     void export_buildsFileNameAndUrl() {
         UUID farmId = UUID.randomUUID();
-        ReportExportRequest request = new ReportExportRequest(farmId, 2024, 3, ReportExportRequest.Format.PDF);
+        ReportExportRequest request = new ReportExportRequest(farmId, 2024, 3, ReportExportRequest.ExportFormat.PDF);
 
         when(reportingService.getMonthlyReport(farmId, 2024, 3)).thenReturn(null);
 
         ReportExportResponse response = reportExportService.export(request);
 
         assertThat(response.fileName()).isEqualTo("report-" + farmId + "-2024-3");
-        assertThat(response.url()).endsWith("report-" + farmId + "-2024-3.pdf");
+        assertThat(response.downloadUrl()).endsWith("report-" + farmId + "-2024-3.pdf");
         verify(reportingService).getMonthlyReport(farmId, 2024, 3);
     }
 }

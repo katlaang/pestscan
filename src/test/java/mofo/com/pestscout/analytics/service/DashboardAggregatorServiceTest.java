@@ -84,9 +84,9 @@ class DashboardAggregatorServiceTest {
         PestDistributionItemDto pestDistribution = new PestDistributionItemDto("thrips", 10, 100.0, "moderate");
         DiseaseDistributionItemDto diseaseDistribution = new DiseaseDistributionItemDto("powdery", 5, 50.0, "low");
         AlertDto alert = new AlertDto("Edmonton", "whiteflies", "LOW", 1, LocalDate.now().toString());
-        RecommendationDto recommendation = new RecommendationDto("apply", "thrips", LocalDate.now().toString());
-        FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1.0, 3.0);
-        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 1.5, 2.0);
+        RecommendationDto recommendation = new RecommendationDto("Scout", "Farm", "apply", "critical", "completed", LocalDate.now().toString());
+        FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1, 3);
+        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 75, "2m");
 
         try (MockedStatic<LocalDate> localDateMock = mockStatic(LocalDate.class)) {
             LocalDate today = LocalDate.of(2024, 1, 10);
