@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,7 +49,7 @@ class FieldBlockServiceTest {
         Farm farm = new Farm();
         farm.setId(farmId);
 
-        CreateFieldBlockRequest request = new CreateFieldBlockRequest("Block A", 2, 1, List.of(" north ", "north", null), true);
+        CreateFieldBlockRequest request = new CreateFieldBlockRequest("Block A", 2, 1, Arrays.asList(" north ", "north", null), true);
 
         when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
         when(fieldBlockRepository.save(any(FieldBlock.class))).thenAnswer(invocation -> {

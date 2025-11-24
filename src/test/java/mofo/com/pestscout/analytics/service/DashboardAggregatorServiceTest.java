@@ -6,10 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.temporal.WeekFields;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,11 +58,15 @@ class DashboardAggregatorServiceTest {
                 List.of()
         );
 
+        LocalDate today = LocalDate.now();
+        int week = today.get(WeekFields.ISO.weekOfWeekBasedYear());
+        int year = today.getYear();
+
         HeatmapResponse heatmap = HeatmapResponse.builder()
                 .farmId(farmId)
                 .farmName("Farm")
-                .week(2)
-                .year(2024)
+                .week(week)
+                .year(year)
                 .bayCount(1)
                 .benchesPerBay(1)
                 .cells(List.of(HeatmapCellResponse.builder()
@@ -84,37 +88,32 @@ class DashboardAggregatorServiceTest {
         PestDistributionItemDto pestDistribution = new PestDistributionItemDto("thrips", 10, 100.0, "moderate");
         DiseaseDistributionItemDto diseaseDistribution = new DiseaseDistributionItemDto("powdery", 5, 50.0, "low");
         AlertDto alert = new AlertDto("Edmonton", "whiteflies", "LOW", 1, LocalDate.now().toString());
-        RecommendationDto recommendation = new RecommendationDto("apply", "thrips", LocalDate.now().toString());
-        FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1.0, 3.0);
-        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 1.5, 2.0);
+        RecommendationDto recommendation = new RecommendationDto("Scout", "Farm", "apply", "critical", "completed", LocalDate.now().toString());
+        FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1, 3);
+        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 75, "2m");
 
-        try (MockedStatic<LocalDate> localDateMock = mockStatic(LocalDate.class)) {
-            LocalDate today = LocalDate.of(2024, 1, 10);
-            localDateMock.when(LocalDate::now).thenReturn(today);
+        when(dashboardService.getDashboard(farmId)).thenReturn(summaryDto);
+        when(heatmapService.generateHeatmap(farmId, week, year)).thenReturn(heatmap);
+        when(trendAnalysisService.getWeeklyPestTrends(farmId)).thenReturn(List.of(weeklyTrend));
+        when(trendAnalysisService.getSeverityTrend(farmId)).thenReturn(List.of(severityTrendPoint));
+        when(reportingService.getPestDistribution(farmId)).thenReturn(List.of(pestDistribution));
+        when(reportingService.getDiseaseDistribution(farmId)).thenReturn(List.of(diseaseDistribution));
+        when(reportingService.getAlerts(farmId)).thenReturn(List.of(alert));
+        when(reportingService.getRecommendations(farmId)).thenReturn(List.of(recommendation));
+        when(reportingService.getFarmComparison()).thenReturn(List.of(farmComparison));
+        when(reportingService.getScoutPerformance(farmId)).thenReturn(List.of(scoutPerformance));
 
-            when(dashboardService.getDashboard(farmId)).thenReturn(summaryDto);
-            when(heatmapService.generateHeatmap(farmId, 2, 2024)).thenReturn(heatmap);
-            when(trendAnalysisService.getWeeklyPestTrends(farmId)).thenReturn(List.of(weeklyTrend));
-            when(trendAnalysisService.getSeverityTrend(farmId)).thenReturn(List.of(severityTrendPoint));
-            when(reportingService.getPestDistribution(farmId)).thenReturn(List.of(pestDistribution));
-            when(reportingService.getDiseaseDistribution(farmId)).thenReturn(List.of(diseaseDistribution));
-            when(reportingService.getAlerts(farmId)).thenReturn(List.of(alert));
-            when(reportingService.getRecommendations(farmId)).thenReturn(List.of(recommendation));
-            when(reportingService.getFarmComparison()).thenReturn(List.of(farmComparison));
-            when(reportingService.getScoutPerformance(farmId)).thenReturn(List.of(scoutPerformance));
+        DashboardDto dashboard = aggregatorService.getFullDashboard(farmId);
 
-            DashboardDto dashboard = aggregatorService.getFullDashboard(farmId);
-
-            assertThat(dashboard.summary()).isEqualTo(summaryDto);
-            assertThat(dashboard.heatmap()).containsExactlyElementsOf(heatmap.cells());
-            assertThat(dashboard.weeklyTrends()).containsExactly(weeklyTrend);
-            assertThat(dashboard.severityTrend()).containsExactly(severityTrendPoint);
-            assertThat(dashboard.pestDistribution()).containsExactly(pestDistribution);
-            assertThat(dashboard.diseaseDistribution()).containsExactly(diseaseDistribution);
-            assertThat(dashboard.alerts()).containsExactly(alert);
-            assertThat(dashboard.recommendations()).containsExactly(recommendation);
-            assertThat(dashboard.farmComparison()).containsExactly(farmComparison);
-            assertThat(dashboard.scoutPerformance()).containsExactly(scoutPerformance);
-        }
+        assertThat(dashboard.summary()).isEqualTo(summaryDto);
+        assertThat(dashboard.heatmap()).containsExactlyElementsOf(heatmap.cells());
+        assertThat(dashboard.weeklyTrends()).containsExactly(weeklyTrend);
+        assertThat(dashboard.severityTrend()).containsExactly(severityTrendPoint);
+        assertThat(dashboard.pestDistribution()).containsExactly(pestDistribution);
+        assertThat(dashboard.diseaseDistribution()).containsExactly(diseaseDistribution);
+        assertThat(dashboard.alerts()).containsExactly(alert);
+        assertThat(dashboard.recommendations()).containsExactly(recommendation);
+        assertThat(dashboard.farmComparison()).containsExactly(farmComparison);
+        assertThat(dashboard.scoutPerformance()).containsExactly(scoutPerformance);
     }
 }

@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,7 +45,7 @@ class CurrentUserServiceTest {
                 .build();
 
         SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(user.getEmail(), user.getPassword())
+                new UsernamePasswordAuthenticationToken(user.getEmail(), user.getPassword(), List.of())
         );
 
         when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
