@@ -1,6 +1,7 @@
 package mofo.com.pestscout.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import mofo.com.pestscout.TestPestscoutApplication;
 import mofo.com.pestscout.auth.dto.LoginRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
@@ -19,7 +20,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+
+@SpringBootTest(
+        classes = TestPestscoutApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.MOCK
+)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AuthenticationIntegrationTest {
