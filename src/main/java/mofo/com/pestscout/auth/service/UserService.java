@@ -14,8 +14,8 @@ import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
 import mofo.com.pestscout.common.service.CacheService;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -343,7 +343,7 @@ public class UserService {
      * This stays flat and does not expose farm membership directly.
      * Farm memberships can be fetched separately when needed.
      */
-    UserDto convertToDto(User user) {
+    public UserDto convertToDto(User user) {
         return UserDto.builder()
                 .id(user.getId())
                 .email(user.getEmail())

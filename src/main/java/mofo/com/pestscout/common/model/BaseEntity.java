@@ -56,6 +56,12 @@ public abstract class BaseEntity {
         updatedAt = LocalDateTime.now();
     }
 
+    @Column(name = "deleted", nullable = false)
+    private boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -78,5 +84,21 @@ public abstract class BaseEntity {
      */
     protected void applyPrePersistDefaults() {
         // no default implementation
+    }
+
+    /**
+     * Soft-delete the entity while retaining it for sync/audit scenarios.
+     */
+    public void markDeleted() {
+        this.deleted = true;
+        this.deletedAt = LocalDateTime.now();
+    }
+
+    /**
+     * Restore a soft-deleted entity (used when recreating the same logical row).
+     */
+    public void restore() {
+        this.deleted = false;
+        this.deletedAt = null;
     }
 }
