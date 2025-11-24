@@ -72,7 +72,7 @@ class DashboardAggregatorServiceTest {
                         .diseaseCount(0)
                         .beneficialCount(0)
                         .totalCount(1)
-                        .severityLevel(SeverityLevel.ONE)
+                        .severityLevel(SeverityLevel.LOW)
                         .colorHex("#fff")
                         .build()))
                 .sections(List.of())
@@ -80,11 +80,11 @@ class DashboardAggregatorServiceTest {
                 .build();
 
         WeeklyPestTrendDto weeklyTrend = new WeeklyPestTrendDto("W1", 1, 0, 0, 0, 0, 0, 0);
-        SeverityTrendPointDto severityTrendPoint = new SeverityTrendPointDto("2024-W1", 1.0, 0.5);
-        PestDistributionItemDto pestDistribution = new PestDistributionItemDto("thrips", 10, 100.0, SeverityLevel.TWO);
-        DiseaseDistributionItemDto diseaseDistribution = new DiseaseDistributionItemDto("powdery", 5, 50.0, SeverityLevel.ONE);
-        AlertDto alert = new AlertDto("alert", "HIGH", LocalDate.now());
-        RecommendationDto recommendation = new RecommendationDto("apply", "thrips", LocalDate.now());
+        SeverityTrendPointDto severityTrendPoint = new SeverityTrendPointDto("2024-W1", 1, 0, 0, 1, 0);
+        PestDistributionItemDto pestDistribution = new PestDistributionItemDto("thrips", 10, 100.0, "moderate");
+        DiseaseDistributionItemDto diseaseDistribution = new DiseaseDistributionItemDto("powdery", 5, 50.0, "low");
+        AlertDto alert = new AlertDto("Edmonton", "whiteflies", "LOW", 1, LocalDate.now().toString());
+        RecommendationDto recommendation = new RecommendationDto("apply", "thrips", LocalDate.now().toString());
         FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1.0, 3.0);
         ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 1.5, 2.0);
 
