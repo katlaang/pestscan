@@ -8,7 +8,6 @@ import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.service.AnalyticsService;
 import mofo.com.pestscout.scouting.dto.RecommendationEntryDto;
-import mofo.com.pestscout.scouting.dto.ScoutingSessionAnalyticsDto;
 import mofo.com.pestscout.scouting.dto.ScoutingSessionDetailDto;
 import mofo.com.pestscout.scouting.dto.ScoutingSessionSectionDto;
 import mofo.com.pestscout.scouting.model.*;
@@ -28,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -134,8 +134,21 @@ class ReportingServiceTest {
                 .bayCount(0).benchesPerBay(0).cells(List.of()).sections(List.of()).severityLegend(List.of()).build();
         when(heatmapService.generateHeatmap(farmId, 1, 2024)).thenReturn(heatmap);
 
-        FarmWeeklyAnalyticsDto analyticsDto = new FarmWeeklyAnalyticsDto(1, 2, List.of(), 0, 0, List.of(), List.of(), 0, 0,
-                new ScoutingSessionAnalyticsDto(0, 0, 0), List.of(), List.of());
+        FarmWeeklyAnalyticsDto analyticsDto = new FarmWeeklyAnalyticsDto(
+                farmId,
+                farm.getName(),
+                1,
+                2024,
+                0,
+                0,
+                1,
+                1,
+                3,
+                2,
+                1,
+                0,
+                Map.of("LOW", 1L)
+        );
         when(analyticsService.computeWeeklyAnalytics(farmId, 1, 2024)).thenReturn(analyticsDto);
 
         ReportingService.WeeklyFarmReportDto report = reportingService.getWeeklyFarmReport(farmId, 1, 2024);
