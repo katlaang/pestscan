@@ -14,6 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Validates {@link ReportExportService} export metadata construction and delegation to
+ * {@link ReportingService}.
+ */
 @ExtendWith(MockitoExtension.class)
 class ReportExportServiceTest {
 
@@ -23,6 +27,10 @@ class ReportExportServiceTest {
     @InjectMocks
     private ReportExportService reportExportService;
 
+    /**
+     * Ensures the export call triggers monthly report generation and formats the response
+     * filename/URL consistently with the requested format.
+     */
     @Test
     void export_buildsFileNameAndUrl() {
         UUID farmId = UUID.randomUUID();

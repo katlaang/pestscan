@@ -23,6 +23,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+/**
+ * Unit tests for {@link DashboardService} that exercise the public dashboard summary workflow
+ * and its dependent collaborators.
+ */
 @ExtendWith(MockitoExtension.class)
 class DashboardServiceTest {
 
@@ -41,6 +45,10 @@ class DashboardServiceTest {
     @InjectMocks
     private DashboardService dashboardService;
 
+    /**
+     * Happy-path coverage that verifies a summary payload is assembled when all dependencies return
+     * empty data sets.
+     */
     @Test
     void getDashboard_returnsSummaryWithHeatmapAndTrend() {
         UUID farmId = UUID.randomUUID();

@@ -17,6 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+/**
+ * Tests for {@link DashboardAggregatorService} to ensure the composed dashboard pulls data from
+ * every collaborating service.
+ */
 @ExtendWith(MockitoExtension.class)
 class DashboardAggregatorServiceTest {
 
@@ -35,6 +39,10 @@ class DashboardAggregatorServiceTest {
     @InjectMocks
     private DashboardAggregatorService aggregatorService;
 
+    /**
+     * Aggregates every section of the dashboard and asserts each collaborator contributes to the
+     * final DTO.
+     */
     @Test
     void getFullDashboard_collectsAllSectionsFromServices() {
         UUID farmId = UUID.randomUUID();
