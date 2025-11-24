@@ -29,8 +29,8 @@ class CacheServiceTest {
     @BeforeEach
     void setUp() {
         cacheService = new CacheService(cacheManager);
-        when(cacheManager.getCache(ArgumentMatchers.anyString())).thenReturn(cache);
-        when(cacheManager.getCacheNames()).thenReturn(List.of("analytics", "heatmap"));
+        lenient().when(cacheManager.getCache(ArgumentMatchers.anyString())).thenReturn(cache);
+        lenient().when(cacheManager.getCacheNames()).thenReturn(List.of("analytics", "heatmap"));
     }
 
     @Test

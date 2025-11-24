@@ -33,8 +33,8 @@ import java.util.Map;
 @Getter
 @Setter
 @SuperBuilder
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-@AllArgsConstructor(access = AccessLevel.PROTECTED)
+@NoArgsConstructor
+@AllArgsConstructor
 public class ScoutingSession extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

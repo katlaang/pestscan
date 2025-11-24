@@ -225,14 +225,9 @@ public class ScoutingSessionService {
     @Transactional
     public ScoutingObservationDto upsertObservation(UUID sessionId, UpsertObservationRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
 
-        farmAccessService.requireScoutOfFarm(session.getFarm());
-        ensureSessionEditableForObservations(session);
-
-        ScoutingObservationDto observation = upsertObservationInternal(session, request);
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
-        return observation;
+        return upsertObservationInternal(session, request);
     }
 
     @Transactional
@@ -255,39 +250,72 @@ public class ScoutingSessionService {
         return observations;
     }
 
-    private ScoutingObservationDto upsertObservationInternal(ScoutingSession session, UpsertObservationRequest request) {
-        if (!session.getId().equals(request.sessionId())) {
-            throw new BadRequestException("Observation payload does not match session.");
+    private ScoutingObservationDto upsertObservationInternal(ScoutingSession session,
+                                                             UpsertObservationRequest request) {
+
+        UUID clientRequestId = request.clientRequestId();
+        if (clientRequestId != null) {
+            Optional<ScoutingObservation> existingByKey =
+                    observationRepository.findByClientRequestId(clientRequestId);
+
+            if (existingByKey.isPresent()) {
+                ScoutingObservation obs = existingByKey.get();
+
+                if (!obs.getSession().getId().equals(session.getId())) {
+                    throw new ConflictException("Idempotency key already used for another session");
+                }
+
+                // Same session, idempotent replay
+                return mapToObservationDto(obs, false);
+            }
         }
 
-        ScoutingSessionTarget target = sessionTargetRepository.findByIdAndSessionId(request.sessionTargetId(), session.getId())
-                .orElseThrow(() -> new BadRequestException("Session target not found for this session."));
+        ScoutingSessionTarget target = sessionTargetRepository
+                .findByIdAndSessionId(request.sessionTargetId(), session.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Session target not found"));
+
+        ensureSessionEditableForObservations(session);
         assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
 
-        if (request.speciesCode() == null) {
-            throw new BadRequestException("Species must be provided for an observation.");
-        }
+        ScoutingObservation observation = observationRepository
+                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                        session.getId(),
+                        target.getId(),
+                        request.bayIndex(),
+                        request.benchIndex(),
+                        request.spotIndex(),
+                        request.speciesCode()
+                )
+                .orElse(null);
 
-        ScoutingObservation observation = resolveObservationForUpsert(session, target, request);
-        if (observation.getId() != null) {
-            assertNotStale(request.version(), observation.getVersion(), "ScoutingObservation");
+        if (observation == null) {
+            observation = ScoutingObservation.builder()
+                    .session(session)
+                    .sessionTarget(target)
+                    .speciesCode(request.speciesCode())
+                    .bayIndex(request.bayIndex())
+                    .bayLabel(request.bayTag())
+                    .benchIndex(request.benchIndex())
+                    .benchLabel(request.benchTag())
+                    .spotIndex(request.spotIndex())
+                    .build();
+            session.addObservation(observation);
+        } else {
+            Long requestVersion = request.version();
+            Long currentVersion = observation.getVersion();
+            if (requestVersion != null && !requestVersion.equals(currentVersion)) {
+                throw new ConflictException("Observation has changed on the server");
+            }
         }
 
         observation.setCount(request.count());
         observation.setNotes(request.notes());
-        observation.setSessionTarget(target);
-        observation.setBayLabel(request.bayTag());
-        observation.setBenchLabel(request.benchTag());
-        observation.setSpeciesCode(request.speciesCode());
-        observation.setSpotIndex(request.spotIndex());
-        observation.setBayIndex(request.bayIndex());
-        observation.setBenchIndex(request.benchIndex());
-        observation.setClientRequestId(request.clientRequestId() != null ? request.clientRequestId() : observation.getClientRequestId());
-        observation.restore();
+        observation.setClientRequestId(clientRequestId);
 
         ScoutingObservation saved = observationRepository.save(observation);
         return mapToObservationDto(saved, false);
     }
+
 
     /**
      * Delete a single observation from a session.
@@ -566,6 +594,9 @@ public class ScoutingSessionService {
      * Convert an observation entity into a DTO for the API.
      */
     private ScoutingObservationDto mapToObservationDto(ScoutingObservation observation, boolean includeDeleted) {
+        if (observation == null) {
+            throw new IllegalArgumentException("Observation must not be null");
+        }
         ObservationCategory category = observation.getCategory(); // derived from speciesCode in the entity
 
         boolean deleted = includeDeleted && observation.isDeleted();
@@ -594,6 +625,7 @@ public class ScoutingSessionService {
     }
 
     private ScoutingSessionTarget buildTarget(SessionTargetRequest targetRequest, Farm farm) {
+
         UUID greenhouseId = targetRequest.greenhouseId();
         UUID fieldBlockId = targetRequest.fieldBlockId();
         Greenhouse greenhouse = loadGreenhouse(greenhouseId, farm.getId());

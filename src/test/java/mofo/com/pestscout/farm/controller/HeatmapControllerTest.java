@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.controller;
 
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.service.HeatmapService;
+import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -26,6 +27,9 @@ class HeatmapControllerTest {
 
     @MockitoBean
     private HeatmapService heatmapService;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     void returnsHeatmapFromService() throws Exception {

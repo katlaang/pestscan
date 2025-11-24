@@ -1,4 +1,4 @@
-package mofo.com.pestscout.scouting;
+package mofo.com.pestscout.scouting.service;
 
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
@@ -19,7 +19,6 @@ import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
-import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -212,9 +211,10 @@ class ScoutingSessionServiceTest {
                 null,
                 null,
                 null,
-                "Updated notes"
+                "Updated notes",
+                1L
         );
-
+        testSession.setVersion(1L);
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
         when(sessionRepository.save(any(ScoutingSession.class)))
@@ -247,7 +247,8 @@ class ScoutingSessionServiceTest {
                 null,
                 null,
                 null,
-                null
+                null,
+                1L
         );
 
         when(sessionRepository.findById(testSession.getId()))
@@ -411,7 +412,8 @@ class ScoutingSessionServiceTest {
                 1,
                 5,
                 "Test observation",
-                null
+                null,
+                1L
         );
 
         when(sessionRepository.findById(testSession.getId()))
@@ -472,9 +474,10 @@ class ScoutingSessionServiceTest {
                 1,
                 10,
                 "Updated observation",
+                UUID.randomUUID(),
                 1L
         );
-
+        existingObservation.setVersion(1L);
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
@@ -521,7 +524,8 @@ class ScoutingSessionServiceTest {
                 1,
                 5,
                 null,
-                null
+                null,
+                1L
         );
 
         when(sessionRepository.findById(testSession.getId()))
@@ -617,7 +621,8 @@ class ScoutingSessionServiceTest {
                 0,
                 2,
                 "Bulk",
-                null
+                null,
+                1L
         );
 
         when(sessionRepository.findById(testSession.getId()))
@@ -661,7 +666,7 @@ class ScoutingSessionServiceTest {
         UpsertObservationRequest request = new UpsertObservationRequest(
                 testSession.getId(),
                 target.getId(),
-                SpeciesCode.WHITEFLY,
+                SpeciesCode.WHITEFLIES,
                 1,
                 "Bay-1",
                 1,
@@ -669,8 +674,8 @@ class ScoutingSessionServiceTest {
                 1,
                 4,
                 "note",
-                null,
-                requestId
+                requestId,
+                1L
         );
 
         ScoutingSession otherSession = ScoutingSession.builder()
@@ -688,7 +693,7 @@ class ScoutingSessionServiceTest {
                 .session(otherSession)
                 .clientRequestId(requestId)
                 .sessionTarget(target)
-                .speciesCode(SpeciesCode.WHITEFLY)
+                .speciesCode(SpeciesCode.WHITEFLIES)
                 .bayIndex(1)
                 .benchIndex(1)
                 .spotIndex(1)
@@ -697,8 +702,6 @@ class ScoutingSessionServiceTest {
 
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
-        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
-                .thenReturn(Optional.of(target));
         when(observationRepository.findByClientRequestId(requestId))
                 .thenReturn(Optional.of(existing));
 
@@ -724,7 +727,7 @@ class ScoutingSessionServiceTest {
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(target)
-                .speciesCode(SpeciesCode.APHIDS)
+                .speciesCode(SpeciesCode.THRIPS)
                 .bayIndex(1)
                 .benchIndex(1)
                 .spotIndex(1)
@@ -735,7 +738,7 @@ class ScoutingSessionServiceTest {
         UpsertObservationRequest request = new UpsertObservationRequest(
                 testSession.getId(),
                 target.getId(),
-                SpeciesCode.APHIDS,
+                SpeciesCode.THRIPS,
                 1,
                 "Bay-1",
                 1,
@@ -743,6 +746,7 @@ class ScoutingSessionServiceTest {
                 1,
                 2,
                 "stale",
+                UUID.randomUUID(),
                 1L
         );
 
@@ -773,7 +777,7 @@ class ScoutingSessionServiceTest {
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
-                .speciesCode(SpeciesCode.WHITEFLY)
+                .speciesCode(SpeciesCode.WHITEFLIES)
                 .bayIndex(0)
                 .benchIndex(0)
                 .spotIndex(0)
@@ -809,7 +813,7 @@ class ScoutingSessionServiceTest {
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
-                .speciesCode(SpeciesCode.WHITEFLY)
+                .speciesCode(SpeciesCode.WHITEFLIES)
                 .bayIndex(0)
                 .benchIndex(0)
                 .spotIndex(0)

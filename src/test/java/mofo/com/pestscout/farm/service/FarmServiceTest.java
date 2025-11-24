@@ -5,6 +5,7 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
@@ -47,6 +48,9 @@ class FarmServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private CacheService cacheService;
 
     @InjectMocks
     private FarmService farmService;

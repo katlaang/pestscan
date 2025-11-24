@@ -26,7 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class AnalyticsServiceAdditionalTest {
+class AnalyticsServiceTest {
 
     @Mock
     private FarmRepository farmRepository;
@@ -49,9 +49,12 @@ class AnalyticsServiceAdditionalTest {
                 .build();
 
         when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
-        when(sessionRepository.findByFarmIdAndSessionDateBetween(any(), any(), any())).thenReturn(List.of());
+        when(sessionRepository.findByFarmIdAndSessionDateBetween(any(), any(), any()))
+                .thenReturn(List.of());
 
-        AnalyticsService service = new AnalyticsService(farmRepository, sessionRepository, observationRepository);
+        AnalyticsService service =
+                new AnalyticsService(farmRepository, sessionRepository, observationRepository);
+
         FarmWeeklyAnalyticsDto dto = service.computeWeeklyAnalytics(farmId, 5, 2024);
 
         assertThat(dto.totalSessions()).isZero();
@@ -66,7 +69,7 @@ class AnalyticsServiceAdditionalTest {
         Farm farm = Farm.builder()
                 .id(farmId)
                 .name("Demo Farm")
-                .structureType(FarmStructureType.FIELD_BLOCK)
+                .structureType(FarmStructureType.FIELD)   // was FIELD_BLOCK
                 .defaultBayCount(1)
                 .defaultBenchesPerBay(1)
                 .build();
@@ -75,16 +78,28 @@ class AnalyticsServiceAdditionalTest {
         session.setId(UUID.randomUUID());
         session.setStatus(SessionStatus.COMPLETED);
 
-        ScoutingObservation pest = new ScoutingObservation();
-        pest.setCategory(ObservationCategory.PEST);
+        ScoutingObservation pest = new ScoutingObservation() {
+            @Override
+            public ObservationCategory getCategory() {
+                return ObservationCategory.PEST;
+            }
+        };
         pest.setCount(3);
 
-        ScoutingObservation disease = new ScoutingObservation();
-        disease.setCategory(ObservationCategory.DISEASE);
+        ScoutingObservation disease = new ScoutingObservation() {
+            @Override
+            public ObservationCategory getCategory() {
+                return ObservationCategory.DISEASE;
+            }
+        };
         disease.setCount(2);
 
-        ScoutingObservation beneficial = new ScoutingObservation();
-        beneficial.setCategory(ObservationCategory.BENEFICIAL);
+        ScoutingObservation beneficial = new ScoutingObservation() {
+            @Override
+            public ObservationCategory getCategory() {
+                return ObservationCategory.BENEFICIAL;
+            }
+        };
         beneficial.setCount(1);
 
         when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
@@ -93,7 +108,9 @@ class AnalyticsServiceAdditionalTest {
         when(observationRepository.findBySessionIdIn(any()))
                 .thenReturn(List.of(pest, disease, beneficial));
 
-        AnalyticsService service = new AnalyticsService(farmRepository, sessionRepository, observationRepository);
+        AnalyticsService service =
+                new AnalyticsService(farmRepository, sessionRepository, observationRepository);
+
         FarmWeeklyAnalyticsDto dto = service.computeWeeklyAnalytics(farmId, 6, 2024);
 
         assertThat(dto.totalSessions()).isEqualTo(1);
@@ -109,7 +126,8 @@ class AnalyticsServiceAdditionalTest {
         UUID farmId = UUID.randomUUID();
         when(farmRepository.findById(farmId)).thenReturn(Optional.empty());
 
-        AnalyticsService service = new AnalyticsService(farmRepository, sessionRepository, observationRepository);
+        AnalyticsService service =
+                new AnalyticsService(farmRepository, sessionRepository, observationRepository);
 
         assertThatThrownBy(() -> service.computeWeeklyAnalytics(farmId, 1, 2024))
                 .isInstanceOf(ResourceNotFoundException.class);

@@ -57,11 +57,12 @@ class MonthlyHeatmapServiceTest {
         assertThat(response.farmId()).isEqualTo(farmId);
         assertThat(response.year()).isEqualTo(2024);
         assertThat(response.month()).isEqualTo(2);
-        assertThat(response.weeks()).isNotEmpty();
+        assertThat(response.weeklyHeatmaps()).isNotEmpty();
 
-        WeeklyHeatmapResponse firstWeek = response.weeks().getFirst();
-        assertThat(firstWeek.week()).isEqualTo(response.weeks().getFirst().week());
-        assertThat(firstWeek.startDate()).isEqualTo(LocalDate.of(2024, 2, 1));
-        assertThat(firstWeek.endDate()).isGreaterThanOrEqualTo(firstWeek.startDate());
+        WeeklyHeatmapResponse firstWeek = response.weeklyHeatmaps().getFirst();
+        assertThat(firstWeek.weekNumber()).isEqualTo(5);                        // was .week()
+        assertThat(firstWeek.rangeStart()).isEqualTo(LocalDate.of(2024, 2, 1)); // was .startDate()
+        assertThat(firstWeek.rangeEnd()).isAfterOrEqualTo(firstWeek.rangeStart()); // was .endDate()
     }
+
 }

@@ -1,9 +1,9 @@
 package mofo.com.pestscout.scouting.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.scouting.dto.*;
-import mofo.com.pestscout.scouting.model.ScoutingTargetType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,8 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -45,62 +46,82 @@ class ScoutingSessionControllerTest {
 
     @Test
     void createsSession() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        SessionTargetRequest targetRequest = new SessionTargetRequest(
+                UUID.randomUUID(), // greenhouseId
+                null,              // fieldBlockId
+                true,
+                true,
+                List.of(),
+                List.of()
+        );
+
         CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
-                UUID.randomUUID(),
+                farmId,
+                List.of(targetRequest),
                 LocalDate.of(2024, 3, 5),
+                10,
                 "Tomatoes",
                 "Cherry",
-                "Notes",
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                List.of(new ScoutingSessionSectionDto(
-                        UUID.randomUUID(),
-                        ScoutingTargetType.GREENHOUSE,
-                        "G1",
-                        1,
-                        1,
-                        List.of()
-                ))
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes"
         );
 
         ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
                 UUID.randomUUID(),
                 1L,
-                request.farmId(),
+                farmId,
                 request.sessionDate(),
-                10,
-                SessionStatus.SCHEDULED,
-                request.managerId(),
-                request.scoutId(),
+                request.weekNumber(),
+                SessionStatus.DRAFT,
+                null,
+                null,
                 request.crop(),
                 request.variety(),
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                LocalTime.NOON,
-                "Clear",
+                request.temperatureCelsius(),
+                request.relativeHumidityPercent(),
+                request.observationTime(),
+                request.weatherNotes(),
                 request.notes(),
                 null,
                 null,
                 LocalDateTime.now(),
                 false,
-                request.sections(),
-                List.of()
+                List.of(
+                        new ScoutingSessionSectionDto(
+                                UUID.randomUUID(),
+                                targetRequest.greenhouseId(),
+                                targetRequest.fieldBlockId(),
+                                targetRequest.includeAllBays(),
+                                targetRequest.includeAllBenches(),
+                                List.copyOf(targetRequest.bayTags()),
+                                List.copyOf(targetRequest.benchTags()),
+                                List.<ScoutingObservationDto>of()
+                        )
+                ),
+                List.<RecommendationEntryDto>of()
         );
 
-        when(sessionService.createSession(any(CreateScoutingSessionRequest.class))).thenReturn(detail);
+        when(sessionService.createSession(any(CreateScoutingSessionRequest.class)))
+                .thenReturn(detail);
 
         mockMvc.perform(post("/api/scouting/sessions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.farmId").value(request.farmId().toString()));
+                .andExpect(jsonPath("$.farmId").value(farmId.toString()));
     }
 
     @Test
     void syncsSessionsWithParams() throws Exception {
         UUID farmId = UUID.randomUUID();
         LocalDateTime since = LocalDateTime.of(2024, 3, 1, 0, 0);
-        ScoutingSyncResponse sync = new ScoutingSyncResponse(List.of(), List.of(), List.of());
+        ScoutingSyncResponse sync = new ScoutingSyncResponse(List.of(), List.of());
+
         when(sessionService.syncChanges(farmId, since, true)).thenReturn(sync);
 
         mockMvc.perform(get("/api/scouting/sessions/sync")

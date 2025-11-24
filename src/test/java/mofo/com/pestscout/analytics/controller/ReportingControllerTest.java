@@ -6,6 +6,7 @@ import mofo.com.pestscout.analytics.dto.ReportExportRequest;
 import mofo.com.pestscout.analytics.dto.ReportExportResponse;
 import mofo.com.pestscout.analytics.service.ReportExportService;
 import mofo.com.pestscout.analytics.service.ReportingService;
+import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -20,7 +21,8 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,6 +41,10 @@ class ReportingControllerTest {
 
     @MockitoBean
     private ReportExportService exportService;
+
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     void returnsMonthlyReport() throws Exception {
@@ -74,15 +80,15 @@ class ReportingControllerTest {
 
     @Test
     void exportsReport() throws Exception {
-        ReportExportRequest request = new ReportExportRequest(UUID.randomUUID(), 2024, 3, "pdf");
-        ReportExportResponse response = new ReportExportResponse("url", "pdf", 1234L);
+        ReportExportRequest request = new ReportExportRequest(UUID.randomUUID(), 2024, 3, ReportExportRequest.ExportFormat.PDF);
+        ReportExportResponse response = new ReportExportResponse("report-2024-03.pdf", "url");
         when(exportService.export(any(ReportExportRequest.class))).thenReturn(response);
 
         mockMvc.perform(post("/api/analytics/reports/export")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.format").value("pdf"))
+                .andExpect(jsonPath("$.fileName").value("report-2024-03.pdf"))
                 .andExpect(jsonPath("$.downloadUrl").value("url"));
     }
 }

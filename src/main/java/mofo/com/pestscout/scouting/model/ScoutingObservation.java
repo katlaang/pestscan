@@ -1,7 +1,10 @@
 package mofo.com.pestscout.scouting.model;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
@@ -25,8 +28,8 @@ import java.util.UUID;
 @Getter
 @Setter
 @SuperBuilder
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-@AllArgsConstructor(access = AccessLevel.PROTECTED)
+@NoArgsConstructor
+@AllArgsConstructor
 public class ScoutingObservation extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
