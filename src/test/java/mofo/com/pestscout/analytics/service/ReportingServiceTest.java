@@ -32,6 +32,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -84,17 +86,20 @@ class ReportingServiceTest {
         farm.setId(farmId);
 
         when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
-        when(heatmapService.generateHeatmap(farmId, 1, 2024)).thenReturn(HeatmapResponse.builder()
-                .farmId(farmId)
-                .farmName("Farm")
-                .week(1)
-                .year(2024)
-                .bayCount(0)
-                .benchesPerBay(0)
-                .cells(List.of())
-                .sections(List.of())
-                .severityLegend(List.of())
-                .build());
+        when(heatmapService.generateHeatmap(eq(farmId), anyInt(), eq(2024))).thenAnswer(invocation -> {
+            int weekNumber = invocation.getArgument(1, Integer.class);
+            return HeatmapResponse.builder()
+                    .farmId(farmId)
+                    .farmName("Farm")
+                    .week(weekNumber)
+                    .year(2024)
+                    .bayCount(0)
+                    .benchesPerBay(0)
+                    .cells(List.of())
+                    .sections(List.of())
+                    .severityLegend(List.of())
+                    .build();
+        });
         when(trendAnalysisService.getSeverityTrend(farmId)).thenReturn(List.of());
         when(trendAnalysisService.getPestTrend(farmId, "thrips", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31)))
                 .thenReturn(new PestTrendResponse(farmId, "thrips", List.of()));
@@ -261,7 +266,7 @@ class ReportingServiceTest {
         farm.setName("Alpha");
 
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
-        ScoutingObservation observation = buildObservation(session, SpeciesCode.THRIPS, 4);
+        ScoutingObservation observation = buildObservation(session, SpeciesCode.THRIPS, SeverityLevel.HIGH.minThreshold());
 
         when(farmRepository.findAll()).thenReturn(List.of(farm));
         when(sessionRepository.findByFarmId(farmId)).thenReturn(List.of(session));
@@ -271,7 +276,7 @@ class ReportingServiceTest {
 
         assertThat(comparisons).singleElement().satisfies(dto -> {
             assertThat(dto.farm()).isEqualTo("Alpha");
-            assertThat(dto.avgSeverity()).isEqualTo(4.0);
+            assertThat(dto.avgSeverity()).isEqualTo((double) SeverityLevel.HIGH.minThreshold());
             assertThat(dto.alerts()).isEqualTo(1);
         });
     }

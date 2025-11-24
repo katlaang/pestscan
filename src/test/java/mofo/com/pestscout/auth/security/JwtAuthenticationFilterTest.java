@@ -69,10 +69,10 @@ class JwtAuthenticationFilterTest {
 
         assertThat(SecurityContextHolder.getContext().getAuthentication())
                 .isInstanceOf(UsernamePasswordAuthenticationToken.class);
-        assertThat(request.getAttribute("userId")).isEqualTo(userId);
-        assertThat(request.getAttribute("farmId")).isEqualTo(farmId);
-        assertThat(request.getAttribute("userEmail")).isEqualTo(userDetails.getUsername());
-        assertThat(request.getAttribute("userRole")).isEqualTo("MANAGER");
+        verify(request).setAttribute("userId", userId);
+        verify(request).setAttribute("farmId", farmId);
+        verify(request).setAttribute("userEmail", userDetails.getUsername());
+        verify(request).setAttribute("userRole", "MANAGER");
         verify(filterChain).doFilter(request, response);
     }
 
