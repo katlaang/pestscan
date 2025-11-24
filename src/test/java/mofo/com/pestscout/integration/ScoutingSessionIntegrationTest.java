@@ -1,4 +1,4 @@
-package integration;
+package mofo.com.pestscout.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,11 +6,7 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.FarmStructureType;
-import mofo.com.pestscout.farm.model.Greenhouse;
-import mofo.com.pestscout.farm.model.SubscriptionStatus;
-import mofo.com.pestscout.farm.model.SubscriptionTier;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.scouting.dto.BulkUpsertObservationsRequest;
@@ -75,7 +71,6 @@ class ScoutingSessionIntegrationTest {
     @Autowired
     private ScoutingObservationRepository observationRepository;
 
-    private User adminUser;
     private Farm farm;
     private Greenhouse greenhouse;
 
@@ -88,7 +83,7 @@ class ScoutingSessionIntegrationTest {
         farmRepository.deleteAll();
         userRepository.deleteAll();
 
-        adminUser = userRepository.save(User.builder()
+        User adminUser = userRepository.save(User.builder()
                 .email(ADMIN_EMAIL)
                 .password("irrelevant")
                 .firstName("Owner")

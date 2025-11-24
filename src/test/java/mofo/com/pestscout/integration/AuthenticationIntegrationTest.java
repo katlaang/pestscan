@@ -1,4 +1,4 @@
-package integration;
+package mofo.com.pestscout.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mofo.com.pestscout.auth.dto.LoginRequest;
