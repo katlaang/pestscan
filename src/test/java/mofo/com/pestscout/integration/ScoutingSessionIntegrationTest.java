@@ -163,6 +163,45 @@ class ScoutingSessionIntegrationTest {
 
     @Test
     @WithMockUser(username = ADMIN_EMAIL, roles = "SUPER_ADMIN")
+    void createSessionFailsWhenRequestedAreaExceedsLicense() throws Exception {
+        farm.setLicensedAreaHectares(BigDecimal.ONE);
+        farmRepository.save(farm);
+
+        greenhouse.setBayCount(3);
+        greenhouseRepository.save(greenhouse);
+
+        SessionTargetRequest oversizedTarget = new SessionTargetRequest(
+                greenhouse.getId(),
+                null,
+                true,
+                true,
+                List.of(),
+                List.of()
+        );
+
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                farm.getId(),
+                List.of(oversizedTarget),
+                LocalDate.of(2024, 1, 1),
+                1,
+                "Tomato",
+                "Cherry",
+                BigDecimal.valueOf(22.5),
+                BigDecimal.valueOf(60),
+                LocalTime.of(9, 0),
+                "Sunny morning",
+                "Weekly scouting"
+        );
+
+        mockMvc.perform(post("/api/scouting/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("exceeds licensed hectares")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = "SUPER_ADMIN")
     void bulkUploadCreatesObservations() throws Exception {
         JsonNode createdSession = createSession();
         UUID sessionId = UUID.fromString(createdSession.get("id").asText());

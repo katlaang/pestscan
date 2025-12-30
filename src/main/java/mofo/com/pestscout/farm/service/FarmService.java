@@ -257,6 +257,24 @@ public class FarmService {
             farm.setDefaultSpotChecksPerBench(request.defaultSpotChecksPerBench());
 
         if (farmAccess.isSuperAdmin()) {
+            if (request.subscriptionStatus() != null) {
+                farm.setSubscriptionStatus(request.subscriptionStatus());
+            }
+            if (request.subscriptionTier() != null) {
+                farm.setSubscriptionTier(request.subscriptionTier());
+            }
+            farm.setBillingEmail(request.billingEmail());
+
+            if (request.licensedAreaHectares() != null) {
+                farm.setLicensedAreaHectares(request.licensedAreaHectares());
+            }
+            farm.setLicensedUnitQuota(request.licensedUnitQuota());
+            farm.setQuotaDiscountPercentage(request.quotaDiscountPercentage());
+            farm.setLicenseExpiryDate(request.licenseExpiryDate());
+            farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
+            farm.setLicenseArchivedDate(request.licenseArchivedDate());
+            farm.setAutoRenewEnabled(request.autoRenewEnabled());
+            farm.setIsArchived(request.isArchived());
             farm.setLatitude(request.latitude());
             farm.setLongitude(request.longitude());
         }

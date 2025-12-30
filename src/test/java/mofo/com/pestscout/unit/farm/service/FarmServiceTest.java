@@ -94,6 +94,9 @@ class FarmServiceTest {
                 .scout(scout)
                 .subscriptionStatus(SubscriptionStatus.ACTIVE)
                 .subscriptionTier(SubscriptionTier.STANDARD)
+                .licensedUnitQuota(50)
+                .quotaDiscountPercentage(new BigDecimal("5"))
+                .billingEmail("billing@example.com")
                 .licensedAreaHectares(new BigDecimal("10.00"))
                 .structureType(FarmStructureType.GREENHOUSE)
                 .defaultBayCount(5)
@@ -148,6 +151,17 @@ class FarmServiceTest {
                 "Jane Smith",
                 "jane@example.com",
                 "555-5678",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.PREMIUM,
+                "billing-updated@example.com",
+                new BigDecimal("20.00"),
+                150,
+                new BigDecimal("10.00"),
+                LocalDate.now().plusMonths(6),
+                LocalDate.now().plusMonths(7),
+                null,
+                false,
+                false,
                 6,
                 12,
                 4,
@@ -232,6 +246,63 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
         verify(farmRepository).save(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("SuperAdmin can update licensing fields")
+    void updateFarm_AsSuperAdmin_UpdatesLicenseFields() {
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmRepository.findByNameIgnoreCase(updateRequest.name()))
+                .thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(true);
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        UpdateFarmRequest licenseUpdate = new UpdateFarmRequest(
+                updateRequest.name(),
+                updateRequest.description(),
+                updateRequest.externalId(),
+                updateRequest.address(),
+                updateRequest.latitude(),
+                updateRequest.longitude(),
+                updateRequest.city(),
+                updateRequest.province(),
+                updateRequest.postalCode(),
+                updateRequest.country(),
+                updateRequest.contactName(),
+                updateRequest.contactEmail(),
+                updateRequest.contactPhone(),
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.PREMIUM,
+                null,
+                new BigDecimal("25.00"),
+                200,
+                null,
+                LocalDate.now().plusMonths(2),
+                null,
+                null,
+                true,
+                true,
+                updateRequest.defaultBayCount(),
+                updateRequest.defaultBenchesPerBay(),
+                updateRequest.defaultSpotChecksPerBench(),
+                updateRequest.timezone()
+        );
+
+        farmService.updateFarm(testFarm.getId(), licenseUpdate);
+
+        verify(farmRepository).save(argThat(farm ->
+                new BigDecimal("25.00").compareTo(farm.getLicensedAreaHectares()) == 0
+                        && farm.getLicensedUnitQuota().equals(200)
+                        && farm.getQuotaDiscountPercentage() == null
+                        && farm.getBillingEmail() == null
+                        && Boolean.TRUE.equals(farm.getAutoRenewEnabled())
+                        && Boolean.TRUE.equals(farm.getIsArchived())
+        ));
     }
 
     @Test
@@ -400,7 +471,8 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmRepository).save(argThat(farm ->
                 farm.getName().equals(updateRequest.name()) &&
-                        farm.getDescription().equals(updateRequest.description())
+                        farm.getDescription().equals(updateRequest.description()) &&
+                        farm.getLicensedAreaHectares().compareTo(testFarm.getLicensedAreaHectares()) == 0
         ));
     }
 
