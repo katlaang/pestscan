@@ -16,6 +16,7 @@ import mofo.com.pestscout.farm.repository.FieldBlockRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
@@ -25,6 +26,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.temporal.WeekFields;
 import java.util.*;
@@ -43,6 +45,7 @@ public class ScoutingSessionService {
     private final GreenhouseRepository greenhouseRepository;
     private final CurrentUserService currentUserService;
     private final FarmAccessService farmAccessService;
+    private final LicenseService licenseService;
     private final CacheService cacheService;
 
     /**
@@ -55,6 +58,14 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.farmId()));
 
         farmAccessService.requireAdminOrSuperAdmin(farm);
+        licenseService.validateFarmLicenseActive(farm);
+
+        List<ResolvedTarget> resolvedTargets = request.targets().stream()
+                .map(target -> resolveTarget(target, farm))
+                .toList();
+
+        BigDecimal requestedArea = calculateRequestedArea(resolvedTargets);
+        licenseService.validateAreaWithinLicense(farm, requestedArea);
 
         User manager = resolveManager(farm);
         User scout = farm.getScout();
@@ -77,7 +88,7 @@ public class ScoutingSessionService {
                 .recommendations(new EnumMap<>(RecommendationType.class))
                 .build();
 
-        request.targets().forEach(targetRequest -> session.addTarget(buildTarget(targetRequest, farm)));
+        resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
@@ -129,8 +140,12 @@ public class ScoutingSessionService {
         }
 
         if (request.targets() != null && !request.targets().isEmpty()) {
+            List<ResolvedTarget> resolvedTargets = request.targets().stream()
+                    .map(target -> resolveTarget(target, session.getFarm()))
+                    .toList();
+
             session.getTargets().clear();
-            request.targets().forEach(targetRequest -> session.addTarget(buildTarget(targetRequest, session.getFarm())));
+            resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
         }
 
         ScoutingSession saved = sessionRepository.save(session);
@@ -624,8 +639,18 @@ public class ScoutingSessionService {
         );
     }
 
-    private ScoutingSessionTarget buildTarget(SessionTargetRequest targetRequest, Farm farm) {
+    private ScoutingSessionTarget buildTarget(ResolvedTarget target) {
+        return ScoutingSessionTarget.builder()
+                .greenhouse(target.greenhouse())
+                .fieldBlock(target.fieldBlock())
+                .includeAllBays(target.includeAllBays())
+                .includeAllBenches(target.includeAllBenches())
+                .bayTags(target.bayTags())
+                .benchTags(target.benchTags())
+                .build();
+    }
 
+    private ResolvedTarget resolveTarget(SessionTargetRequest targetRequest, Farm farm) {
         UUID greenhouseId = targetRequest.greenhouseId();
         UUID fieldBlockId = targetRequest.fieldBlockId();
         Greenhouse greenhouse = loadGreenhouse(greenhouseId, farm.getId());
@@ -644,14 +669,21 @@ public class ScoutingSessionService {
             throw new BadRequestException("Provide benchTags when includeAllBenches is false.");
         }
 
-        return ScoutingSessionTarget.builder()
-                .greenhouse(greenhouse)
-                .fieldBlock(fieldBlock)
-                .includeAllBays(includeAllBays)
-                .includeAllBenches(includeAllBenches)
-                .bayTags(bayTags)
-                .benchTags(benchTags)
-                .build();
+        return new ResolvedTarget(greenhouse, fieldBlock, includeAllBays, includeAllBenches, bayTags, benchTags);
+    }
+
+    private BigDecimal calculateRequestedArea(List<ResolvedTarget> resolvedTargets) {
+        return resolvedTargets.stream()
+                .map(this::calculateTargetArea)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal calculateTargetArea(ResolvedTarget target) {
+        int bayCount = target.greenhouse() != null
+                ? target.greenhouse().resolvedBayCount()
+                : target.fieldBlock().resolvedBayCount();
+        int selectedBays = Boolean.TRUE.equals(target.includeAllBays()) ? bayCount : target.bayTags().size();
+        return BigDecimal.valueOf(selectedBays);
     }
 
     private List<String> normalizeTags(List<String> tags) {
@@ -690,6 +722,16 @@ public class ScoutingSessionService {
         return fieldBlockRepository.findById(fieldBlockId)
                 .filter(block -> block.getFarm().getId().equals(farmId))
                 .orElseThrow(() -> new BadRequestException("Field block does not belong to this farm."));
+    }
+
+    private record ResolvedTarget(
+            Greenhouse greenhouse,
+            FieldBlock fieldBlock,
+            Boolean includeAllBays,
+            Boolean includeAllBenches,
+            List<String> bayTags,
+            List<String> benchTags
+    ) {
     }
 
     private int resolveWeekNumber(java.time.LocalDate date, Integer requestedWeek) {

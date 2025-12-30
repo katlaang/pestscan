@@ -192,6 +192,17 @@ class FarmControllerTest {
                 "Alice Doe",                       // contactName
                 "alice@example.com",               // contactEmail
                 "+254722222222",                   // contactPhone
+                SubscriptionStatus.ACTIVE,          // subscriptionStatus
+                SubscriptionTier.STANDARD,          // subscriptionTier
+                "billing@example.com",             // billingEmail
+                BigDecimal.valueOf(10),             // licensedAreaHectares
+                25,                                 // licensedUnitQuota
+                BigDecimal.valueOf(5),              // quotaDiscountPercentage
+                LocalDate.now().plusMonths(1),      // licenseExpiryDate
+                LocalDate.now().plusMonths(2),      // licenseGracePeriodEnd
+                null,                               // licenseArchivedDate
+                true,                               // autoRenewEnabled
+                false,                              // isArchived
                 5,                                 // defaultBayCount
                 12,                                // defaultBenchesPerBay
                 6,                                 // defaultSpotChecksPerBench
