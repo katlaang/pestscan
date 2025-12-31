@@ -1,4 +1,4 @@
-package mofo.com.pestscout.farm.service;
+package unit.mofo.com.pestscout.farm.service;
 
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
@@ -9,6 +9,7 @@ import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.farm.service.GreenhouseService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

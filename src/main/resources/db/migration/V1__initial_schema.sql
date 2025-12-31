@@ -38,6 +38,8 @@ CREATE TABLE users
     created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     version      BIGINT                   NOT NULL DEFAULT 0,
+    deleted    BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT chk_user_role
         CHECK (role IN ('SCOUT', 'MANAGER', 'FARM_ADMIN', 'SUPER_ADMIN'))
 );
@@ -105,6 +107,8 @@ CREATE TABLE farms
 
     created_at                    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
 
     CONSTRAINT chk_sub_status
         CHECK (subscription_status IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'DELETED')),
@@ -143,6 +147,8 @@ CREATE TABLE user_farm_memberships
 
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
 
     CONSTRAINT uk_user_farm UNIQUE (user_id, farm_id)
 );
@@ -175,7 +181,9 @@ CREATE TABLE greenhouses
     is_active             BOOLEAN                  NOT NULL DEFAULT TRUE,
 
     created_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX idx_greenhouses_farm ON greenhouses (farm_id);
@@ -221,7 +229,9 @@ CREATE TABLE field_blocks
     is_active           BOOLEAN                  NOT NULL DEFAULT TRUE,
 
     created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX idx_field_blocks_farm ON field_blocks (farm_id);
@@ -275,7 +285,9 @@ CREATE TABLE scouting_sessions
     confirmation_acknowledged BOOLEAN                  NOT NULL DEFAULT FALSE,
 
     created_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX idx_sessions_farm ON scouting_sessions (farm_id);
@@ -304,7 +316,9 @@ CREATE TABLE scouting_session_targets
     include_all_benches BOOLEAN                  NOT NULL DEFAULT TRUE,
 
     created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE INDEX idx_session_targets_session ON scouting_session_targets (session_id);
@@ -338,7 +352,7 @@ CREATE INDEX idx_target_benches_target ON scouting_target_benches (target_id);
 
 CREATE TABLE scouting_observations
 (
-    id                UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     version           BIGINT                   NOT NULL DEFAULT 0,
 
     session_id        UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
@@ -353,8 +367,12 @@ CREATE TABLE scouting_observations
     count_value       INTEGER                  NOT NULL,
     notes             VARCHAR(2000),
 
+    client_request_id UUID UNIQUE,
+
     created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted           BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at        TIMESTAMP WITH TIME ZONE,
 
     CONSTRAINT uk_session_cell_species
         UNIQUE (session_id, session_target_id, bay_index, bench_index, spot_index, species_code)
