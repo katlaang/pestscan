@@ -79,7 +79,26 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void doFilterInternal_skipsAuthenticationWhenHeaderMissing() throws ServletException, IOException {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("existing", "pwd")
+        );
         when(request.getHeader("Authorization")).thenReturn(null);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_clearsAuthenticationWhenTokenInvalid() throws ServletException, IOException {
+        String token = "invalid";
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("existing", "pwd")
+        );
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(tokenProvider.validateToken(token)).thenReturn(false);
 
         filter.doFilterInternal(request, response, filterChain);
 
