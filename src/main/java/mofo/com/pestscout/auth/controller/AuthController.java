@@ -122,6 +122,61 @@ public class AuthController {
     }
 
     /**
+     * Begin the password reset process.
+     */
+    @PostMapping("/forgot-password")
+    @Operation(
+            summary = "Request password reset",
+            description = "Generate a time-bound password reset token without revealing account existence.",
+            responses = {
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "202",
+                            description = "Reset request accepted",
+                            content = @io.swagger.v3.oas.annotations.media.Content(
+                                    mediaType = "application/json",
+                                    schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = ResetAcknowledgementResponse.class)
+                            )
+                    )
+            }
+    )
+    public ResponseEntity<ResetAcknowledgementResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        LOGGER.info("Password reset requested for: {} via {}", request.email(), request.resolvedChannel());
+        authService.requestPasswordReset(request);
+        return ResponseEntity.accepted()
+                .body(new ResetAcknowledgementResponse("If an account exists for that email, the reset code has been sent and is valid for 5 minutes."));
+    }
+
+    /**
+     * Complete a password reset using a one-time token.
+     */
+    @PostMapping("/reset-password")
+    @Operation(
+            summary = "Reset password",
+            description = "Reset password using a token. Requires additional validation when handled over the phone.",
+            responses = {
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "204",
+                            description = "Password reset successful"
+                    ),
+                    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                            responseCode = "400",
+                            description = "Invalid or expired token",
+                            content = @io.swagger.v3.oas.annotations.media.Content(
+                                    mediaType = "application/json",
+                                    schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = ErrorResponse.class)
+                            )
+                    )
+            }
+    )
+    public ResponseEntity<Void> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request,
+            @RequestAttribute(value = "userId", required = false) UUID requestingUserId) {
+        LOGGER.info("Reset password attempt via {} by user {}", request.verificationChannel(), requestingUserId);
+        authService.resetPassword(request, requestingUserId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * Refresh JWT access token using a refresh token.
      */
     @PostMapping("/refresh")

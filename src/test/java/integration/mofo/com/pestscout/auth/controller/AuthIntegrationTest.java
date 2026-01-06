@@ -3,10 +3,12 @@ package mofo.com.pestscout.auth.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mofo.com.pestscout.auth.dto.LoginRequest;
 import mofo.com.pestscout.auth.dto.LoginResponse;
+import mofo.com.pestscout.auth.dto.ForgotPasswordRequest;
 import mofo.com.pestscout.auth.dto.RefreshTokenRequest;
 import mofo.com.pestscout.auth.dto.RegisterRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -42,6 +44,9 @@ class AuthIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private PasswordResetTokenRepository passwordResetTokenRepository;
+
     @MockBean
     private CacheManager cacheManager;
 
@@ -63,10 +68,11 @@ class AuthIntegrationTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(uniqueEmail))
-                .andExpect(jsonPath("$.role").value(Role.MANAGER.name()));
+                .andExpect(jsonPath("$.role").value(Role.MANAGER.name()))
+                .andExpect(jsonPath("$.customerNumber").isNotEmpty());
 
         assertThat(userRepository.findByEmail(uniqueEmail)).isPresent();
 
@@ -80,6 +86,28 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.user.email").value(uniqueEmail))
                 .andExpect(jsonPath("$.user.role").value(Role.MANAGER.name()));
+    }
+
+    @Test
+    void registerSuperAdminReceivesZeroedCustomerNumber() throws Exception {
+        String uniqueEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password("password123")
+                .firstName("Integration")
+                .lastName("Admin")
+                .phoneNumber("555-0200")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value(uniqueEmail))
+                .andExpect(jsonPath("$.role").value(Role.SUPER_ADMIN.name()))
+                .andExpect(jsonPath("$.customerNumber").value("00000000"));
     }
 
     @Test
@@ -135,5 +163,35 @@ class AuthIntegrationTest {
         assertThat(refreshedResponse.refreshToken())
                 .isNotBlank()
                 .isNotEqualTo(loginResponse.refreshToken());
+    }
+
+    @Test
+    void forgotPasswordPersistsResetTokenAndReturnsNeutralMessage() throws Exception {
+        String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password("password123")
+                .firstName("Integration")
+                .lastName("Tester")
+                .phoneNumber("555-0100")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated());
+
+        ForgotPasswordRequest forgotPasswordRequest = new ForgotPasswordRequest(uniqueEmail, null, "support note");
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forgotPasswordRequest)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.message").value("If an account exists for that email, the reset code has been sent and is valid for 5 minutes."));
+
+        assertThat(passwordResetTokenRepository.findAll())
+                .anyMatch(token -> token.getUser().getEmail().equals(uniqueEmail));
     }
 }

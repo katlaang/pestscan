@@ -1,13 +1,18 @@
 package mofo.com.pestscout.auth.service;
 
 import mofo.com.pestscout.auth.dto.*;
+import mofo.com.pestscout.auth.model.PasswordResetToken;
+import mofo.com.pestscout.auth.model.ResetChannel;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
+import mofo.com.pestscout.auth.service.CustomerNumberService;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.farm.repository.FarmRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +53,15 @@ class AuthServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private PasswordResetTokenRepository passwordResetTokenRepository;
+
+    @Mock
+    private FarmRepository farmRepository;
+
+    @Mock
+    private CustomerNumberService customerNumberService;
 
     @InjectMocks
     private AuthService authService;
@@ -82,6 +97,9 @@ class AuthServiceTest {
                 .phoneNumber("9876543210")
                 .role(Role.SCOUT)
                 .build();
+
+        when(customerNumberService.resolveCustomerNumber(any(), any())).thenReturn("ZZ00000001");
+        when(userRepository.existsByCustomerNumber(anyString())).thenReturn(false);
     }
 
     @Test
@@ -167,6 +185,7 @@ class AuthServiceTest {
 
         when(userRepository.existsByEmail(registerRequest.email()))
                 .thenReturn(false);
+        when(userRepository.existsByCustomerNumber("ZZ00000001")).thenReturn(false);
         when(passwordEncoder.encode(registerRequest.password()))
                 .thenReturn("encodedPassword");
         when(userRepository.save(any(User.class)))
@@ -187,6 +206,47 @@ class AuthServiceTest {
         verify(userRepository).existsByEmail(registerRequest.email());
         verify(passwordEncoder).encode(registerRequest.password());
         verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Should assign zeroed customer number for super admin")
+    void register_SuperAdmin_UsesZeroedCustomerNumber() {
+        RegisterRequest superAdminRequest = RegisterRequest.builder()
+                .email("admin@example.com")
+                .password("password123")
+                .firstName("Super")
+                .lastName("Admin")
+                .phoneNumber("1112223333")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        User savedAdmin = User.builder()
+                .id(UUID.randomUUID())
+                .email(superAdminRequest.email())
+                .password("encodedPassword")
+                .firstName(superAdminRequest.firstName())
+                .lastName(superAdminRequest.lastName())
+                .phoneNumber(superAdminRequest.phoneNumber())
+                .customerNumber("00000000")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        when(userRepository.existsByEmail(superAdminRequest.email())).thenReturn(false);
+        when(userRepository.existsByCustomerNumber("00000000")).thenReturn(false);
+        when(passwordEncoder.encode(superAdminRequest.password())).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenReturn(savedAdmin);
+        when(userService.convertToDto(any(User.class))).thenReturn(UserDto.builder()
+                .id(savedAdmin.getId())
+                .email(savedAdmin.getEmail())
+                .customerNumber(savedAdmin.getCustomerNumber())
+                .build());
+
+        UserDto result = authService.register(superAdminRequest);
+
+        assertThat(result.getCustomerNumber()).isEqualTo("00000000");
+        verify(customerNumberService, never()).resolveCustomerNumber(any(), any());
+        verify(userRepository).existsByCustomerNumber("00000000");
     }
 
     @Test
@@ -310,5 +370,31 @@ class AuthServiceTest {
         // Act & Assert
         assertThatThrownBy(() -> authService.getCurrentUser(userId))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("Should store reset token for existing active user")
+    void requestPasswordReset_ForExistingUser_SavesToken() {
+        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
+        when(passwordResetTokenRepository.save(any(PasswordResetToken.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ForgotPasswordRequest request = new ForgotPasswordRequest(testUser.getEmail(), ResetChannel.EMAIL, "note");
+
+        authService.requestPasswordReset(request);
+
+        verify(passwordResetTokenRepository).save(any(PasswordResetToken.class));
+    }
+
+    @Test
+    @DisplayName("Should not create reset token when user is missing")
+    void requestPasswordReset_ForMissingUser_NoOp() {
+        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.empty());
+
+        ForgotPasswordRequest request = new ForgotPasswordRequest(testUser.getEmail(), ResetChannel.EMAIL, null);
+
+        authService.requestPasswordReset(request);
+
+        verify(passwordResetTokenRepository, never()).save(any());
     }
 }

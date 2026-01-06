@@ -349,6 +349,8 @@ public class UserService {
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
+                .phoneNumber(user.getPhoneNumber())
+                .customerNumber(user.getCustomerNumber())
                 .role(user.getRole())
                 .isEnabled(user.getIsEnabled())
                 .lastLogin(user.getLastLogin())
