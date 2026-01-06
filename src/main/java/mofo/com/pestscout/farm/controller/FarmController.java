@@ -42,14 +42,14 @@ public class FarmController {
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<List<FarmResponse>> listFarms() {
         LOGGER.info("GET /api/farms — listing farms for current user");
         return ResponseEntity.ok(farmService.listFarms());
     }
 
     @GetMapping("/{farmId}")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<FarmResponse> getFarm(@PathVariable UUID farmId) {
         LOGGER.info("GET /api/farms/{} — loading farm", farmId);
         return ResponseEntity.ok(farmService.getFarm(farmId));

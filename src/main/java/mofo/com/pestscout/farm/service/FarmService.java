@@ -6,6 +6,7 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.service.CustomerNumberService;
 import mofo.com.pestscout.common.exception.ConflictException;
+import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
@@ -27,9 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Locale;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,7 +39,6 @@ import java.util.stream.Collectors;
 public class FarmService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FarmService.class);
-
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
@@ -102,7 +102,7 @@ public class FarmService {
         Farm saved = farmRepository.save(farm);
 
         // Clear all related caches (greenhouses, sessions, analytics, etc.)
-        cacheService.evictFarmCaches(farmId);
+        cacheService.evictFarmCachesAfterCommit(farmId);
 
         LOGGER.info("Farm '{}' updated successfully", saved.getName());
         return mapToResponse(saved);
@@ -119,7 +119,7 @@ public class FarmService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "farms-list",
-            key = "#root.target.currentUserService.currentUserId.toString() + '::' + #root.target.farmAccess.currentUserRole.name()",
+            key = "#root.target.currentUserService.getCurrentUserId().toString() + '::' + #root.target.farmAccess.getCurrentUserRole().name()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FarmResponse> listFarms() {
@@ -131,7 +131,7 @@ public class FarmService {
             case FARM_ADMIN, MANAGER -> {
                 farms = farmRepository.findByOwnerId(currentUserService.getCurrentUserId());
             }
-            case SCOUT -> farms = farmRepository.findByScoutId(currentUserService.getCurrentUserId());
+            case SCOUT -> throw new ForbiddenException("Scouts cannot access farm dashboards.");
             default -> farms = List.of();
         }
 
@@ -180,7 +180,7 @@ public class FarmService {
         Farm farm = Farm.builder()
                 .name(request.name())
                 .description(request.description())
-                .externalId(request.externalId())
+                .externalId(generateExternalId())
                 .address(request.address())
                 .city(request.city())
                 .province(request.province())
@@ -247,7 +247,6 @@ public class FarmService {
         // Common fields editable by FARM_MANAGER or SUPER_ADMIN
         farm.setName(request.name());
         farm.setDescription(request.description());
-        farm.setExternalId(request.externalId());
         farm.setAddress(request.address());
         farm.setCity(request.city());
         farm.setProvince(request.province());
@@ -334,6 +333,16 @@ public class FarmService {
                 farm.getOwner() != null ? farm.getOwner().getId() : null,
                 farm.getScout() != null ? farm.getScout().getId() : null
         );
+    }
+
+    private String generateExternalId() {
+        String externalId;
+
+        do {
+            externalId = UUID.randomUUID().toString();
+        } while (farmRepository.existsByExternalId(externalId));
+
+        return externalId;
     }
 
 

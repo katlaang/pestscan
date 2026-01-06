@@ -58,6 +58,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                  @NonNull FilterChain filterChain) throws ServletException, IOException {
 
         try {
+            // Always start with a clear context to avoid leaking authentication across reused threads
+            SecurityContextHolder.clearContext();
+
             String jwt = getJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
@@ -95,10 +98,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         email, farmId, role);
             } else if (StringUtils.hasText(jwt)) {
                 LOGGER.debug("JWT present but invalid or expired");
+                SecurityContextHolder.clearContext();
             }
         } catch (Exception ex) {
             // We log the error but do not block the request pipeline here.
             LOGGER.error("Could not set user authentication in security context", ex);
+            SecurityContextHolder.clearContext();
         }
 
         // Continue the filter chain regardless of authentication outcome

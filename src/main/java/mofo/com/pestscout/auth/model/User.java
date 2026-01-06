@@ -57,7 +57,7 @@ public class User extends BaseEntity {
      */
     @Transient
     public boolean isActive() {
-        return Boolean.TRUE.equals(isEnabled);
+        return Boolean.TRUE.equals(isEnabled) && !isDeleted();
     }
 
     /**

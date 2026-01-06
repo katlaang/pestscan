@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -109,7 +110,6 @@ class FarmServiceTest {
         createRequest = new CreateFarmRequest(
                 "New Farm",
                 "New Farm Description",
-                "EXT-001",
                 "123 Farm Road",
                 "Farmville",
                 "Ontario",
@@ -140,7 +140,6 @@ class FarmServiceTest {
         updateRequest = new UpdateFarmRequest(
                 "Updated Farm Name",
                 "Updated Description",
-                "EXT-002",
                 "456 New Road",
                 new BigDecimal("43.123456"),
                 new BigDecimal("-80.123456"),
@@ -191,6 +190,36 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmAccessService).requireSuperAdmin();
         verify(farmRepository).save(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("Farm externalId should be a unique GUID")
+    void createFarm_GeneratesUniqueGuidExternalId() {
+        // Arrange
+        when(userRepository.findById(farmOwner.getId()))
+                .thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId()))
+                .thenReturn(Optional.of(scout));
+        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+                .thenReturn(Optional.empty());
+        when(farmRepository.existsByExternalId(anyString()))
+                .thenReturn(true, false); // force one collision then success
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        farmService.createFarm(createRequest);
+
+        // Assert
+        ArgumentCaptor<Farm> farmCaptor = ArgumentCaptor.forClass(Farm.class);
+        verify(farmRepository).save(farmCaptor.capture());
+
+        String generatedExternalId = farmCaptor.getValue().getExternalId();
+
+        assertThat(generatedExternalId)
+                .as("externalId should be a UUID/GUID string")
+                .matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+        verify(farmRepository, times(2)).existsByExternalId(anyString());
     }
 
     @Test
@@ -265,7 +294,6 @@ class FarmServiceTest {
         UpdateFarmRequest licenseUpdate = new UpdateFarmRequest(
                 updateRequest.name(),
                 updateRequest.description(),
-                updateRequest.externalId(),
                 updateRequest.address(),
                 updateRequest.latitude(),
                 updateRequest.longitude(),
