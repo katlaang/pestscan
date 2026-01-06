@@ -57,7 +57,6 @@ class FarmControllerTest {
         CreateFarmRequest request = new CreateFarmRequest(
                 "Farm",                         // name
                 "Demo farm",                    // description
-                "EXT-1",                        // externalId
                 "123 Main St",                  // address
                 "Nairobi",                      // city
                 "Nairobi County",               // province
@@ -90,7 +89,7 @@ class FarmControllerTest {
                 "TAG-1",                         // farmTag
                 "Farm",                          // name
                 "Demo farm",                     // description
-                "EXT-1",                         // externalId
+                "123e4567-e89b-12d3-a456-426614174000", // externalId
                 "123 Main St",                   // address
                 "Nairobi",                       // city
                 "Nairobi County",                // province
@@ -180,7 +179,6 @@ class FarmControllerTest {
         UpdateFarmRequest updateRequest = new UpdateFarmRequest(
                 "Updated",                         // name
                 "Updated description",             // description
-                "EXT-UPDATED",                     // externalId
                 "789 New St",                      // address
                 BigDecimal.valueOf(1.234),         // latitude
                 BigDecimal.valueOf(36.789),        // longitude

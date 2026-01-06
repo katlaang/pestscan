@@ -105,7 +105,6 @@ class FarmServiceTest {
         createRequest = new CreateFarmRequest(
                 "New Farm",
                 "New Farm Description",
-                "EXT-001",
                 "123 Farm Road",
                 "Farmville",
                 "Ontario",
@@ -136,7 +135,6 @@ class FarmServiceTest {
         updateRequest = new UpdateFarmRequest(
                 "Updated Farm Name",
                 "Updated Description",
-                "EXT-002",
                 "456 New Road",
                 new BigDecimal("43.123456"),
                 new BigDecimal("-80.123456"),

@@ -22,7 +22,6 @@ public record CreateFarmRequest(
 
         @NotBlank String name,
         String description,
-        String externalId,
 
         String address,
         String city,

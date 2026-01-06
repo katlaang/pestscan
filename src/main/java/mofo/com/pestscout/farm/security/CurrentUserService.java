@@ -31,8 +31,15 @@ public class CurrentUserService {
 
         String email = auth.getName();
 
-        return userRepository.findByEmail(email)
+        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UnauthorizedException("User not found: " + email));
+
+        if (!user.isActive()) {
+            log.warn("Inactive or deleted user {} attempted to access secured endpoint", email);
+            throw new UnauthorizedException("Your account is disabled or has been removed.");
+        }
+
+        return user;
     }
 
     public UUID getCurrentUserId() {
