@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.service.CustomerNumberService;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Locale;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -41,6 +43,7 @@ public class FarmService {
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
     private final UserRepository userRepository;
+    private final CustomerNumberService customerNumberService;
     private final CacheService cacheService;
 
     /**
@@ -56,7 +59,9 @@ public class FarmService {
             throw new ConflictException("Farm already exists: " + request.name());
         });
 
-        Farm farm = toFarmEntity(request);
+        String countryCode = customerNumberService.normalizeCountryCode(request.country());
+
+        Farm farm = toFarmEntity(request, countryCode);
         Farm saved = farmRepository.save(farm);
 
         LOGGER.info("Farm '{}' created with id {}", saved.getName(), saved.getId());
@@ -158,13 +163,18 @@ public class FarmService {
     // INTERNAL HELPERS
     // -------------------------------
 
-    private Farm toFarmEntity(CreateFarmRequest request) {
+    private Farm toFarmEntity(CreateFarmRequest request, String countryCode) {
         User owner = userRepository.findById(request.ownerId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.ownerId()));
         User scout = null;
         if (request.scoutId() != null) {
             scout = userRepository.findById(request.scoutId())
                     .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
+        }
+
+        ensureCustomerNumberForFarm(owner, countryCode);
+        if (scout != null) {
+            ensureCustomerNumberForFarm(scout, countryCode);
         }
 
         Farm farm = Farm.builder()
@@ -336,6 +346,21 @@ public class FarmService {
                 .map(String::trim)
                 .distinct()
                 .toList();
+    }
+
+
+    private void ensureCustomerNumberForFarm(User user, String countryCode) {
+        String customerNumber = user.getCustomerNumber();
+
+        if (customerNumber == null || customerNumber.isBlank()) {
+            user.setCustomerNumber(customerNumberService.generateUniqueCustomerNumber(countryCode));
+            userRepository.save(user);
+            return;
+        }
+
+        if (!customerNumber.toUpperCase(Locale.ROOT).startsWith(countryCode)) {
+            throw new ConflictException("Customer number for user " + user.getEmail() + " must start with " + countryCode + " to match farm country");
+        }
     }
 
 

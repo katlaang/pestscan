@@ -23,8 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.security.SecureRandom;
-import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -43,7 +41,7 @@ public class AuthService {
     private final UserService userService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final FarmRepository farmRepository;
-    private final SecureRandom secureRandom = new SecureRandom();
+    private final CustomerNumberService customerNumberService;
 
     /**
      * Authenticate user and generate JWT tokens
@@ -101,7 +99,8 @@ public class AuthService {
             throw new ConflictException("Email already registered");
         }
 
-        String customerNumber = resolveCustomerNumber(request.customerNumber(), request.farmId());
+        String countryCode = resolveCountryCode(request.farmId());
+        String customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
 
         if (userRepository.existsByCustomerNumber(customerNumber)) {
             throw new ConflictException("Customer number already registered");
@@ -355,43 +354,7 @@ public class AuthService {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
-        return normalizeCountryCode(farm.getCountry());
-    }
-
-    private String normalizeCountryCode(String country) {
-        if (country == null || country.isBlank()) {
-            return "ZZ";
-        }
-
-        String trimmed = country.trim();
-        String upper = trimmed.toUpperCase(Locale.ROOT);
-
-        for (String isoCountry : Locale.getISOCountries()) {
-            if (upper.equalsIgnoreCase(isoCountry)) {
-                return isoCountry.toUpperCase(Locale.ROOT);
-            }
-
-            Locale locale = new Locale("", isoCountry);
-            if (locale.getDisplayCountry(Locale.ENGLISH).equalsIgnoreCase(trimmed)) {
-                return isoCountry.toUpperCase(Locale.ROOT);
-            }
-        }
-
-        return upper.length() >= 2 ? upper.substring(0, 2) : "ZZ";
-    }
-
-    private String generateUniqueCustomerNumber(String countryCode) {
-        String prefix = (countryCode == null || countryCode.isBlank())
-                ? "ZZ"
-                : countryCode.toUpperCase(Locale.ROOT);
-
-        String candidate;
-        do {
-            String digits = String.format("%08d", secureRandom.nextInt(100_000_000));
-            candidate = prefix + digits;
-        } while (userRepository.existsByCustomerNumber(candidate));
-
-        return candidate;
+        return customerNumberService.normalizeCountryCode(farm.getCountry());
     }
 
     private String normalizePhone(String phoneNumber) {
