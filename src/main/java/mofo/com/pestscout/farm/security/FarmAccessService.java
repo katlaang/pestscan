@@ -55,8 +55,6 @@ public class FarmAccessService {
 
         if (farm.getOwner() != null && farm.getOwner().getId().equals(user.getId())) return;
 
-        if (farm.getScout() != null && farm.getScout().getId().equals(user.getId())) return;
-
         log.warn("User {} attempted to VIEW farm {} without permission",
                 user.getEmail(), farm.getId());
 

@@ -6,6 +6,7 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.service.CustomerNumberService;
 import mofo.com.pestscout.common.exception.ConflictException;
+import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
@@ -130,7 +131,7 @@ public class FarmService {
             case FARM_ADMIN, MANAGER -> {
                 farms = farmRepository.findByOwnerId(currentUserService.getCurrentUserId());
             }
-            case SCOUT -> farms = farmRepository.findByScoutId(currentUserService.getCurrentUserId());
+            case SCOUT -> throw new ForbiddenException("Scouts cannot access farm dashboards.");
             default -> farms = List.of();
         }
 
