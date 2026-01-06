@@ -32,6 +32,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmail(String email);
 
     /**
+     * Check if a customer number is already in use.
+     */
+    boolean existsByCustomerNumber(String customerNumber);
+
+    /**
      * Find all users with a given role (not farm filtered).
      * Farm scoping belongs to UserFarmMembership.
      */

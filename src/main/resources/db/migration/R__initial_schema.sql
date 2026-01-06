@@ -32,6 +32,7 @@ CREATE TABLE users
     first_name   VARCHAR(255),
     last_name    VARCHAR(255),
     phone_number VARCHAR(50)              NOT NULL,
+    customer_number VARCHAR(100)          NOT NULL UNIQUE,
     role         VARCHAR(50)              NOT NULL,
     is_enabled   BOOLEAN                  NOT NULL DEFAULT TRUE,
     last_login   TIMESTAMP WITH TIME ZONE,
@@ -45,11 +46,56 @@ CREATE TABLE users
 );
 
 CREATE INDEX idx_users_email ON users (email);
+CREATE INDEX idx_users_customer_number ON users (customer_number);
 CREATE INDEX idx_users_role ON users (role);
 
 CREATE TRIGGER trg_users_updated
     BEFORE UPDATE
     ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+--  PASSWORD RESET TOKENS
+-- ============================================================
+
+CREATE TABLE password_reset_tokens
+(
+    id                        UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    version                   BIGINT                   NOT NULL DEFAULT 0,
+
+    user_id                   UUID                     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    performed_by_user_id      UUID                               REFERENCES users (id) ON DELETE SET NULL,
+
+    token                     VARCHAR(255)             NOT NULL UNIQUE,
+    expires_at                TIMESTAMP WITH TIME ZONE NOT NULL,
+    used_at                   TIMESTAMP WITH TIME ZONE,
+
+    verification_channel      VARCHAR(50)              NOT NULL,
+
+    caller_name               VARCHAR(255),
+    callback_number           VARCHAR(50),
+    verification_notes        VARCHAR(2048),
+    first_name_confirmation   VARCHAR(255),
+    last_name_confirmation    VARCHAR(255),
+    email_confirmation        VARCHAR(255),
+    last_login_verified_on    DATE,
+    customer_number_confirmation VARCHAR(255),
+
+    created_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted                   BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at                TIMESTAMP WITH TIME ZONE,
+
+    CONSTRAINT chk_prt_verification_channel
+        CHECK (verification_channel IN ('EMAIL', 'PHONE_CALL'))
+);
+
+CREATE INDEX idx_prt_user ON password_reset_tokens (user_id);
+CREATE INDEX idx_prt_performed_by ON password_reset_tokens (performed_by_user_id);
+
+CREATE TRIGGER trg_prt_updated
+    BEFORE UPDATE
+    ON password_reset_tokens
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================

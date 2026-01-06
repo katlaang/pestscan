@@ -24,6 +24,7 @@ public class UserDto {
     private String firstName;
     private String lastName;
     private String phoneNumber;
+    private String customerNumber;
     private Role role;
     private Boolean isEnabled;
     private LocalDateTime lastLogin;

@@ -35,6 +35,9 @@ public record RegisterRequest(
         @Size(max = 50)
         String phoneNumber,
 
+        @Size(max = 100)
+        String customerNumber,
+
         @NotNull(message = "Role is required")
         Role role,
 
