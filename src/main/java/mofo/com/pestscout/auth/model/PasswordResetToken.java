@@ -10,6 +10,11 @@ import java.time.LocalDateTime;
 
 /**
  * One-time password reset token with audit details for how the reset was verified.
+ *
+ * Tokens are persisted so we can: (1) enforce single-use + expiry checks server-side,
+ * (2) keep an audit trail of the verification answers and the support user who
+ * completed a phone reset, and (3) avoid leaking account existence by handling all
+ * reset requests the same while still recording them for fraud review.
  */
 @Entity
 @Table(name = "password_reset_tokens")
