@@ -47,7 +47,7 @@ public class GreenhouseService {
                 .build();
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
-        cacheService.evictFarmCaches(farmId);
+        cacheService.evictFarmCachesAfterCommit(farmId);
         return toDto(saved);
     }
 
@@ -82,7 +82,7 @@ public class GreenhouseService {
         }
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
-        cacheService.evictFarmCaches(greenhouse.getFarm().getId());
+        cacheService.evictFarmCachesAfterCommit(greenhouse.getFarm().getId());
         return toDto(saved);
     }
 
@@ -93,7 +93,7 @@ public class GreenhouseService {
 
         farmAccessService.requireSuperAdmin();
         greenhouseRepository.delete(greenhouse);
-        cacheService.evictFarmCaches(greenhouse.getFarm().getId());
+        cacheService.evictFarmCachesAfterCommit(greenhouse.getFarm().getId());
     }
 
     @Transactional(readOnly = true)

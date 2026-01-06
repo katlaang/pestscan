@@ -102,7 +102,7 @@ public class FarmService {
         Farm saved = farmRepository.save(farm);
 
         // Clear all related caches (greenhouses, sessions, analytics, etc.)
-        cacheService.evictFarmCaches(farmId);
+        cacheService.evictFarmCachesAfterCommit(farmId);
 
         LOGGER.info("Farm '{}' updated successfully", saved.getName());
         return mapToResponse(saved);
@@ -119,7 +119,7 @@ public class FarmService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "farms-list",
-            key = "#root.target.currentUserService.currentUserId.toString() + '::' + #root.target.farmAccess.currentUserRole.name()",
+            key = "#root.target.currentUserService.getCurrentUserId().toString() + '::' + #root.target.farmAccess.getCurrentUserRole().name()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FarmResponse> listFarms() {

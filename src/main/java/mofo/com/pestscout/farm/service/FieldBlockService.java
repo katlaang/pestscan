@@ -45,7 +45,7 @@ public class FieldBlockService {
                 .build();
 
         FieldBlock saved = fieldBlockRepository.save(block);
-        cacheService.evictFarmCaches(farmId);
+        cacheService.evictFarmCachesAfterCommit(farmId);
         return toDto(saved);
     }
 
@@ -76,7 +76,7 @@ public class FieldBlockService {
         }
 
         FieldBlock saved = fieldBlockRepository.save(block);
-        cacheService.evictFarmCaches(block.getFarm().getId());
+        cacheService.evictFarmCachesAfterCommit(block.getFarm().getId());
         return toDto(saved);
     }
 
@@ -87,7 +87,7 @@ public class FieldBlockService {
 
         farmAccessService.requireSuperAdmin();
         fieldBlockRepository.delete(block);
-        cacheService.evictFarmCaches(block.getFarm().getId());
+        cacheService.evictFarmCachesAfterCommit(block.getFarm().getId());
     }
 
     @Transactional(readOnly = true)

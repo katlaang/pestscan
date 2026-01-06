@@ -96,7 +96,7 @@ public class ScoutingSessionService {
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
-        cacheService.evictSessionCaches(farm.getId(), saved.getId());
+        cacheService.evictSessionCachesAfterCommit(farm.getId(), saved.getId());
         return mapToDetailDto(saved);
     }
 
@@ -154,7 +154,7 @@ public class ScoutingSessionService {
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Updated scouting session {}", saved.getId());
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -179,7 +179,7 @@ public class ScoutingSessionService {
         session.setStatus(SessionStatus.IN_PROGRESS);
 
         ScoutingSession saved = sessionRepository.save(session);
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -210,7 +210,7 @@ public class ScoutingSessionService {
         session.setConfirmationAcknowledged(true);
 
         ScoutingSession saved = sessionRepository.save(session);
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -233,7 +233,7 @@ public class ScoutingSessionService {
         session.setCompletedAt(null);
 
         ScoutingSession saved = sessionRepository.save(session);
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
 
@@ -266,7 +266,7 @@ public class ScoutingSessionService {
                 .map(observationRequest -> upsertObservationInternal(session, observationRequest))
                 .toList();
 
-        cacheService.evictSessionCaches(session.getFarm().getId(), sessionId);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return observations;
     }
 
@@ -350,7 +350,7 @@ public class ScoutingSessionService {
         ensureSessionEditableForObservations(observation.getSession());
         observation.markDeleted();
         observationRepository.save(observation);
-        cacheService.evictSessionCaches(observation.getSession().getFarm().getId(), observation.getSession().getId());
+        cacheService.evictSessionCachesAfterCommit(observation.getSession().getFarm().getId(), observation.getSession().getId());
     }
 
     /**
@@ -359,7 +359,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "session-detail",
-            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null"
     )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
@@ -375,7 +375,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "sessions-list",
-            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {

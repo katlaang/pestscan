@@ -53,6 +53,7 @@ public class RedisCacheConfig {
      */
     public static final String CACHE_USERS = "users";
     public static final String CACHE_FARMS = "farms";
+    public static final String CACHE_FARMS_LIST = "farms-list";
     public static final String CACHE_GREENHOUSES = "greenhouses";
     public static final String CACHE_FIELD_BLOCKS = "field-blocks";
     public static final String CACHE_ANALYTICS = "analytics";
@@ -84,6 +85,7 @@ public class RedisCacheConfig {
 
         // Farm metadata - 2 hours (rarely changes)
         cacheConfigurations.put(CACHE_FARMS, createCacheConfiguration(Duration.ofHours(2)));
+        cacheConfigurations.put(CACHE_FARMS_LIST, createCacheConfiguration(Duration.ofHours(2)));
 
         // Greenhouse/Field block data - 1 hour (may change during farm setup)
         cacheConfigurations.put(CACHE_GREENHOUSES, createCacheConfiguration(Duration.ofHours(1)));

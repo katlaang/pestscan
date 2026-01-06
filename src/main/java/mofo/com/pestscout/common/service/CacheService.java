@@ -4,9 +4,13 @@ import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.common.config.RedisCacheConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.UUID;
 
@@ -32,6 +36,19 @@ public class CacheService {
     private final CacheManager cacheManager;
 
     /**
+     * Clear user-scoped caches at startup to eliminate stale entries that may
+     * have been written with older cache key formats.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void clearUserScopedCachesOnStartup() {
+        LOGGER.info("Clearing user-scoped caches at startup to remove stale entries");
+
+        clearCache(RedisCacheConfig.CACHE_FARMS_LIST);
+        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
+        clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
+    }
+
+    /**
      * Clear all farm-related caches when farm data changes.
      * This ensures downstream data (greenhouses, sessions, etc.) is refreshed.
      *
@@ -52,6 +69,10 @@ public class CacheService {
         LOGGER.debug("Cleared all farm-related caches for farm {}", farmId);
     }
 
+    public void evictFarmCachesAfterCommit(UUID farmId) {
+        runAfterCommit(() -> evictFarmCaches(farmId));
+    }
+
     /**
      * Clear all session-related caches when a session is modified.
      *
@@ -69,6 +90,10 @@ public class CacheService {
         evictCachesByPrefix(RedisCacheConfig.CACHE_HEATMAP, farmId.toString());
 
         LOGGER.debug("Cleared session-related caches for session {}", sessionId);
+    }
+
+    public void evictSessionCachesAfterCommit(UUID farmId, UUID sessionId) {
+        runAfterCommit(() -> evictSessionCaches(farmId, sessionId));
     }
 
     /**
@@ -99,6 +124,19 @@ public class CacheService {
         // Because we cannot enumerate every requester combination here, clear by prefix
         // to avoid leaving behind stale permission-scoped entries after updates.
         evictCachesByPrefix(RedisCacheConfig.CACHE_USERS, userId.toString());
+    }
+
+    private void runAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     /**
