@@ -22,7 +22,8 @@ import java.util.List;
         indexes = {
                 @Index(name = "idx_farms_name", columnList = "name"),
                 @Index(name = "idx_farms_subscription_status", columnList = "subscription_status"),
-                @Index(name = "idx_farms_farm_tag", columnList = "farm_tag", unique = true)
+                @Index(name = "idx_farms_farm_tag", columnList = "farm_tag", unique = true),
+                @Index(name = "idx_farms_external_id", columnList = "external_id", unique = true)
         }
 )
 @Getter
@@ -46,7 +47,7 @@ public class Farm extends BaseEntity {
     @Column(length = 500)
     private String description;
 
-    @Column(name = "external_id", length = 255)
+    @Column(name = "external_id", length = 36, unique = true)
     private String externalId;
 
     @Column(length = 255)

@@ -27,9 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Locale;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,7 +38,6 @@ import java.util.stream.Collectors;
 public class FarmService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FarmService.class);
-
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
@@ -180,7 +179,7 @@ public class FarmService {
         Farm farm = Farm.builder()
                 .name(request.name())
                 .description(request.description())
-                .externalId(request.externalId())
+                .externalId(generateExternalId())
                 .address(request.address())
                 .city(request.city())
                 .province(request.province())
@@ -247,7 +246,6 @@ public class FarmService {
         // Common fields editable by FARM_MANAGER or SUPER_ADMIN
         farm.setName(request.name());
         farm.setDescription(request.description());
-        farm.setExternalId(request.externalId());
         farm.setAddress(request.address());
         farm.setCity(request.city());
         farm.setProvince(request.province());
@@ -334,6 +332,16 @@ public class FarmService {
                 farm.getOwner() != null ? farm.getOwner().getId() : null,
                 farm.getScout() != null ? farm.getScout().getId() : null
         );
+    }
+
+    private String generateExternalId() {
+        String externalId;
+
+        do {
+            externalId = UUID.randomUUID().toString();
+        } while (farmRepository.existsByExternalId(externalId));
+
+        return externalId;
     }
 
 
