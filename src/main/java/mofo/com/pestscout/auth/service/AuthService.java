@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.dto.*;
 import mofo.com.pestscout.auth.model.PasswordResetToken;
 import mofo.com.pestscout.auth.model.ResetChannel;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
@@ -99,11 +100,19 @@ public class AuthService {
             throw new ConflictException("Email already registered");
         }
 
-        String countryCode = resolveCountryCode(request.farmId());
-        String customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
+        String customerNumber;
+        if (request.role() == Role.SUPER_ADMIN) {
+            customerNumber = "00000000";
+            if (userRepository.existsByCustomerNumber(customerNumber)) {
+                throw new ConflictException("Customer number already registered");
+            }
+        } else {
+            String countryCode = resolveCountryCode(request.farmId());
+            customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
 
-        if (userRepository.existsByCustomerNumber(customerNumber)) {
-            throw new ConflictException("Customer number already registered");
+            if (userRepository.existsByCustomerNumber(customerNumber)) {
+                throw new ConflictException("Customer number already registered");
+            }
         }
 
         // Create user
@@ -327,23 +336,6 @@ public class AuthService {
         resetToken.setLastLoginVerifiedOn(request.lastLoginDate());
         resetToken.setCustomerNumberConfirmation(request.customerNumber().trim());
         resetToken.setPerformedBy(supportUser);
-    }
-
-    private String resolveCustomerNumber(String requestedCustomerNumber, UUID farmId) {
-        String countryCode = resolveCountryCode(farmId);
-
-        if (requestedCustomerNumber != null && !requestedCustomerNumber.isBlank()) {
-            String normalized = requestedCustomerNumber.trim().toUpperCase(Locale.ROOT);
-            if (!normalized.startsWith(countryCode)) {
-                throw new BadRequestException("Customer number must start with the farm country code: " + countryCode);
-            }
-            if (!normalized.matches(countryCode + "\\d{8}")) {
-                throw new BadRequestException("Customer number must follow the pattern " + countryCode + "########");
-            }
-            return normalized;
-        }
-
-        return generateUniqueCustomerNumber(countryCode);
     }
 
     private String resolveCountryCode(UUID farmId) {

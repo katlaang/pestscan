@@ -350,6 +350,10 @@ public class FarmService {
 
 
     private void ensureCustomerNumberForFarm(User user, String countryCode) {
+        if (user.getRole() == Role.SUPER_ADMIN) {
+            return;
+        }
+
         String customerNumber = user.getCustomerNumber();
 
         if (customerNumber == null || customerNumber.isBlank()) {
