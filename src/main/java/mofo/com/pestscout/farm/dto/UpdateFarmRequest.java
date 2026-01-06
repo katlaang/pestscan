@@ -19,9 +19,6 @@ public record UpdateFarmRequest(
         String description,
 
         @Size(max = 255)
-        String externalId,
-
-        @Size(max = 255)
         String address,
 
         BigDecimal latitude,

@@ -39,4 +39,9 @@ public interface FarmRepository extends JpaRepository<Farm, UUID> {
      * Return all farms a scout is assigned to (should be at most one).
      */
     List<Farm> findByScoutId(UUID scoutId);
+
+    /**
+     * Check if an external identifier is already assigned to a farm.
+     */
+    boolean existsByExternalId(String externalId);
 }

@@ -110,7 +110,7 @@ CREATE TABLE farms
     farm_tag                      VARCHAR(32) UNIQUE,
     name                          VARCHAR(255)             NOT NULL,
     description                   VARCHAR(500),
-    external_id                   VARCHAR(255),
+    external_id                   VARCHAR(36)              UNIQUE NOT NULL,
 
     address                       VARCHAR(255),
     latitude                      DECIMAL(10, 7),
@@ -168,6 +168,7 @@ CREATE INDEX idx_farms_name ON farms (name);
 CREATE INDEX idx_farms_subscription_status ON farms (subscription_status);
 CREATE INDEX idx_farms_owner ON farms (owner_id);
 CREATE UNIQUE INDEX idx_farms_farm_tag ON farms (farm_tag);
+CREATE UNIQUE INDEX idx_farms_external_id ON farms (external_id);
 
 CREATE TRIGGER trg_farms_updated
     BEFORE UPDATE

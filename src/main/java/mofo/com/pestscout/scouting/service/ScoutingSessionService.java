@@ -3,9 +3,12 @@ package mofo.com.pestscout.scouting.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
+import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
@@ -45,6 +48,7 @@ public class ScoutingSessionService {
     private final GreenhouseRepository greenhouseRepository;
     private final CurrentUserService currentUserService;
     private final FarmAccessService farmAccessService;
+    private final UserRepository userRepository;
     private final LicenseService licenseService;
     private final CacheService cacheService;
 
@@ -68,7 +72,7 @@ public class ScoutingSessionService {
         licenseService.validateAreaWithinLicense(farm, requestedArea);
 
         User manager = resolveManager(farm);
-        User scout = farm.getScout();
+        User scout = resolveScout(request);
 
         ScoutingSession session = ScoutingSession.builder()
                 .farm(farm)
@@ -242,6 +246,7 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
 
+        enforceScoutOwnsSession(session);
         return upsertObservationInternal(session, request);
     }
 
@@ -254,7 +259,7 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
-        farmAccessService.requireScoutOfFarm(session.getFarm());
+        enforceScoutOwnsSession(session);
         ensureSessionEditableForObservations(session);
 
         List<ScoutingObservationDto> observations = request.observations().stream()
@@ -341,7 +346,7 @@ public class ScoutingSessionService {
                 .findByIdAndSessionId(observationId, sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
 
-        farmAccessService.requireScoutOfFarm(observation.getSession().getFarm());
+        enforceScoutOwnsSession(observation.getSession());
         ensureSessionEditableForObservations(observation.getSession());
         observation.markDeleted();
         observationRepository.save(observation);
@@ -360,7 +365,7 @@ public class ScoutingSessionService {
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
-        farmAccessService.requireViewAccess(session.getFarm());
+        enforceSessionVisibility(session);
         return mapToDetailDto(session);
     }
 
@@ -376,6 +381,17 @@ public class ScoutingSessionService {
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+        Role role = farmAccessService.getCurrentUserRole();
+
+        if (role == Role.SCOUT) {
+            UUID currentUserId = currentUserService.getCurrentUserId();
+            return sessionRepository.findByFarmId(farmId).stream()
+                    .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
+                    .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
+                    .map(this::mapToDetailDto)
+                    .collect(Collectors.toList());
+        }
+
         farmAccessService.requireViewAccess(farm);
 
         return sessionRepository.findByFarmId(farmId).stream()
@@ -392,6 +408,42 @@ public class ScoutingSessionService {
 
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+        Role role = farmAccessService.getCurrentUserRole();
+        UUID currentUserId = currentUserService.getCurrentUserId();
+
+        if (role == Role.SCOUT) {
+            List<ScoutingSession> updatedSessions = sessionRepository.findByFarmIdAndUpdatedAtAfter(farmId, since).stream()
+                    .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
+                    .toList();
+
+            List<UUID> farmSessionIds = sessionRepository.findByFarmId(farmId).stream()
+                    .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
+                    .map(ScoutingSession::getId)
+                    .toList();
+
+            List<ScoutingObservation> changedObservations = farmSessionIds.isEmpty()
+                    ? List.of()
+                    : observationRepository.findBySessionIdInAndUpdatedAtAfter(farmSessionIds, since);
+
+            Set<UUID> touchedSessionIds = new HashSet<>();
+            updatedSessions.forEach(session -> touchedSessionIds.add(session.getId()));
+            changedObservations.forEach(observation -> touchedSessionIds.add(observation.getSession().getId()));
+
+            List<ScoutingSessionDetailDto> sessionDtos = touchedSessionIds.isEmpty()
+                    ? List.of()
+                    : sessionRepository.findAllById(touchedSessionIds).stream()
+                    .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
+                    .map(session -> mapToDetailDto(session, includeDeleted))
+                    .toList();
+
+            List<ScoutingObservationDto> observationDtos = changedObservations.stream()
+                    .filter(observation -> includeDeleted || !observation.isDeleted())
+                    .map(observation -> mapToObservationDto(observation, includeDeleted))
+                    .toList();
+
+            return new ScoutingSyncResponse(sessionDtos, observationDtos);
+        }
+
         farmAccessService.requireViewAccess(farm);
 
         List<ScoutingSession> updatedSessions = sessionRepository.findByFarmIdAndUpdatedAtAfter(farmId, since);
@@ -515,6 +567,44 @@ public class ScoutingSessionService {
             return farm.getOwner();
         }
         return currentUserService.getCurrentUser();
+    }
+
+    private User resolveScout(CreateScoutingSessionRequest request) {
+        User scout = userRepository.findById(request.scoutId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
+
+        if (scout.getRole() != Role.SCOUT) {
+            throw new BadRequestException("Assigned user must be a scout.");
+        }
+
+        if (!scout.isActive()) {
+            throw new BadRequestException("Assigned scout is inactive or deleted.");
+        }
+
+        return scout;
+    }
+
+    private void enforceScoutOwnsSession(ScoutingSession session) {
+        if (farmAccessService.getCurrentUserRole() != Role.SCOUT) {
+            return;
+        }
+
+        UUID currentUserId = currentUserService.getCurrentUserId();
+        if (session.getScout() != null && currentUserId.equals(session.getScout().getId())) {
+            return;
+        }
+
+        throw new ForbiddenException("You are not assigned to this scouting session.");
+    }
+
+    private void enforceSessionVisibility(ScoutingSession session) {
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role == Role.SCOUT) {
+            enforceScoutOwnsSession(session);
+            return;
+        }
+
+        farmAccessService.requireViewAccess(session.getFarm());
     }
 
     /**

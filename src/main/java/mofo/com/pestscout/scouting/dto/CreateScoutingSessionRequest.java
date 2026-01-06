@@ -13,11 +13,13 @@ import java.util.UUID;
 
 /**
  * Manager creates a new scouting session for one or more greenhouses/fields.
- * Scout is taken from the farm's assigned scout and NOT passed from the client.
+ * The scout is selected explicitly (dropdown on the client) so sessions stay scoped to the assigned user.
  */
 public record CreateScoutingSessionRequest(
 
         @NotNull UUID farmId,
+
+        @NotNull UUID scoutId,
 
         @NotEmpty List<@Valid SessionTargetRequest> targets,
 
