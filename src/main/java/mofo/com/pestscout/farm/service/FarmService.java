@@ -188,7 +188,7 @@ public class FarmService {
                 .country(request.country())
                 .owner(owner)
                 .scout(scout)
-                .contactName(request.contactName())
+                .contactName(resolveContactName(owner))
                 .contactEmail(request.contactEmail())
                 .contactPhone(request.contactPhone())
                 .subscriptionStatus(request.subscriptionStatus())
@@ -252,7 +252,7 @@ public class FarmService {
         farm.setProvince(request.province());
         farm.setPostalCode(request.postalCode());
         farm.setCountry(request.country());
-        farm.setContactName(request.contactName());
+        farm.setContactName(resolveContactName(farm.getOwner()));
         farm.setContactEmail(request.contactEmail());
         farm.setContactPhone(request.contactPhone());
         farm.setTimezone(request.timezone());
@@ -379,6 +379,26 @@ public class FarmService {
 
     private FarmStructureType resolveStructureType(FarmStructureType requested) {
         return requested != null ? requested : FarmStructureType.GREENHOUSE;
+    }
+
+    private String resolveContactName(User owner) {
+        if (owner == null) {
+            return null;
+        }
+        String firstName = owner.getFirstName();
+        String lastName = owner.getLastName();
+        StringBuilder name = new StringBuilder();
+        if (firstName != null && !firstName.isBlank()) {
+            name.append(firstName.trim());
+        }
+        if (lastName != null && !lastName.isBlank()) {
+            if (!name.isEmpty()) {
+                name.append(' ');
+            }
+            name.append(lastName.trim());
+        }
+        String result = name.toString();
+        return result.isBlank() ? null : result;
     }
 
     private Instant toInstant(java.time.LocalDateTime value) {
