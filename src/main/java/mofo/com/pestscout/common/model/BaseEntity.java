@@ -47,6 +47,9 @@ public abstract class BaseEntity {
         if (updatedAt == null) {
             updatedAt = LocalDateTime.now();
         }
+        if (syncStatus == null) {
+            syncStatus = SyncStatus.SYNCED;
+        }
         // hook for subclasses
         applyPrePersistDefaults();
     }
@@ -61,6 +64,11 @@ public abstract class BaseEntity {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sync_status", nullable = false, length = 32)
+    private SyncStatus syncStatus = SyncStatus.SYNCED;
 
     @Override
     public boolean equals(Object o) {

@@ -31,6 +31,7 @@ public class SecurityConfig {
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CorsConfigurationSource corsConfigurationSource;
+    private final EdgeSyncAuthenticationFilter edgeSyncAuthenticationFilter;
 
     /**
      * Password encoder bean
@@ -95,6 +96,7 @@ public class SecurityConfig {
                 )
 
                 // Add JWT authentication filter
+                .addFilterBefore(edgeSyncAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 
                 // Authentication provider

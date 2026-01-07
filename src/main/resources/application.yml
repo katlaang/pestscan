@@ -47,6 +47,10 @@ spring:
           max-idle: 8
           min-idle: 0
 
+  cache:
+    # Use "simple" in EDGE deployments to avoid Redis dependency
+    type: ${SPRING_CACHE_TYPE:redis}
+
   # File Upload Configuration
   servlet:
     multipart:
@@ -91,6 +95,15 @@ aws:
 app:
   name: Mofo Pest Scouting System
   version: 1.0.0
+  runtime:
+    mode: ${APP_RUNTIME_MODE:CLOUD}
+  edge:
+    sync:
+      enabled: true
+      token: ${EDGE_SYNC_TOKEN:}
+      company-number: ${EDGE_COMPANY_NUMBER:}
+      edge-node-id: ${EDGE_NODE_ID:edge-node}
+      interval-ms: ${EDGE_SYNC_INTERVAL_MS:30000}
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:3000,http://localhost:19006}
     allowed-methods: GET,POST,PUT,DELETE,PATCH,OPTIONS

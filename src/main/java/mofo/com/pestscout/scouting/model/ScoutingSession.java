@@ -94,8 +94,14 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
+    @Column(name = "submitted_at")
+    private LocalDateTime submittedAt;
+
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
+
+    @Column(name = "reopen_comment", length = 2000)
+    private String reopenComment;
 
     /**
      * True when the scout (or manager) has confirmed that all data is correct
@@ -125,7 +131,10 @@ public class ScoutingSession extends BaseEntity {
      * A session is editable while it is draft or in progress.
      */
     public boolean isEditable() {
-        return status == SessionStatus.DRAFT || status == SessionStatus.IN_PROGRESS;
+        return status == SessionStatus.DRAFT
+                || status == SessionStatus.NEW
+                || status == SessionStatus.IN_PROGRESS
+                || status == SessionStatus.REOPENED;
     }
 
     /**
@@ -142,10 +151,28 @@ public class ScoutingSession extends BaseEntity {
      * Mark the session as completed. The caller must pass whether the user
      * checked the "I confirm this data is correct" box.
      */
+    public void markSubmitted(boolean acknowledged) {
+        this.status = SessionStatus.SUBMITTED;
+        this.submittedAt = LocalDateTime.now();
+        this.confirmationAcknowledged = acknowledged;
+        this.reopenComment = null;
+    }
+
     public void markCompleted(boolean acknowledged) {
         this.status = SessionStatus.COMPLETED;
         this.completedAt = LocalDateTime.now();
         this.confirmationAcknowledged = acknowledged;
+    }
+
+    public void markReopened(String comment) {
+        this.status = SessionStatus.REOPENED;
+        this.reopenComment = comment;
+        this.confirmationAcknowledged = false;
+        this.completedAt = null;
+    }
+
+    public void markIncomplete() {
+        this.status = SessionStatus.INCOMPLETE;
     }
 
 
@@ -165,4 +192,3 @@ public class ScoutingSession extends BaseEntity {
         target.setSession(this);
     }
 }
-
