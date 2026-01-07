@@ -334,7 +334,9 @@ CREATE TABLE scouting_sessions
     status                    VARCHAR(20)              NOT NULL DEFAULT 'DRAFT',
 
     started_at                TIMESTAMP WITH TIME ZONE,
+    submitted_at              TIMESTAMP WITH TIME ZONE,
     completed_at              TIMESTAMP WITH TIME ZONE,
+    reopen_comment            VARCHAR(2000),
     confirmation_acknowledged BOOLEAN                  NOT NULL DEFAULT FALSE,
 
     created_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
