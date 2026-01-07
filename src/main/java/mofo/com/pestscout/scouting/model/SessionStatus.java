@@ -5,8 +5,12 @@ package mofo.com.pestscout.scouting.model;
  */
 public enum SessionStatus {
     DRAFT,
+    NEW,
     IN_PROGRESS,
+    SUBMITTED,
+    REOPENED,
     COMPLETED,
+    INCOMPLETE,
     CANCELLED
 
 

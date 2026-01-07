@@ -10,6 +10,7 @@ import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
@@ -21,10 +22,12 @@ import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
+import mofo.com.pestscout.scouting.model.SessionAuditAction;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
+import mofo.com.pestscout.scouting.service.SessionAuditService;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +54,7 @@ public class ScoutingSessionService {
     private final UserRepository userRepository;
     private final LicenseService licenseService;
     private final CacheService cacheService;
+    private final SessionAuditService sessionAuditService;
 
     /**
      * Create a new scouting session for a farm.
@@ -74,6 +78,11 @@ public class ScoutingSessionService {
         User manager = resolveManager(farm);
         User scout = resolveScout(request);
 
+        SessionStatus initialStatus = request.status() == null ? SessionStatus.NEW : request.status();
+        if (initialStatus != SessionStatus.DRAFT && initialStatus != SessionStatus.NEW) {
+            throw new BadRequestException("Session status must be DRAFT or NEW when creating.");
+        }
+
         ScoutingSession session = ScoutingSession.builder()
                 .farm(farm)
                 .manager(manager)
@@ -87,15 +96,18 @@ public class ScoutingSessionService {
                 .observationTime(request.observationTime())
                 .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
-                .status(SessionStatus.DRAFT)
+                .status(initialStatus)
                 .confirmationAcknowledged(false)
                 .recommendations(new EnumMap<>(RecommendationType.class))
                 .build();
+
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_CREATED, null, null, null, null, null);
         cacheService.evictSessionCachesAfterCommit(farm.getId(), saved.getId());
         return mapToDetailDto(saved);
     }
@@ -152,6 +164,7 @@ public class ScoutingSessionService {
             resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
         }
 
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Updated scouting session {}", saved.getId());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
@@ -167,18 +180,61 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
-        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role == Role.SCOUT) {
+            enforceScoutOwnsSession(session);
+        } else {
+            farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        }
 
-        if (session.getStatus() == SessionStatus.COMPLETED) {
-            throw new BadRequestException("Cannot start a session that has already been completed.");
+        if (isLockedForScout(session)) {
+            throw new BadRequestException("Cannot start a session that has already been submitted or completed.");
         }
 
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
         session.setStatus(SessionStatus.IN_PROGRESS);
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+
+        markOtherInProgressSessionsIncomplete(session);
 
         ScoutingSession saved = sessionRepository.save(session);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_STARTED, null, null, null, null, null);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
+        return mapToDetailDto(saved);
+    }
+
+    /**
+     * Scout submits a session (locks editing for scouts). Works offline on edge.
+     */
+    @Transactional
+    public ScoutingSessionDetailDto submitSession(UUID sessionId, SubmitSessionRequest request) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role == Role.SCOUT) {
+            enforceScoutOwnsSession(session);
+        } else {
+            farmAccessService.requireViewAccess(session.getFarm());
+        }
+
+        if (isLockedForScout(session)) {
+            throw new BadRequestException("Session has already been submitted or completed.");
+        }
+
+        assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
+
+        if (session.getStartedAt() == null) {
+            session.setStartedAt(LocalDateTime.now());
+        }
+
+        session.markSubmitted(Boolean.TRUE.equals(request.confirmationAcknowledged()));
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+
+        ScoutingSession saved = sessionRepository.save(session);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_SUBMITTED, request.comment(), request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
@@ -198,6 +254,12 @@ public class ScoutingSessionService {
             throw new BadRequestException("Session is already completed.");
         }
 
+        if (session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.REOPENED) {
+            throw new BadRequestException("Session must be submitted before approval.");
+        }
+
+        assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
+
         if (request == null || !Boolean.TRUE.equals(request.confirmationAcknowledged())) {
             throw new BadRequestException("Please confirm all information is correct before completing the session.");
         }
@@ -205,11 +267,11 @@ public class ScoutingSessionService {
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
-        session.setStatus(SessionStatus.COMPLETED);
-        session.setCompletedAt(LocalDateTime.now());
-        session.setConfirmationAcknowledged(true);
+        session.markCompleted(true);
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         ScoutingSession saved = sessionRepository.save(session);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_COMPLETED, request.comment(), request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
@@ -218,21 +280,26 @@ public class ScoutingSessionService {
      * Reopen a completed session so that observations can be edited again.
      */
     @Transactional
-    public ScoutingSessionDetailDto reopenSession(UUID sessionId) {
+    public ScoutingSessionDetailDto reopenSession(UUID sessionId, ReopenSessionRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
 
-        if (session.getStatus() != SessionStatus.COMPLETED) {
-            throw new BadRequestException("Only completed sessions can be reopened.");
+        if (session.getStatus() != SessionStatus.COMPLETED && session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.INCOMPLETE) {
+            throw new BadRequestException("Only submitted or completed sessions can be reopened.");
         }
 
-        session.setStatus(SessionStatus.IN_PROGRESS);
-        session.setConfirmationAcknowledged(false);
-        session.setCompletedAt(null);
+        session.markReopened(request != null ? request.comment() : null);
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         ScoutingSession saved = sessionRepository.save(session);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_REOPENED,
+                request != null ? request.comment() : null,
+                request != null ? request.deviceId() : null,
+                request != null ? request.deviceType() : null,
+                request != null ? request.location() : null,
+                request != null ? request.actorName() : null);
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
@@ -247,6 +314,7 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
 
         enforceScoutOwnsSession(session);
+        ensureScoutCanEdit(session);
         return upsertObservationInternal(session, request);
     }
 
@@ -260,6 +328,7 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         enforceScoutOwnsSession(session);
+        ensureScoutCanEdit(session);
         ensureSessionEditableForObservations(session);
 
         List<ScoutingObservationDto> observations = request.observations().stream()
@@ -331,6 +400,8 @@ public class ScoutingSessionService {
         observation.setCount(request.count());
         observation.setNotes(request.notes());
         observation.setClientRequestId(clientRequestId);
+        observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         ScoutingObservation saved = observationRepository.save(observation);
         return mapToObservationDto(saved, false);
@@ -347,8 +418,11 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
 
         enforceScoutOwnsSession(observation.getSession());
+        ensureScoutCanEdit(observation.getSession());
         ensureSessionEditableForObservations(observation.getSession());
         observation.markDeleted();
+        observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        observation.getSession().setSyncStatus(SyncStatus.PENDING_UPLOAD);
         observationRepository.save(observation);
         cacheService.evictSessionCachesAfterCommit(observation.getSession().getFarm().getId(), observation.getSession().getId());
     }
@@ -359,7 +433,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "session-detail",
-            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
+            key = "#sessionId.toString() + ':tenant=' + #root.target.currentUserService.getCurrentCustomerNumber() + ':user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null"
     )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
@@ -375,7 +449,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "sessions-list",
-            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
+            key = "#farmId.toString() + ':tenant=' + #root.target.currentUserService.getCurrentCustomerNumber() + ':user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
@@ -499,8 +573,10 @@ public class ScoutingSessionService {
      * Only sessions in DRAFT or IN_PROGRESS can have their metadata changed.
      */
     private void ensureSessionEditableForMetadata(ScoutingSession session) {
-        if (session.getStatus() == SessionStatus.COMPLETED) {
-            throw new BadRequestException("Completed sessions must be reopened before editing.");
+        if (session.getStatus() == SessionStatus.COMPLETED
+                || session.getStatus() == SessionStatus.SUBMITTED
+                || session.getStatus() == SessionStatus.INCOMPLETE) {
+            throw new BadRequestException("Locked sessions must be reopened before editing.");
         }
     }
 
@@ -508,9 +584,48 @@ public class ScoutingSessionService {
      * Only sessions in DRAFT or IN_PROGRESS can have their observations changed.
      */
     private void ensureSessionEditableForObservations(ScoutingSession session) {
-        if (session.getStatus() == SessionStatus.COMPLETED || session.getStatus() == SessionStatus.CANCELLED) {
-            throw new BadRequestException("Completed or cancelled sessions cannot be edited.");
+        if (session.getStatus() == SessionStatus.COMPLETED
+                || session.getStatus() == SessionStatus.CANCELLED
+                || session.getStatus() == SessionStatus.SUBMITTED
+                || session.getStatus() == SessionStatus.INCOMPLETE) {
+            throw new BadRequestException("Locked sessions cannot be edited.");
         }
+    }
+
+    private boolean isLockedForScout(ScoutingSession session) {
+        return session.getStatus() == SessionStatus.SUBMITTED
+                || session.getStatus() == SessionStatus.COMPLETED
+                || session.getStatus() == SessionStatus.INCOMPLETE
+                || session.getStatus() == SessionStatus.CANCELLED;
+    }
+
+    private void ensureScoutCanEdit(ScoutingSession session) {
+        if (farmAccessService.getCurrentUserRole() != Role.SCOUT) {
+            return;
+        }
+
+        if (isLockedForScout(session)) {
+            throw new ForbiddenException("Session is locked and cannot be edited by scout.");
+        }
+    }
+
+    private void markOtherInProgressSessionsIncomplete(ScoutingSession session) {
+        if (session.getScout() == null || session.getFarm() == null) {
+            return;
+        }
+
+        List<ScoutingSession> overlapping = sessionRepository.findByFarmIdAndScoutIdAndStatus(
+                session.getFarm().getId(), session.getScout().getId(), SessionStatus.IN_PROGRESS);
+
+        overlapping.stream()
+                .filter(other -> !other.getId().equals(session.getId()))
+                .forEach(other -> {
+                    other.markIncomplete();
+                    other.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+                    sessionAuditService.record(other, SessionAuditAction.SESSION_MARKED_INCOMPLETE,
+                            "New session started while another was open", null, null, null, null);
+                    sessionRepository.save(other);
+                });
     }
 
     private void assertNotStale(Long requestedVersion, Long currentVersion, String entityName) {
@@ -677,6 +792,7 @@ public class ScoutingSessionService {
                 session.getSessionDate(),
                 session.getWeekNumber(),
                 session.getStatus(),
+                session.getSyncStatus(),
                 managerId,
                 scoutId,
                 session.getCropType(),
@@ -687,9 +803,11 @@ public class ScoutingSessionService {
                 session.getWeatherNotes(),
                 session.getNotes(),
                 session.getStartedAt(),
+                session.getSubmittedAt(),
                 session.getCompletedAt(),
                 session.getUpdatedAt(),
                 session.isConfirmationAcknowledged(),
+                session.getReopenComment(),
                 sectionDtos,
                 recommendationDtos
         );
@@ -723,6 +841,7 @@ public class ScoutingSessionService {
                 observation.getCount() != null ? observation.getCount() : 0,
                 observation.getNotes(),
                 observation.getUpdatedAt(),
+                observation.getSyncStatus(),
                 deleted,
                 observation.getDeletedAt(),
                 observation.getClientRequestId()

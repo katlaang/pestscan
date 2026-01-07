@@ -1,5 +1,6 @@
 package mofo.com.pestscout.scouting.dto;
 
+import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 
 import java.math.BigDecimal;
@@ -22,6 +23,7 @@ public record ScoutingSessionDetailDto(
         Integer weekNumber,
 
         SessionStatus status,
+        SyncStatus syncStatus,
 
         UUID managerId,
         UUID scoutId,
@@ -39,9 +41,12 @@ public record ScoutingSessionDetailDto(
         String notes,
 
         LocalDateTime startedAt,
+        LocalDateTime submittedAt,
         LocalDateTime completedAt,
         LocalDateTime updatedAt,
         boolean confirmationAcknowledged,
+
+        String reopenComment,
 
         List<ScoutingSessionSectionDto> sections,
         List<RecommendationEntryDto> recommendations

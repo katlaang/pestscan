@@ -29,6 +29,8 @@ PestScout is a Spring Boot 3 service for managing farms, user access, scouting s
 - **Security**: JWT authentication with BCrypt password hashing and stateless sessions. Public routes: `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`, `/api-docs/**`, `/swagger-ui/**`, `/actuator/**`.
 - **Data model**: Base entities include audit columns and optimistic locking. Farms own greenhouses/field blocks; sessions attach to farms and targets; observations reference session targets.
 - **Caching**: Redis caching via `RedisCacheConfig` for farm metadata, users, and permissions.
+- **Runtime modes**: `app.runtime.mode` toggles CLOUD (default) vs EDGE. Run edge instances with `SPRING_CACHE_TYPE=simple` to disable Redis requirements while keeping caching semantics.
+- **Edge sync auth**: `/api/cloud/sync/**` accepts a dedicated service token for headless edge uploads. Provide it via `X-Edge-Sync-Token` (or `Authorization: Bearer <token>`) and set `EDGE_SYNC_TOKEN`, `EDGE_COMPANY_NUMBER`, and `EDGE_NODE_ID` in the environment.
 - **Validation**: Jakarta Bean Validation on DTOs; global error responses use `ErrorResponse`.
 
 ## Running locally
@@ -44,10 +46,41 @@ PestScout is a Spring Boot 3 service for managing farms, user access, scouting s
    ```
 5. **API docs**: Swagger UI is available at `http://localhost:8080/swagger-ui.html` with OpenAPI JSON at `/api-docs`.
 
+## Dockerized setup
+You can run the backend plus its dependencies (PostgreSQL, Redis) with Docker. The provided `docker-compose.yml` starts all three services with the same default credentials/ports as `application.yml`.
+
+### Build the application image
+```bash
+docker build -t pestscan-app .
+```
+
+### Run everything with Docker Compose
+```bash
+docker compose up -d
+```
+- App: http://localhost:8080 (Swagger at `/swagger-ui.html`)
+- Postgres: localhost:5433 (DB: `pestscan_scouting`, user: `postgres`, password: `admin`)
+- Redis: localhost:6379
+
+To view logs:
+```bash
+docker compose logs -f app
+```
+
+To rebuild the app image after code changes:
+```bash
+docker compose build app
+docker compose up -d app
+```
+
 ## Offline sync summary
 - Observations support idempotent upserts via `clientRequestId`, optimistic locking with `version`, and soft deletion.
 - Sync endpoint: `GET /scouting/farms/{farmId}/sync?since=<ISO timestamp>&includeDeleted=<boolean>` returns sessions/observations updated since the timestamp, optionally including deletions.
+- Cloud sync endpoints mirror the REST shape for edge uploads: `POST /api/cloud/sync/sessions`, `POST /api/cloud/sync/photos/register`, and `POST /api/cloud/sync/photos/confirm`.
+- Photo workflow: register metadata (`POST /api/scouting/photos/register`), upload via presigned URL, then confirm (`POST /api/scouting/photos/confirm`); the same payloads work for cloud sync endpoints.
 - Conflict responses use HTTP 409 for stale versions or duplicate `clientRequestId` across sessions. See `docs/offline-sync.md` for request/response shapes and client recommendations.
+- For edge deployments and photo handling, see `docs/edge-backend-summary.md` for the minimal backend checklist (runtime modes, cache expectations, sync states, and photo APIs for REST and edge sync).
+- For exact edge sync payload examples, conflict walkthroughs, and React Native offline queue guidance, see `docs/edge-sync-guide.md`.
 
 ## Repository layout
 - `src/main/java/mofo/com/pestscout` – Domain packages (`auth`, `farm`, `scouting`, `analytics`, `common`).

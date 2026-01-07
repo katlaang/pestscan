@@ -2,6 +2,7 @@ package mofo.com.pestscout.common.service;
 
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.common.config.RedisCacheConfig;
+import mofo.com.pestscout.common.config.RuntimeMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -34,6 +35,7 @@ public class CacheService {
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheService.class);
 
     private final CacheManager cacheManager;
+    private final RuntimeMode runtimeMode;
 
     /**
      * Clear user-scoped caches at startup to eliminate stale entries that may
@@ -41,6 +43,11 @@ public class CacheService {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void clearUserScopedCachesOnStartup() {
+        if (runtimeMode.isEdge()) {
+            LOGGER.info("Skipping startup cache cleanup because runtime mode is EDGE");
+            return;
+        }
+
         LOGGER.info("Clearing user-scoped caches at startup to remove stale entries");
 
         clearCache(RedisCacheConfig.CACHE_FARMS_LIST);

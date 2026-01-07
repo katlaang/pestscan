@@ -42,10 +42,18 @@ public class ScoutingSessionController {
     }
 
     @PostMapping("/{sessionId}/start")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> startSession(@PathVariable UUID sessionId) {
         LOGGER.info("POST /api/scouting/sessions/{}/start — starting session", sessionId);
         return ResponseEntity.ok(sessionService.startSession(sessionId));
+    }
+
+    @PostMapping("/{sessionId}/submit")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    public ResponseEntity<ScoutingSessionDetailDto> submitSession(@PathVariable UUID sessionId,
+                                                                  @Valid @RequestBody SubmitSessionRequest request) {
+        LOGGER.info("POST /api/scouting/sessions/{}/submit — submitting session for approval", sessionId);
+        return ResponseEntity.ok(sessionService.submitSession(sessionId, request));
     }
 
     @PostMapping("/{sessionId}/complete")
@@ -58,9 +66,10 @@ public class ScoutingSessionController {
 
     @PostMapping("/{sessionId}/reopen")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
-    public ResponseEntity<ScoutingSessionDetailDto> reopenSession(@PathVariable UUID sessionId) {
+    public ResponseEntity<ScoutingSessionDetailDto> reopenSession(@PathVariable UUID sessionId,
+                                                                  @RequestBody(required = false) ReopenSessionRequest request) {
         LOGGER.info("POST /api/scouting/sessions/{}/reopen — reopening session", sessionId);
-        return ResponseEntity.ok(sessionService.reopenSession(sessionId));
+        return ResponseEntity.ok(sessionService.reopenSession(sessionId, request));
     }
 
     @PostMapping("/{sessionId}/observations")

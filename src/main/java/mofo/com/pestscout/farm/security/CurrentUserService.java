@@ -4,6 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.security.EdgeSyncAuthenticationToken;
+import mofo.com.pestscout.auth.security.EdgeSyncPrincipal;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,6 +32,10 @@ public class CurrentUserService {
             throw new UnauthorizedException("You must be logged in to access this resource.");
         }
 
+        if (auth instanceof EdgeSyncAuthenticationToken edgeAuth) {
+            return buildEdgeUser(edgeAuth.getEdgePrincipal());
+        }
+
         String email = auth.getName();
 
         User user = userRepository.findByEmail(email)
@@ -44,6 +51,23 @@ public class CurrentUserService {
 
     public UUID getCurrentUserId() {
         return getCurrentUser().getId();
+    }
+
+    public String getCurrentCustomerNumber() {
+        return getCurrentUser().getCustomerNumber();
+    }
+
+    private User buildEdgeUser(EdgeSyncPrincipal principal) {
+        User synthetic = User.builder()
+                .email(principal.email())
+                .customerNumber(principal.companyNumber())
+                .phoneNumber("n/a")
+                .password("edge-sync")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+        synthetic.setId(java.util.UUID.nameUUIDFromBytes((principal.companyNumber() + principal.edgeNodeId()).getBytes()));
+        return synthetic;
     }
 }
 

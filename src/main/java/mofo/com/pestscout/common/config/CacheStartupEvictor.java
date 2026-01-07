@@ -2,6 +2,7 @@ package mofo.com.pestscout.common.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import mofo.com.pestscout.common.config.RuntimeMode;
 import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -18,9 +19,15 @@ import org.springframework.stereotype.Component;
 public class CacheStartupEvictor {
 
     private final CacheService cacheService;
+    private final RuntimeMode runtimeMode;
 
     @EventListener(ApplicationReadyEvent.class)
     public void clearCachesOnStartup() {
+        if (runtimeMode.isEdge()) {
+            log.info("Skipping startup cache eviction in EDGE mode");
+            return;
+        }
+
         log.info("Clearing caches at startup to remove stale entries");
         cacheService.evictAllCaches();
     }

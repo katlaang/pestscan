@@ -1,5 +1,6 @@
 package mofo.com.pestscout.scouting.dto;
 
+import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.model.ObservationCategory;
 import mofo.com.pestscout.scouting.model.SpeciesCode;
 
@@ -23,6 +24,7 @@ public record ScoutingObservationDto(
         Integer count,
         String notes,
         LocalDateTime updatedAt,
+        SyncStatus syncStatus,
         boolean deleted,
         LocalDateTime deletedAt,
         UUID clientRequestId
