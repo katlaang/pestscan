@@ -6,6 +6,7 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
@@ -27,6 +28,7 @@ import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
+import mofo.com.pestscout.scouting.repository.SessionAuditEventRepository;
 import mofo.com.pestscout.scouting.service.SessionAuditService;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -46,12 +48,14 @@ public class ScoutingSessionService {
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
     private final ScoutingSessionTargetRepository sessionTargetRepository;
+    private final SessionAuditEventRepository auditEventRepository;
     private final FarmRepository farmRepository;
     private final FieldBlockRepository fieldBlockRepository;
     private final GreenhouseRepository greenhouseRepository;
     private final CurrentUserService currentUserService;
     private final FarmAccessService farmAccessService;
     private final UserRepository userRepository;
+    private final UserFarmMembershipRepository membershipRepository;
     private final LicenseService licenseService;
     private final CacheService cacheService;
     private final SessionAuditService sessionAuditService;
@@ -78,7 +82,7 @@ public class ScoutingSessionService {
         User manager = resolveManager(farm);
         User scout = resolveScout(request);
 
-        SessionStatus initialStatus = request.status() == null ? SessionStatus.NEW : request.status();
+        SessionStatus initialStatus = request.status() == null ? SessionStatus.DRAFT : request.status();
         if (initialStatus != SessionStatus.DRAFT && initialStatus != SessionStatus.NEW) {
             throw new BadRequestException("Session status must be DRAFT or NEW when creating.");
         }
@@ -107,7 +111,8 @@ public class ScoutingSessionService {
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
-        sessionAuditService.record(saved, SessionAuditAction.SESSION_CREATED, null, null, null, null, null);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_CREATED, request.comment(),
+                request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(farm.getId(), saved.getId());
         return mapToDetailDto(saved);
     }
@@ -155,6 +160,11 @@ public class ScoutingSessionService {
             session.setNotes(request.notes());
         }
 
+        if (request.status() != null && request.status() != session.getStatus()) {
+            SessionStateMachine.assertTransition(session.getStatus(), request.status(), farmAccessService.getCurrentUserRole());
+            session.setStatus(request.status());
+        }
+
         if (request.targets() != null && !request.targets().isEmpty()) {
             List<ResolvedTarget> resolvedTargets = request.targets().stream()
                     .map(target -> resolveTarget(target, session.getFarm()))
@@ -167,6 +177,8 @@ public class ScoutingSessionService {
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Updated scouting session {}", saved.getId());
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_EDITED, request.comment(),
+                request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
     }
@@ -191,10 +203,8 @@ public class ScoutingSessionService {
             throw new BadRequestException("Cannot start a session that has already been submitted or completed.");
         }
 
-        if (session.getStartedAt() == null) {
-            session.setStartedAt(LocalDateTime.now());
-        }
-        session.setStatus(SessionStatus.IN_PROGRESS);
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.IN_PROGRESS, role);
+        session.markStarted();
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         markOtherInProgressSessionsIncomplete(session);
@@ -230,6 +240,7 @@ public class ScoutingSessionService {
             session.setStartedAt(LocalDateTime.now());
         }
 
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.SUBMITTED, role);
         session.markSubmitted(Boolean.TRUE.equals(request.confirmationAcknowledged()));
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
@@ -267,6 +278,7 @@ public class ScoutingSessionService {
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.COMPLETED, farmAccessService.getCurrentUserRole());
         session.markCompleted(true);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
@@ -290,6 +302,7 @@ public class ScoutingSessionService {
             throw new BadRequestException("Only submitted or completed sessions can be reopened.");
         }
 
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.REOPENED, farmAccessService.getCurrentUserRole());
         session.markReopened(request != null ? request.comment() : null);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
@@ -433,13 +446,29 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "session-detail",
-            key = "#sessionId.toString() + ':tenant=' + #root.target.currentUserService.getCurrentCustomerNumber() + ':user=' + #root.target.currentUserService.getCurrentUserId()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null"
     )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
+        return getSessionInternal(sessionId, null, null, null, null, false);
+    }
+
+    public ScoutingSessionDetailDto getSession(UUID sessionId, String deviceId, String deviceType, String location, String actorName) {
+        return getSessionInternal(sessionId, deviceId, deviceType, location, actorName, true);
+    }
+
+    private ScoutingSessionDetailDto getSessionInternal(UUID sessionId,
+                                                        String deviceId,
+                                                        String deviceType,
+                                                        String location,
+                                                        String actorName,
+                                                        boolean recordAudit) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
         enforceSessionVisibility(session);
+        if (recordAudit) {
+            sessionAuditService.record(session, SessionAuditAction.SESSION_VIEWED, null, deviceId, deviceType, location, actorName);
+        }
         return mapToDetailDto(session);
     }
 
@@ -449,7 +478,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "sessions-list",
-            key = "#farmId.toString() + ':tenant=' + #root.target.currentUserService.getCurrentCustomerNumber() + ':user=' + #root.target.currentUserService.getCurrentUserId()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
@@ -461,12 +490,13 @@ public class ScoutingSessionService {
             UUID currentUserId = currentUserService.getCurrentUserId();
             return sessionRepository.findByFarmId(farmId).stream()
                     .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
+                    .filter(session -> session.getStatus() != SessionStatus.DRAFT)
                     .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
                     .map(this::mapToDetailDto)
                     .collect(Collectors.toList());
         }
 
-        farmAccessService.requireViewAccess(farm);
+        requireSessionViewerAccess(farm);
 
         return sessionRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
@@ -547,6 +577,31 @@ public class ScoutingSessionService {
         return new ScoutingSyncResponse(sessionDtos, observationDtos);
     }
 
+    @Transactional(readOnly = true)
+    public List<ScoutingSessionAuditDto> listAuditTrail(UUID sessionId) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+        enforceSessionVisibility(session);
+
+        return auditEventRepository.findBySessionIdOrderByOccurredAtAsc(sessionId).stream()
+                .map(event -> new ScoutingSessionAuditDto(
+                        event.getId(),
+                        sessionId,
+                        event.getAction(),
+                        event.getActorId(),
+                        event.getActorName(),
+                        event.getActorEmail(),
+                        event.getActorRole(),
+                        event.getDeviceId(),
+                        event.getDeviceType(),
+                        event.getLocation(),
+                        event.getComment(),
+                        event.getOccurredAt(),
+                        event.getSyncStatus()
+                ))
+                .toList();
+    }
+
     /**
      * Count how many sessions a farm completed in the current calendar week.
      */
@@ -620,6 +675,7 @@ public class ScoutingSessionService {
         overlapping.stream()
                 .filter(other -> !other.getId().equals(session.getId()))
                 .forEach(other -> {
+                    SessionStateMachine.assertTransition(other.getStatus(), SessionStatus.INCOMPLETE, farmAccessService.getCurrentUserRole());
                     other.markIncomplete();
                     other.setSyncStatus(SyncStatus.PENDING_UPLOAD);
                     sessionAuditService.record(other, SessionAuditAction.SESSION_MARKED_INCOMPLETE,
@@ -715,11 +771,37 @@ public class ScoutingSessionService {
     private void enforceSessionVisibility(ScoutingSession session) {
         Role role = farmAccessService.getCurrentUserRole();
         if (role == Role.SCOUT) {
+            if (session.getStatus() == SessionStatus.DRAFT) {
+                throw new ForbiddenException("Draft sessions are only visible to managers and admins.");
+            }
             enforceScoutOwnsSession(session);
             return;
         }
 
-        farmAccessService.requireViewAccess(session.getFarm());
+        requireSessionViewerAccess(session.getFarm());
+    }
+
+    private void requireSessionViewerAccess(Farm farm) {
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role == Role.SUPER_ADMIN) {
+            return;
+        }
+
+        UUID currentUserId = currentUserService.getCurrentUserId();
+        boolean isOwner = farm.getOwner() != null && farm.getOwner().getId().equals(currentUserId);
+        boolean isMember = membershipRepository.existsByUser_IdAndFarmId(currentUserId, farm.getId());
+
+        if (role == Role.FARM_ADMIN || role == Role.MANAGER) {
+            if (isOwner || isMember) {
+                return;
+            }
+        }
+
+        if (role == Role.SCOUT && farm.getScout() != null && farm.getScout().getId().equals(currentUserId)) {
+            return;
+        }
+
+        throw new ForbiddenException("You do not have permission to view this farm's sessions.");
     }
 
     /**

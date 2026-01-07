@@ -99,7 +99,7 @@ public class UserService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "users",
-            key = "#userId.toString() + '::requester=' + #requestingUserId",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null"
     )
     public UserDto getUserById(UUID userId, UUID requestingUserId) {

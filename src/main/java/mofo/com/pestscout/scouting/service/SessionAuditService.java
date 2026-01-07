@@ -44,6 +44,7 @@ public class SessionAuditService {
                 .farm(session.getFarm())
                 .action(action)
                 .actorName(actorName.isBlank() ? actor.getEmail() : actorName)
+                .actorId(actor.getId())
                 .actorEmail(actor.getEmail())
                 .actorRole(actor.getRole())
                 .deviceId(deviceId)

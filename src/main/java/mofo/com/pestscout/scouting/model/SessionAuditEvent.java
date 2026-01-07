@@ -33,6 +33,9 @@ public class SessionAuditEvent extends BaseEntity {
     @Column(name = "actor_name", length = 255)
     private String actorName;
 
+    @Column(name = "actor_id")
+    private java.util.UUID actorId;
+
     @Column(name = "actor_email", length = 255)
     private String actorEmail;
 

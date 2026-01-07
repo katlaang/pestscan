@@ -9,6 +9,10 @@ import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * Placeholder scheduler for EDGE deployments.
+ * Transport to cloud sync endpoints is intentionally out of scope.
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j

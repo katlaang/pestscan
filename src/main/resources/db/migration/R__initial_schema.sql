@@ -42,7 +42,7 @@ CREATE TABLE users
     deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT chk_user_role
-        CHECK (role IN ('SCOUT', 'MANAGER', 'FARM_ADMIN', 'SUPER_ADMIN'))
+        CHECK (role IN ('SCOUT', 'MANAGER', 'FARM_ADMIN', 'SUPER_ADMIN', 'EDGE_SYNC'))
 );
 
 CREATE INDEX idx_users_email ON users (email);
@@ -155,6 +155,7 @@ CREATE TABLE farms
     updated_at                    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
 
     CONSTRAINT chk_sub_status
         CHECK (subscription_status IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'DELETED')),
@@ -344,6 +345,45 @@ CREATE INDEX idx_sessions_date ON scouting_sessions (session_date);
 CREATE TRIGGER trg_sessions_updated
     BEFORE UPDATE
     ON scouting_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+--  SESSION AUDIT EVENTS
+-- ============================================================
+
+CREATE TABLE session_audit_events
+(
+    id           UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    version      BIGINT                   NOT NULL DEFAULT 0,
+
+    session_id   UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
+    farm_id      UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
+
+    action       VARCHAR(64)              NOT NULL,
+    actor_name   VARCHAR(255),
+    actor_id     UUID,
+    actor_email  VARCHAR(255),
+    actor_role   VARCHAR(50),
+    device_id    VARCHAR(255),
+    device_type  VARCHAR(255),
+    location     VARCHAR(512),
+    comment      VARCHAR(2000),
+    occurred_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+
+    created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted      BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at   TIMESTAMP WITH TIME ZONE,
+    sync_status  VARCHAR(32)              NOT NULL DEFAULT 'PENDING_UPLOAD'
+);
+
+CREATE INDEX idx_session_audit_session ON session_audit_events (session_id);
+CREATE INDEX idx_session_audit_farm ON session_audit_events (farm_id);
+CREATE INDEX idx_session_audit_action ON session_audit_events (action);
+
+CREATE TRIGGER trg_session_audit_updated
+    BEFORE UPDATE
+    ON session_audit_events
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================

@@ -25,24 +25,23 @@ public class CloudSyncController {
     private final ScoutingPhotoService photoService;
 
     @PostMapping("/sessions")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('EDGE_SYNC')")
     public ResponseEntity<ScoutingSyncResponse> syncSessions(@Valid @RequestBody CloudSessionSyncRequest request) {
         log.info("POST /api/cloud/sync/sessions — farm {} since {}", request.farmId(), request.since());
         return ResponseEntity.ok(sessionService.syncChanges(request.farmId(), request.since(), request.includeDeleted()));
     }
 
     @PostMapping("/photos/register")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('EDGE_SYNC')")
     public ResponseEntity<ScoutingPhotoDto> registerPhoto(@Valid @RequestBody PhotoMetadataRequest request) {
         log.info("POST /api/cloud/sync/photos/register — session {}", request.sessionId());
         return ResponseEntity.status(HttpStatus.CREATED).body(photoService.registerMetadata(request));
     }
 
     @PostMapping("/photos/confirm")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('EDGE_SYNC')")
     public ResponseEntity<ScoutingPhotoDto> confirmPhoto(@Valid @RequestBody PhotoUploadConfirmationRequest request) {
         log.info("POST /api/cloud/sync/photos/confirm — session {}", request.sessionId());
         return ResponseEntity.ok(photoService.confirmUpload(request));
     }
 }
-
