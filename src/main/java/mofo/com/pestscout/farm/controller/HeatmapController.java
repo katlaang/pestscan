@@ -21,7 +21,7 @@ public class HeatmapController {
     private final HeatmapService heatmapService;
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<HeatmapResponse> getHeatmap(@PathVariable UUID farmId,
                                                        @RequestParam int week,
                                                        @RequestParam int year) {

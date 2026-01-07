@@ -76,7 +76,7 @@ public class FarmService {
      * Cache is evicted after update to ensure fresh data.
      */
     @Transactional
-    @CacheEvict(value = "farms", key = "#farmId.toString()")
+    @CacheEvict(value = "farms", keyGenerator = "tenantAwareKeyGenerator")
     public FarmResponse updateFarm(UUID farmId, UpdateFarmRequest request) {
 
         Farm farm = farmRepository.findById(farmId)
@@ -119,7 +119,7 @@ public class FarmService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "farms-list",
-            key = "#root.target.currentUserService.getCurrentUserId().toString() + '::' + #root.target.farmAccess.getCurrentUserRole().name()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FarmResponse> listFarms() {
@@ -148,7 +148,7 @@ public class FarmService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "farms",
-            key = "#farmId.toString()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null"
     )
     public FarmResponse getFarm(UUID farmId) {

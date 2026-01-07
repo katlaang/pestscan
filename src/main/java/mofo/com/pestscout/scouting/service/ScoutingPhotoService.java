@@ -2,7 +2,9 @@ package mofo.com.pestscout.scouting.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.common.exception.BadRequestException;
+import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.farm.security.CurrentUserService;
@@ -13,6 +15,7 @@ import mofo.com.pestscout.scouting.dto.ScoutingPhotoDto;
 import mofo.com.pestscout.scouting.model.ScoutingObservation;
 import mofo.com.pestscout.scouting.model.ScoutingPhoto;
 import mofo.com.pestscout.scouting.model.ScoutingSession;
+import mofo.com.pestscout.scouting.model.SessionStatus;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingPhotoRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -79,6 +82,11 @@ public class ScoutingPhotoService {
         enforceSameSession(request.sessionId(), photo);
         farmAccessService.requireViewAccess(photo.getSession().getFarm());
 
+        if (photo.getSession().getStatus() == SessionStatus.COMPLETED
+                && currentUserService.getCurrentUser().getRole() == Role.SCOUT) {
+            throw new ForbiddenException("Scouts cannot confirm photo uploads for completed sessions.");
+        }
+
         photo.setObjectKey(request.objectKey());
         photo.setSyncStatus(SyncStatus.SYNCED);
 
@@ -112,4 +120,3 @@ public class ScoutingPhotoService {
         );
     }
 }
-
