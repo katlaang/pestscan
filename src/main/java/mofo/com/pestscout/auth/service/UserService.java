@@ -40,6 +40,7 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final CustomerNumberService customerNumberService;
     private final UserFarmMembershipRepository membershipRepository;
     private final PasswordEncoder passwordEncoder;
     private final CacheService cacheService;
@@ -184,6 +185,9 @@ public class UserService {
         }
         if (request.getLastName() != null) {
             targetUser.setLastName(request.getLastName());
+        }
+        if (request.getCountry() != null) {
+            targetUser.setCountry(customerNumberService.normalizeCountryCode(request.getCountry()));
         }
         if (request.getRole() != null) {
             targetUser.setRole(request.getRole());
@@ -352,6 +356,7 @@ public class UserService {
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .phoneNumber(user.getPhoneNumber())
+                .country(user.getCountry())
                 .customerNumber(user.getCustomerNumber())
                 .role(user.getRole())
                 .isEnabled(user.getIsEnabled())

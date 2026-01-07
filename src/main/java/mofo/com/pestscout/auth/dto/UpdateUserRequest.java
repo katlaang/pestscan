@@ -64,6 +64,13 @@ public class UpdateUserRequest {
     private String phoneNumber;
 
     /**
+     * New country for the user.
+     * Optional.
+     */
+    @Size(max = 100, message = "Country must not exceed 100 characters")
+    private String country;
+
+    /**
      * New role for the user.
      * Optional.
      * Only Farm Admin or Super Admin should be allowed to change this.
@@ -77,4 +84,3 @@ public class UpdateUserRequest {
      */
     private Boolean isEnabled;
 }
-

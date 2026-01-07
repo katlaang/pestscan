@@ -32,6 +32,7 @@ CREATE TABLE users
     first_name   VARCHAR(255),
     last_name    VARCHAR(255),
     phone_number VARCHAR(50)              NOT NULL,
+    country      VARCHAR(100),
     customer_number VARCHAR(100)          NOT NULL UNIQUE,
     role         VARCHAR(50)              NOT NULL,
     is_enabled   BOOLEAN                  NOT NULL DEFAULT TRUE,
@@ -109,7 +110,7 @@ CREATE TABLE farms
     id                            UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
     version                       BIGINT                   NOT NULL DEFAULT 0,
 
-    farm_tag                      VARCHAR(32) UNIQUE,
+    farm_tag                      VARCHAR(32)             NOT NULL UNIQUE,
     name                          VARCHAR(255)             NOT NULL,
     description                   VARCHAR(500),
     external_id                   VARCHAR(36)              UNIQUE NOT NULL,

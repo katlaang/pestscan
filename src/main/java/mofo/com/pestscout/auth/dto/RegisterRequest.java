@@ -38,6 +38,10 @@ public record RegisterRequest(
         @Size(max = 100)
         String customerNumber,
 
+        @NotBlank(message = "Country is required")
+        @Size(max = 100)
+        String country,
+
         @NotNull(message = "Role is required")
         Role role,
 
@@ -45,4 +49,3 @@ public record RegisterRequest(
         UUID farmId
 ) {
 }
-
