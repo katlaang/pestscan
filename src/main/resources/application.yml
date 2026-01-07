@@ -49,7 +49,7 @@ spring:
 
   cache:
     # Use "simple" in EDGE deployments to avoid Redis dependency
-    type: ${SPRING_CACHE_TYPE:redis}
+    type: ${SPRING_CACHE_TYPE:simple}
 
   # File Upload Configuration
   servlet:

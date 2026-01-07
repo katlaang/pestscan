@@ -44,16 +44,21 @@ public class CacheService {
     @EventListener(ApplicationReadyEvent.class)
     public void clearUserScopedCachesOnStartup() {
         if (runtimeMode.isEdge()) {
-            LOGGER.info("Skipping startup cache cleanup because runtime mode is EDGE");
+            LOGGER.info("Skipping cache cleanup in EDGE mode");
             return;
         }
 
-        LOGGER.info("Clearing user-scoped caches at startup to remove stale entries");
+        if (!(cacheManager instanceof org.springframework.data.redis.cache.RedisCacheManager)) {
+            LOGGER.info("CacheManager is not Redis, skipping startup eviction");
+            return;
+        }
 
+        LOGGER.info("Clearing user-scoped caches at startup");
         clearCache(RedisCacheConfig.CACHE_FARMS_LIST);
         clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
         clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
     }
+
 
     /**
      * Clear all farm-related caches when farm data changes.
