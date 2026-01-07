@@ -155,6 +155,7 @@ CREATE TABLE farms
     updated_at                    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
 
     CONSTRAINT chk_sub_status
         CHECK (subscription_status IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'DELETED')),
