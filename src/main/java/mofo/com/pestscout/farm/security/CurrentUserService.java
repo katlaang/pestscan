@@ -63,11 +63,10 @@ public class CurrentUserService {
                 .customerNumber(principal.companyNumber())
                 .phoneNumber("n/a")
                 .password("edge-sync")
-                .role(Role.SUPER_ADMIN)
+                .role(Role.EDGE_SYNC)
                 .isEnabled(true)
                 .build();
         synthetic.setId(java.util.UUID.nameUUIDFromBytes((principal.companyNumber() + principal.edgeNodeId()).getBytes()));
         return synthetic;
     }
 }
-

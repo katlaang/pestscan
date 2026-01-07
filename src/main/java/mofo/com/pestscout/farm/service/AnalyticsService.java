@@ -38,7 +38,7 @@ public class AnalyticsService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "analytics",
-            key = "#farmId.toString() + '::week=' + #week + '::year=' + #year",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.totalObservations() == 0"
     )
     public FarmWeeklyAnalyticsDto computeWeeklyAnalytics(UUID farmId, int week, int year) {

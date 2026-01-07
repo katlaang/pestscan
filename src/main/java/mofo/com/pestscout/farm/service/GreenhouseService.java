@@ -99,7 +99,7 @@ public class GreenhouseService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "greenhouses",
-            key = "'detail::' + #greenhouseId.toString()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null"
     )
     public GreenhouseDto getGreenhouse(UUID greenhouseId) {
@@ -112,7 +112,7 @@ public class GreenhouseService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "greenhouses",
-            key = "'farm::' + #farmId.toString()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<GreenhouseDto> listGreenhouses(UUID farmId) {

@@ -56,7 +56,7 @@ public class HeatmapService {
      */
     @Cacheable(
             value = "heatmap",
-            key = "#farmId.toString() + '::week=' + #week + '::year=' + #year",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.cells().isEmpty()"
     )
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {

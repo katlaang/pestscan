@@ -28,7 +28,13 @@ public enum Role {
      * Super Admin - System administrator
      * Can manage multiple farms, billing, and system settings
      */
-    SUPER_ADMIN;
+    SUPER_ADMIN,
+
+    /**
+     * Edge Sync - Headless service role for edge-to-cloud sync
+     * Scoped to sync endpoints only (no interactive permissions).
+     */
+    EDGE_SYNC;
 
     /**
      * Check if this role has admin privileges
@@ -48,6 +54,6 @@ public enum Role {
      * Check if this role can view reports
      */
     public boolean canViewReports() {
-        return this != SCOUT;
+        return this != SCOUT && this != EDGE_SYNC;
     }
 }

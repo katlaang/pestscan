@@ -93,7 +93,7 @@ public class FieldBlockService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "field-blocks",
-            key = "'detail::' + #fieldBlockId.toString()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null"
     )
     public FieldBlockDto getFieldBlock(UUID fieldBlockId) {
@@ -106,7 +106,7 @@ public class FieldBlockService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "field-blocks",
-            key = "'farm::' + #farmId.toString()",
+            keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FieldBlockDto> listFieldBlocks(UUID farmId) {

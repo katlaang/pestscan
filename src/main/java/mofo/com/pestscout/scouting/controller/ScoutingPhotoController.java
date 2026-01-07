@@ -21,17 +21,16 @@ public class ScoutingPhotoController {
     private final ScoutingPhotoService photoService;
 
     @PostMapping("/register")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingPhotoDto> register(@Valid @RequestBody PhotoMetadataRequest request) {
         log.info("POST /api/scouting/photos/register — registering photo metadata for session {}", request.sessionId());
         return ResponseEntity.status(HttpStatus.CREATED).body(photoService.registerMetadata(request));
     }
 
     @PostMapping("/confirm")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingPhotoDto> confirmUpload(@Valid @RequestBody PhotoUploadConfirmationRequest request) {
         log.info("POST /api/scouting/photos/confirm — confirming upload for session {}", request.sessionId());
         return ResponseEntity.ok(photoService.confirmUpload(request));
     }
 }
-

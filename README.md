@@ -31,6 +31,7 @@ PestScout is a Spring Boot 3 service for managing farms, user access, scouting s
 - **Caching**: Redis caching via `RedisCacheConfig` for farm metadata, users, and permissions.
 - **Runtime modes**: `app.runtime.mode` toggles CLOUD (default) vs EDGE. Run edge instances with `SPRING_CACHE_TYPE=simple` to disable Redis requirements while keeping caching semantics.
 - **Edge sync auth**: `/api/cloud/sync/**` accepts a dedicated service token for headless edge uploads. Provide it via `X-Edge-Sync-Token` (or `Authorization: Bearer <token>`) and set `EDGE_SYNC_TOKEN`, `EDGE_COMPANY_NUMBER`, and `EDGE_NODE_ID` in the environment.
+- **Edge sync scheduler**: `EdgeSyncScheduler` only detects pending sessions/photos and logs work; transport to cloud sync endpoints is intentionally handled by an external agent or future implementation.
 - **Validation**: Jakarta Bean Validation on DTOs; global error responses use `ErrorResponse`.
 
 ## Running locally

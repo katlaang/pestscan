@@ -45,10 +45,16 @@ public record CreateScoutingSessionRequest(
         String notes,
 
         // Optional initial lifecycle state (defaults to NEW)
-        SessionStatus status
+        SessionStatus status,
+
+        // Optional audit metadata
+        String deviceId,
+        String deviceType,
+        String location,
+        String comment,
+        String actorName
 ) {
 }
-
 
 
 

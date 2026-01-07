@@ -100,21 +100,25 @@ public class ScoutingSessionController {
     }
 
     @GetMapping("/{sessionId}")
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ScoutingSessionDetailDto> getSession(@PathVariable UUID sessionId) {
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    public ResponseEntity<ScoutingSessionDetailDto> getSession(@PathVariable UUID sessionId,
+                                                               @RequestHeader(value = "X-Device-Id", required = false) String deviceId,
+                                                               @RequestHeader(value = "X-Device-Type", required = false) String deviceType,
+                                                               @RequestHeader(value = "X-Device-Location", required = false) String location,
+                                                               @RequestHeader(value = "X-Actor-Name", required = false) String actorName) {
         LOGGER.info("GET /api/scouting/sessions/{} — loading session", sessionId);
-        return ResponseEntity.ok(sessionService.getSession(sessionId));
+        return ResponseEntity.ok(sessionService.getSession(sessionId, deviceId, deviceType, location, actorName));
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<List<ScoutingSessionDetailDto>> listSessions(@RequestParam UUID farmId) {
         LOGGER.info("GET /api/scouting/sessions — listing sessions for farm {}", farmId);
         return ResponseEntity.ok(sessionService.listSessions(farmId));
     }
 
     @GetMapping("/sync")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingSyncResponse> syncSessions(
             @RequestParam UUID farmId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since,
@@ -122,5 +126,12 @@ public class ScoutingSessionController {
     ) {
         LOGGER.info("GET /api/scouting/sessions/sync — changes for farm {} since {}", farmId, since);
         return ResponseEntity.ok(sessionService.syncChanges(farmId, since, includeDeleted));
+    }
+
+    @GetMapping("/{sessionId}/audits")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    public ResponseEntity<List<ScoutingSessionAuditDto>> listAuditTrail(@PathVariable UUID sessionId) {
+        LOGGER.info("GET /api/scouting/sessions/{}/audits — listing audit trail", sessionId);
+        return ResponseEntity.ok(sessionService.listAuditTrail(sessionId));
     }
 }
