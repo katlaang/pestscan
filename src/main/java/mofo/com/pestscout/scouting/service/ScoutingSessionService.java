@@ -354,7 +354,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "session-detail",
-            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            key = "#sessionId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null"
     )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
@@ -370,7 +370,7 @@ public class ScoutingSessionService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "sessions-list",
-            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.currentUserId",
+            key = "#farmId.toString() + '::user=' + #root.target.currentUserService.getCurrentUserId()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {

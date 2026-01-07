@@ -119,7 +119,7 @@ public class FarmService {
     @Transactional(readOnly = true)
     @Cacheable(
             value = "farms-list",
-            key = "#root.target.currentUserService.currentUserId.toString() + '::' + #root.target.farmAccess.currentUserRole.name()",
+            key = "#root.target.currentUserService.getCurrentUserId().toString() + '::' + #root.target.farmAccess.currentUserRole.name()",
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FarmResponse> listFarms() {

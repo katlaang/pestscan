@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -30,6 +32,15 @@ public class CacheService {
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheService.class);
 
     private final CacheManager cacheManager;
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void clearUserScopedCachesOnStartup() {
+        LOGGER.info("Clearing user-scoped caches at startup to remove stale entries");
+
+        clearCache("farms-list");
+        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
+        clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
+    }
 
     /**
      * Clear all farm-related caches when farm data changes.
