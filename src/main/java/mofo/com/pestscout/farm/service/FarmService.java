@@ -172,15 +172,11 @@ public class FarmService {
                     .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
         }
 
-        ensureCustomerNumberForFarm(owner, countryCode);
-        if (scout != null) {
-            ensureCustomerNumberForFarm(scout, countryCode);
-        }
-
         Farm farm = Farm.builder()
                 .name(request.name())
                 .description(request.description())
                 .externalId(generateExternalId())
+                .farmTag(generateFarmTag(countryCode, request.name()))
                 .address(request.address())
                 .city(request.city())
                 .province(request.province())
@@ -188,7 +184,7 @@ public class FarmService {
                 .country(request.country())
                 .owner(owner)
                 .scout(scout)
-                .contactName(request.contactName())
+                .contactName(resolveContactName(owner))
                 .contactEmail(request.contactEmail())
                 .contactPhone(request.contactPhone())
                 .subscriptionStatus(request.subscriptionStatus())
@@ -252,7 +248,7 @@ public class FarmService {
         farm.setProvince(request.province());
         farm.setPostalCode(request.postalCode());
         farm.setCountry(request.country());
-        farm.setContactName(request.contactName());
+        farm.setContactName(resolveContactName(farm.getOwner()));
         farm.setContactEmail(request.contactEmail());
         farm.setContactPhone(request.contactPhone());
         farm.setTimezone(request.timezone());
@@ -345,6 +341,43 @@ public class FarmService {
         return externalId;
     }
 
+    private String generateFarmTag(String countryCode, String farmName) {
+        String prefix = (countryCode == null || countryCode.isBlank())
+                ? "ZZ"
+                : countryCode.trim().toUpperCase(Locale.ROOT);
+        String base = normalizeFarmTagPart(farmName);
+        String candidate = buildFarmTag(prefix, base, "");
+        int suffix = 1;
+
+        while (farmRepository.existsByFarmTag(candidate)) {
+            suffix++;
+            candidate = buildFarmTag(prefix, base, "-" + suffix);
+        }
+
+        return candidate;
+    }
+
+    private String normalizeFarmTagPart(String farmName) {
+        if (farmName == null) {
+            return "FARM";
+        }
+        String normalized = farmName.trim().toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        return normalized.isBlank() ? "FARM" : normalized;
+    }
+
+    private String buildFarmTag(String prefix, String base, String suffix) {
+        int maxBaseLength = 32 - prefix.length() - 1 - suffix.length();
+        String trimmedBase = base;
+        if (maxBaseLength < 1) {
+            trimmedBase = "FARM";
+        } else if (base.length() > maxBaseLength) {
+            trimmedBase = base.substring(0, maxBaseLength);
+        }
+        return prefix + "-" + trimmedBase + suffix;
+    }
+
 
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) {
@@ -358,27 +391,28 @@ public class FarmService {
     }
 
 
-    private void ensureCustomerNumberForFarm(User user, String countryCode) {
-        if (user.getRole() == Role.SUPER_ADMIN) {
-            return;
-        }
-
-        String customerNumber = user.getCustomerNumber();
-
-        if (customerNumber == null || customerNumber.isBlank()) {
-            user.setCustomerNumber(customerNumberService.generateUniqueCustomerNumber(countryCode));
-            userRepository.save(user);
-            return;
-        }
-
-        if (!customerNumber.toUpperCase(Locale.ROOT).startsWith(countryCode)) {
-            throw new ConflictException("Customer number for user " + user.getEmail() + " must start with " + countryCode + " to match farm country");
-        }
-    }
-
-
     private FarmStructureType resolveStructureType(FarmStructureType requested) {
         return requested != null ? requested : FarmStructureType.GREENHOUSE;
+    }
+
+    private String resolveContactName(User owner) {
+        if (owner == null) {
+            return null;
+        }
+        String firstName = owner.getFirstName();
+        String lastName = owner.getLastName();
+        StringBuilder name = new StringBuilder();
+        if (firstName != null && !firstName.isBlank()) {
+            name.append(firstName.trim());
+        }
+        if (lastName != null && !lastName.isBlank()) {
+            if (!name.isEmpty()) {
+                name.append(' ');
+            }
+            name.append(lastName.trim());
+        }
+        String result = name.toString();
+        return result.isBlank() ? null : result;
     }
 
     private Instant toInstant(java.time.LocalDateTime value) {

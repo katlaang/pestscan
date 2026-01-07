@@ -101,13 +101,14 @@ public class AuthService {
         }
 
         String customerNumber;
+        String normalizedCountry = customerNumberService.normalizeCountryCode(request.country());
         if (request.role() == Role.SUPER_ADMIN) {
             customerNumber = "00000000";
             if (userRepository.existsByCustomerNumber(customerNumber)) {
                 throw new ConflictException("Customer number already registered");
             }
         } else {
-            String countryCode = resolveCountryCode(request.farmId());
+            String countryCode = resolveCountryCode(normalizedCountry, request.farmId());
             customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
 
             if (userRepository.existsByCustomerNumber(customerNumber)) {
@@ -122,6 +123,7 @@ public class AuthService {
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .phoneNumber(request.phoneNumber())
+                .country(normalizedCountry)
                 .customerNumber(customerNumber)
                 .role(request.role())
                 .isEnabled(true)
@@ -338,9 +340,12 @@ public class AuthService {
         resetToken.setPerformedBy(supportUser);
     }
 
-    private String resolveCountryCode(UUID farmId) {
+    private String resolveCountryCode(String country, UUID farmId) {
+        if (country != null && !country.isBlank()) {
+            return customerNumberService.normalizeCountryCode(country);
+        }
         if (farmId == null) {
-            return "ZZ";
+            throw new BadRequestException("Country is required to register a user without a farm");
         }
 
         Farm farm = farmRepository.findById(farmId)

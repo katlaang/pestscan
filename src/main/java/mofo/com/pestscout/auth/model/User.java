@@ -37,6 +37,9 @@ public class User extends BaseEntity {
     @Column(name = "phone_number", nullable = false, length = 50)
     private String phoneNumber;
 
+    @Column(name = "country", length = 100)
+    private String country;
+
     @Column(name = "customer_number", nullable = false, unique = true, length = 100)
     private String customerNumber;
 

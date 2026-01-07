@@ -32,6 +32,7 @@ CREATE TABLE users
     first_name   VARCHAR(255),
     last_name    VARCHAR(255),
     phone_number VARCHAR(50)              NOT NULL,
+    country      VARCHAR(100),
     customer_number VARCHAR(100)          NOT NULL UNIQUE,
     role         VARCHAR(50)              NOT NULL,
     is_enabled   BOOLEAN                  NOT NULL DEFAULT TRUE,
@@ -109,7 +110,7 @@ CREATE TABLE farms
     id                            UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
     version                       BIGINT                   NOT NULL DEFAULT 0,
 
-    farm_tag                      VARCHAR(32) UNIQUE,
+    farm_tag                      VARCHAR(32)             NOT NULL UNIQUE,
     name                          VARCHAR(255)             NOT NULL,
     description                   VARCHAR(500),
     external_id                   VARCHAR(36)              UNIQUE NOT NULL,
@@ -334,7 +335,9 @@ CREATE TABLE scouting_sessions
     status                    VARCHAR(20)              NOT NULL DEFAULT 'DRAFT',
 
     started_at                TIMESTAMP WITH TIME ZONE,
+    submitted_at              TIMESTAMP WITH TIME ZONE,
     completed_at              TIMESTAMP WITH TIME ZONE,
+    reopen_comment            VARCHAR(2000),
     confirmation_acknowledged BOOLEAN                  NOT NULL DEFAULT FALSE,
 
     created_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -479,6 +482,42 @@ CREATE INDEX idx_obs_species ON scouting_observations (species_code);
 CREATE TRIGGER trg_obs_updated
     BEFORE UPDATE
     ON scouting_observations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+--  SCOUTING PHOTOS
+-- ============================================================
+
+CREATE TABLE scouting_photos
+(
+    id           UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    version      BIGINT                   NOT NULL DEFAULT 0,
+
+    session_id   UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
+    observation_id UUID                   REFERENCES scouting_observations (id) ON DELETE SET NULL,
+    farm_id      UUID                     NOT NULL,
+
+    local_photo_id VARCHAR(100)           NOT NULL,
+    purpose      VARCHAR(255),
+    object_key   VARCHAR(500),
+    captured_at  TIMESTAMP WITH TIME ZONE,
+
+    created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted      BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at   TIMESTAMP WITH TIME ZONE,
+    sync_status  VARCHAR(32)              NOT NULL DEFAULT 'SYNCED',
+
+    CONSTRAINT uk_photo_farm_local
+        UNIQUE (farm_id, local_photo_id)
+);
+
+CREATE INDEX idx_photo_session ON scouting_photos (session_id);
+CREATE INDEX idx_photo_local_id ON scouting_photos (local_photo_id);
+
+CREATE TRIGGER trg_photos_updated
+    BEFORE UPDATE
+    ON scouting_photos
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
