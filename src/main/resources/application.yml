@@ -119,7 +119,6 @@ app:
   # Sync Configuration
   sync:
     batch-size: 100
-    conflict-resolution-strategy: LAST_WRITE_WINS
 
 # Actuator Configuration (Health checks & Monitoring)
 management:

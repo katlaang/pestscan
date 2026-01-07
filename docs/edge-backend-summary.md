@@ -11,6 +11,7 @@ This guide summarizes the minimum backend changes required to support edge deplo
 - Keep one database per edge site (configured via Spring datasource). The cloud continues using the central database.
 - Add a `syncStatus` (enum) field to syncable entities (sessions, observations, photos) to track `LOCAL_ONLY`, `PENDING_UPLOAD`, `SYNCED`, or `CONFLICT` state.
 - Preserve existing optimistic concurrency/version fields so cloud merges remain safe.
+- Treat `SyncStatus` as a transport-level state only; business meaning still lives in `SessionStatus` and related domain enums.
 
 ## Cache behavior
 - Do **not** fail startup if Redis is absent. Use `spring.cache.type=simple` for edge and `spring.cache.type=redis` for cloud.
@@ -39,6 +40,8 @@ This guide summarizes the minimum backend changes required to support edge deplo
 
 ## Edge sync worker
 - Run a scheduled job only in `EDGE` mode that checks for `PENDING_UPLOAD` sessions/photos and pushes them to the cloud sync endpoints. Keep the interval configurable (e.g., `app.edge.sync.interval-ms`).
+- `EdgeSyncScheduler` is a placeholder that only detects pending work; actual upload transport is intentionally out of scope today.
+- Audit events are not yet synced; plan a dedicated `/api/cloud/sync/audits` endpoint and include audits in edge upload batches before production hardening.
 
 ## What stays the same
 - Existing session/observation controllers remain mostly unchanged—just ensure they tolerate missing Redis and do not block on photo uploads.

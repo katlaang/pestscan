@@ -111,13 +111,10 @@ public class CacheService {
      * @param year   year
      */
     public void evictAnalyticsCaches(UUID farmId, int week, int year) {
-        String analyticsKey = buildAnalyticsKey(farmId, week, year);
-        String heatmapKey = buildHeatmapKey(farmId, week, year);
-
         LOGGER.info("Evicting analytics caches for farm {} week {} year {}", farmId, week, year);
 
-        evictCache(RedisCacheConfig.CACHE_ANALYTICS, analyticsKey);
-        evictCache(RedisCacheConfig.CACHE_HEATMAP, heatmapKey);
+        clearCache(RedisCacheConfig.CACHE_ANALYTICS);
+        clearCache(RedisCacheConfig.CACHE_HEATMAP);
     }
 
     /**
@@ -161,30 +158,6 @@ public class CacheService {
         });
 
         LOGGER.info("All caches cleared");
-    }
-
-    /**
-     * Build a composite cache key for analytics queries.
-     *
-     * @param farmId farm identifier
-     * @param week   ISO week number
-     * @param year   year
-     * @return composite cache key
-     */
-    public String buildAnalyticsKey(UUID farmId, int week, int year) {
-        return String.format("%s::week=%d::year=%d", farmId, week, year);
-    }
-
-    /**
-     * Build a composite cache key for heatmap queries.
-     *
-     * @param farmId farm identifier
-     * @param week   ISO week number
-     * @param year   year
-     * @return composite cache key
-     */
-    public String buildHeatmapKey(UUID farmId, int week, int year) {
-        return String.format("%s::week=%d::year=%d", farmId, week, year);
     }
 
     /**
