@@ -41,6 +41,7 @@ CREATE TABLE users
     version      BIGINT                   NOT NULL DEFAULT 0,
     deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
     CONSTRAINT chk_user_role
         CHECK (role IN ('SCOUT', 'MANAGER', 'FARM_ADMIN', 'SUPER_ADMIN', 'EDGE_SYNC'))
 );
@@ -85,6 +86,7 @@ CREATE TABLE password_reset_tokens
     updated_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted                   BOOLEAN                  NOT NULL DEFAULT FALSE,
     deleted_at                TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
 
     CONSTRAINT chk_prt_verification_channel
         CHECK (verification_channel IN ('EMAIL', 'PHONE_CALL'))
@@ -197,6 +199,7 @@ CREATE TABLE user_farm_memberships
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
 
     CONSTRAINT uk_user_farm UNIQUE (user_id, farm_id)
 );
@@ -231,7 +234,8 @@ CREATE TABLE greenhouses
     created_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    deleted_at TIMESTAMP WITH TIME ZONE
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED'
 );
 
 CREATE INDEX idx_greenhouses_farm ON greenhouses (farm_id);
@@ -279,7 +283,8 @@ CREATE TABLE field_blocks
     created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    deleted_at TIMESTAMP WITH TIME ZONE
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED'
 );
 
 CREATE INDEX idx_field_blocks_farm ON field_blocks (farm_id);
@@ -335,7 +340,8 @@ CREATE TABLE scouting_sessions
     created_at                TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    deleted_at TIMESTAMP WITH TIME ZONE
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED'
 );
 
 CREATE INDEX idx_sessions_farm ON scouting_sessions (farm_id);
@@ -405,7 +411,8 @@ CREATE TABLE scouting_session_targets
     created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    deleted_at TIMESTAMP WITH TIME ZONE
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED'
 );
 
 CREATE INDEX idx_session_targets_session ON scouting_session_targets (session_id);
@@ -460,6 +467,7 @@ CREATE TABLE scouting_observations
     updated_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted           BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at        TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
 
     CONSTRAINT uk_session_cell_species
         UNIQUE (session_id, session_target_id, bay_index, bench_index, spot_index, species_code)
@@ -484,6 +492,7 @@ CREATE TABLE session_recommendations
     recommendation      VARCHAR(2000),
     created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sync_status VARCHAR(32)             NOT NULL DEFAULT 'SYNCED',
     CONSTRAINT pk_session_recommendations PRIMARY KEY (session_id, recommendation_type)
 );
 
