@@ -129,6 +129,14 @@ app:
       enabled: false
       allowed-tiers:
         - PREMIUM
+  licensing:
+    trial-months: 3
+    max-trial-extension-months: 3
+    paid-months: 12
+    max-paid-extension-months: 6
+    dashboard-visibility-days-after-expiry: 30
+    notification-cron: "0 0 7 * * *"
+    public-base-url: ${APP_PUBLIC_BASE_URL:http://localhost:8080}
   runtime:
     mode: ${APP_RUNTIME_MODE:CLOUD}
   edge:

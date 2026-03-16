@@ -5,12 +5,10 @@ import mofo.com.pestscout.analytics.dto.HeatmapCellResponse;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.HeatmapSectionResponse;
 import mofo.com.pestscout.analytics.dto.SeverityLegendEntry;
-import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
-import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -42,7 +40,7 @@ public class HeatmapService {
     private final ScoutingObservationRepository observationRepository;
     private final FarmRepository farmRepository;
     private final ScoutingSessionTargetRepository targetRepository;
-    private final FarmAccessService farmAccessService;
+    private final AnalyticsAccessService analyticsAccessService;
 
     /**
      * Build a weekly heat map for a farm.
@@ -62,11 +60,7 @@ public class HeatmapService {
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {
         LOGGER.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);
 
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
-
-        // Security
-        farmAccessService.requireViewAccess(farm);
+        Farm farm = analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
 
         LocalDate weekStart = resolveWeekStart(year, week);
         LocalDate weekEnd = weekStart.plusDays(6);

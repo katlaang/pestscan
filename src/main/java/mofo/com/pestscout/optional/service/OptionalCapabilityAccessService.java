@@ -9,6 +9,7 @@ import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
+import mofo.com.pestscout.farm.service.LicenseService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ public class OptionalCapabilityAccessService {
     private final FarmRepository farmRepository;
     private final UserFarmMembershipRepository membershipRepository;
     private final CurrentUserService currentUserService;
+    private final LicenseService licenseService;
 
     @Transactional(readOnly = true)
     public Farm loadFarmAndEnsureViewer(UUID farmId) {
@@ -37,10 +39,12 @@ public class OptionalCapabilityAccessService {
         boolean isAssignedScout = farm.getScout() != null && farm.getScout().getId().equals(currentUser.getId());
 
         if ((role == Role.FARM_ADMIN || role == Role.MANAGER) && (isOwner || isMember)) {
+            licenseService.assertOperationalAccess(farm);
             return farm;
         }
 
         if (role == Role.SCOUT && isAssignedScout) {
+            licenseService.assertOperationalAccess(farm);
             return farm;
         }
 
@@ -61,6 +65,7 @@ public class OptionalCapabilityAccessService {
         boolean isMember = membershipRepository.existsByUser_IdAndFarmId(currentUser.getId(), farmId);
 
         if ((role == Role.FARM_ADMIN || role == Role.MANAGER) && (isOwner || isMember)) {
+            licenseService.assertOperationalAccess(farm);
             return farm;
         }
 

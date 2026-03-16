@@ -2,7 +2,6 @@ package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.analytics.dto.*;
-import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.service.AnalyticsService;
@@ -21,19 +20,16 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.WeekFields;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.IntStream;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
 public class ReportingService {
 
+    private final AnalyticsAccessService analyticsAccessService;
     private final FarmRepository farmRepository;
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
@@ -58,8 +54,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public WeeklyFarmReportDto getWeeklyFarmReport(UUID farmId, int week, int year) {
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+        Farm farm = analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
 
         WeekFields weekFields = WeekFields.ISO;
         LocalDate firstWeekReference = LocalDate.of(year, 1, 4);
@@ -122,8 +117,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public FarmMonthlyReportDto getMonthlyReport(UUID farmId, int year, int month) {
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+        Farm farm = analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
 
         LocalDate periodStart = LocalDate.of(year, month, 1);
         LocalDate periodEnd = periodStart.withDayOfMonth(periodStart.lengthOfMonth());
@@ -177,6 +171,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public List<PestDistributionItemDto> getPestDistribution(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         List<ScoutingObservation> observations = allObservationsForFarm(farmId);
         Map<String, Long> countsBySpecies = observations.stream()
                 .filter(o -> o.getCategory() == ObservationCategory.PEST)
@@ -210,6 +205,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public List<DiseaseDistributionItemDto> getDiseaseDistribution(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         List<ScoutingObservation> observations = allObservationsForFarm(farmId);
         Map<String, Long> countsBySpecies = observations.stream()
                 .filter(o -> o.getCategory() == ObservationCategory.DISEASE)
@@ -243,6 +239,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public List<RecommendationDto> getRecommendations(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         List<ScoutingSession> sessions = sessionRepository.findByFarmId(farmId);
         List<RecommendationDto> recommendations = new ArrayList<>();
 
@@ -287,6 +284,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public List<AlertDto> getAlerts(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         List<ScoutingObservation> observations = allObservationsForFarm(farmId);
 
         return observations.stream()
@@ -359,6 +357,7 @@ public class ReportingService {
      */
     @Transactional(readOnly = true)
     public List<ScoutPerformanceDto> getScoutPerformance(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         List<ScoutingSession> sessions = sessionRepository.findByFarmId(farmId);
         if (sessions.isEmpty()) {
             return List.of();

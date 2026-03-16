@@ -12,12 +12,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DashboardAggregatorService {
 
+    private final AnalyticsAccessService analyticsAccessService;
     private final DashboardService dashboardService;       // your existing summary service
     private final HeatmapService heatmapService;
     private final TrendAnalysisService trendService;
     private final ReportingService reportingService;
 
     public DashboardDto getFullDashboard(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
 
         // 1. Summary
         DashboardSummaryDto summary = dashboardService.getDashboard(farmId);

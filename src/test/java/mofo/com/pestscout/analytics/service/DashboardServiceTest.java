@@ -4,7 +4,6 @@ import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.PestTrendResponse;
 import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,7 +14,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +30,7 @@ class DashboardServiceTest {
     private ScoutingSessionRepository sessionRepository;
 
     @Mock
-    private FarmRepository farmRepository;
+    private AnalyticsAccessService analyticsAccessService;
 
     @Mock
     private HeatmapService heatmapService;
@@ -70,7 +68,7 @@ class DashboardServiceTest {
 
         PestTrendResponse pestTrend = new PestTrendResponse(farmId, "thrips", List.of());
 
-        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(farm);
         when(sessionRepository.findByFarmId(farmId)).thenReturn(List.of());
         when(sessionRepository.findByFarmIdAndSessionDateBetween(farmId, today.minusDays(6), today))
                 .thenReturn(List.of());

@@ -23,7 +23,10 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.*;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -32,6 +35,9 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ReportingServiceTest {
+
+    @Mock
+    private AnalyticsAccessService analyticsAccessService;
 
     @Mock
     private FarmRepository farmRepository;
@@ -79,7 +85,7 @@ class ReportingServiceTest {
         Farm farm = new Farm();
         farm.setId(farmId);
 
-        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(farm);
         when(heatmapService.generateHeatmap(eq(farmId), anyInt(), eq(2024))).thenAnswer(invocation -> {
             int weekNumber = invocation.getArgument(1, Integer.class);
             return HeatmapResponse.builder()
@@ -124,7 +130,7 @@ class ReportingServiceTest {
                 .status(SessionStatus.COMPLETED)
                 .build();
 
-        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(farm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(farmId, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 7)))
                 .thenReturn(List.of(session));
         when(scoutingSessionService.getSession(session.getId())).thenReturn(buildDetailDto(session.getId()));
@@ -164,6 +170,7 @@ class ReportingServiceTest {
     void getPestDistribution_ordersByCountAndCalculatesSeverity() {
         UUID farmId = UUID.randomUUID();
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
+        allowAnalyticsAccess(farmId);
 
         ScoutingObservation thrips = buildObservation(session, SpeciesCode.THRIPS, 10);
         ScoutingObservation whiteflies = buildObservation(session, SpeciesCode.WHITEFLIES, 5);
@@ -186,6 +193,7 @@ class ReportingServiceTest {
     void getDiseaseDistribution_returnsPercentagesForDiseaseSpecies() {
         UUID farmId = UUID.randomUUID();
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
+        allowAnalyticsAccess(farmId);
         ScoutingObservation powdery = buildObservation(session, SpeciesCode.POWDERY_MILDEW, 3);
 
         when(sessionRepository.findByFarmId(farmId)).thenReturn(List.of(session));
@@ -206,6 +214,7 @@ class ReportingServiceTest {
     @Test
     void getRecommendations_flattensSessionRecommendations() {
         UUID farmId = UUID.randomUUID();
+        allowAnalyticsAccess(farmId);
         Farm farm = new Farm();
         farm.setName("Farm");
         ScoutingSession session = ScoutingSession.builder()
@@ -235,6 +244,7 @@ class ReportingServiceTest {
     void getAlerts_filtersNonCriticalObservations() {
         UUID farmId = UUID.randomUUID();
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
+        allowAnalyticsAccess(farmId);
         ScoutingObservation benign = buildObservation(session, SpeciesCode.BENEFICIAL_PP, 50);
         ScoutingObservation alertObs = buildObservation(session, SpeciesCode.THRIPS, SeverityLevel.HIGH.minThreshold());
 
@@ -282,6 +292,7 @@ class ReportingServiceTest {
     void getScoutPerformance_summarizesSessionsPerScout() {
         UUID farmId = UUID.randomUUID();
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
+        allowAnalyticsAccess(farmId);
         session.setStatus(SessionStatus.COMPLETED);
         session.setStartedAt(LocalDateTime.now().minusMinutes(5));
         session.setCompletedAt(session.getStartedAt().plus(Duration.ofMinutes(5)));
@@ -311,6 +322,12 @@ class ReportingServiceTest {
                 .sessionDate(LocalDate.of(2024, 1, 1))
                 .status(SessionStatus.IN_PROGRESS)
                 .build();
+    }
+
+    private void allowAnalyticsAccess(UUID farmId) {
+        Farm farm = new Farm();
+        farm.setId(farmId);
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(farm);
     }
 
     private ScoutingObservation buildObservation(ScoutingSession session, SpeciesCode code, int count) {

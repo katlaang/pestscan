@@ -1,6 +1,7 @@
 package mofo.com.pestscout.farm.dto;
 
 import mofo.com.pestscout.farm.model.FarmLicenseAction;
+import mofo.com.pestscout.farm.model.LicenseType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
 
@@ -13,6 +14,9 @@ public record FarmLicenseHistoryResponse(
         UUID historyId,
         String licenseReference,
         FarmLicenseAction action,
+        LicenseType licenseType,
+        LocalDate licenseStartDate,
+        Integer licenseExtensionMonths,
         SubscriptionStatus subscriptionStatus,
         SubscriptionTier subscriptionTier,
         String billingEmail,

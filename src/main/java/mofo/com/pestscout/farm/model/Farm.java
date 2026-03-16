@@ -122,6 +122,16 @@ public class Farm extends BaseEntity {
     @Column(name = "license_reference", length = 64, unique = true)
     private String licenseReference;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "license_type", nullable = false, length = 16)
+    private LicenseType licenseType;
+
+    @Column(name = "license_start_date")
+    private LocalDate licenseStartDate;
+
+    @Column(name = "license_extension_months", nullable = false)
+    private Integer licenseExtensionMonths;
+
     /**
      * Licensed area (hectares). Only super admin can modify this.
      */
@@ -173,6 +183,9 @@ public class Farm extends BaseEntity {
     @Column(name = "auto_renew_enabled")
     private Boolean autoRenewEnabled;
 
+    @Column(name = "license_expiry_notification_sent_at")
+    private java.time.LocalDateTime licenseExpiryNotificationSentAt;
+
     // ─────────────────────────────────────────────────────────────
     // Structural Configuration
     // ─────────────────────────────────────────────────────────────
@@ -220,6 +233,8 @@ public class Farm extends BaseEntity {
     protected void applyPrePersistDefaults() {
         if (subscriptionStatus == null) subscriptionStatus = SubscriptionStatus.PENDING_ACTIVATION;
         if (subscriptionTier == null) subscriptionTier = SubscriptionTier.BASIC;
+        if (licenseType == null) licenseType = LicenseType.PAID;
+        if (licenseExtensionMonths == null) licenseExtensionMonths = 0;
         if (country == null) country = "Canada";
         if (structureType == null) structureType = FarmStructureType.GREENHOUSE;
         if (isArchived == null) isArchived = false;
@@ -238,14 +253,20 @@ public class Farm extends BaseEntity {
 
     @Transient
     public boolean inGracePeriod() {
-        return licenseGracePeriodEnd != null &&
-                LocalDate.now().isAfter(licenseExpiryDate) &&
-                LocalDate.now().isBefore(licenseGracePeriodEnd);
+        return licenseExpiryDate != null
+                && licenseGracePeriodEnd != null
+                && LocalDate.now().isAfter(licenseExpiryDate)
+                && !LocalDate.now().isAfter(licenseGracePeriodEnd);
     }
 
     @Transient
     public boolean beyondGracePeriod() {
         return licenseGracePeriodEnd != null && LocalDate.now().isAfter(licenseGracePeriodEnd);
+    }
+
+    @Transient
+    public boolean dashboardsHidden() {
+        return isExpired() && beyondGracePeriod();
     }
 
     @Transient

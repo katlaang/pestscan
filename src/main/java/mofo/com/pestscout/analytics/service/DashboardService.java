@@ -3,7 +3,6 @@ package mofo.com.pestscout.analytics.service;
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
 import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
-import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,15 +17,13 @@ import java.util.UUID;
 public class DashboardService {
 
     private final ScoutingSessionRepository sessionRepo;
-    private final FarmRepository farmRepo;
+    private final AnalyticsAccessService analyticsAccessService;
     private final HeatmapService heatmapService;
     private final TrendAnalysisService trendService;
 
     @Transactional(readOnly = true)
     public DashboardSummaryDto getDashboard(UUID farmId) {
-
-        farmRepo.findById(farmId)
-                .orElseThrow(() -> new RuntimeException("Farm not found"));
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
 
         LocalDate today = LocalDate.now();
         LocalDate weekStart = today.minusDays(6);

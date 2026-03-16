@@ -25,9 +25,11 @@ public class TrendAnalysisService {
 
     private final ScoutingSessionRepository sessionRepo;
     private final ScoutingObservationRepository obsRepo;
+    private final AnalyticsAccessService analyticsAccessService;
 
     @Transactional(readOnly = true)
     public List<WeeklyPestTrendDto> getWeeklyPestTrends(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         LocalDate today = LocalDate.now();
         WeekFields weekFields = WeekFields.ISO;
         LocalDate startOfCurrentWeek = today.with(weekFields.dayOfWeek(), 1);
@@ -82,6 +84,7 @@ public class TrendAnalysisService {
 
     @Transactional(readOnly = true)
     public List<SeverityTrendPointDto> getSeverityTrend(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         LocalDate today = LocalDate.now();
         WeekFields weekFields = WeekFields.ISO;
         LocalDate startOfCurrentWeek = today.with(weekFields.dayOfWeek(), 1);
@@ -140,6 +143,7 @@ public class TrendAnalysisService {
             LocalDate from,
             LocalDate to
     ) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
         var sessions = sessionRepo.findByFarmIdAndSessionDateBetween(farmId, from, to);
         Map<LocalDate, Integer> dateToSeverity = new TreeMap<>();
 

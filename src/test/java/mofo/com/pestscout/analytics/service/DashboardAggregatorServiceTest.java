@@ -24,6 +24,9 @@ import static org.mockito.Mockito.when;
 class DashboardAggregatorServiceTest {
 
     @Mock
+    private AnalyticsAccessService analyticsAccessService;
+
+    @Mock
     private DashboardService dashboardService;
 
     @Mock
@@ -91,6 +94,7 @@ class DashboardAggregatorServiceTest {
         FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1, 3);
         ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 90, "5m");
 
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
         when(dashboardService.getDashboard(farmId)).thenReturn(summaryDto);
         when(heatmapService.generateHeatmap(farmId, week, year)).thenReturn(heatmap);
         when(trendAnalysisService.getWeeklyPestTrends(farmId)).thenReturn(List.of(weeklyTrend));

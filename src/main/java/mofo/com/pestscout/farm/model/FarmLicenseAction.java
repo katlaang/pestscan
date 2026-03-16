@@ -2,5 +2,6 @@ package mofo.com.pestscout.farm.model;
 
 public enum FarmLicenseAction {
     GENERATED,
-    UPDATED
+    UPDATED,
+    EXPIRY_NOTICE_QUEUED
 }

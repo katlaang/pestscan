@@ -33,6 +33,16 @@ public class FarmLicenseHistory extends BaseEntity {
     private FarmLicenseAction action;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "license_type", length = 16)
+    private LicenseType licenseType;
+
+    @Column(name = "license_start_date")
+    private LocalDate licenseStartDate;
+
+    @Column(name = "license_extension_months")
+    private Integer licenseExtensionMonths;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "subscription_status", nullable = false, length = 20)
     private SubscriptionStatus subscriptionStatus;
 

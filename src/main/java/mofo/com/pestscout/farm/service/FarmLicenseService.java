@@ -51,11 +51,12 @@ public class FarmLicenseService {
     public FarmLicenseResponse generateLicense(UUID farmId) {
         farmAccessService.requireSuperAdmin();
         Farm farm = loadFarm(farmId);
+        licenseService.applyCommercialSchedule(farm);
 
         if (farm.getLicenseReference() == null || farm.getLicenseReference().isBlank()) {
             farm.setLicenseReference(generateLicenseReference(farm));
-            farm = farmRepository.save(farm);
         }
+        farm = farmRepository.save(farm);
 
         recordHistory(farm, FarmLicenseAction.GENERATED, "License snapshot generated from current farm settings.");
         cacheService.evictFarmCachesAfterCommit(farmId);
@@ -66,6 +67,7 @@ public class FarmLicenseService {
     public FarmLicenseResponse updateLicense(UUID farmId, UpdateFarmLicenseRequest request) {
         farmAccessService.requireSuperAdmin();
         Farm farm = loadFarm(farmId);
+        boolean commercialPolicyChanged = false;
 
         if (farm.getLicenseReference() == null || farm.getLicenseReference().isBlank()) {
             farm.setLicenseReference(generateLicenseReference(farm));
@@ -76,6 +78,18 @@ public class FarmLicenseService {
         }
         if (request.subscriptionTier() != null) {
             farm.setSubscriptionTier(request.subscriptionTier());
+        }
+        if (request.licenseType() != null) {
+            farm.setLicenseType(request.licenseType());
+            commercialPolicyChanged = true;
+        }
+        if (request.licenseStartDate() != null) {
+            farm.setLicenseStartDate(request.licenseStartDate());
+            commercialPolicyChanged = true;
+        }
+        if (request.licenseExtensionMonths() != null) {
+            farm.setLicenseExtensionMonths(request.licenseExtensionMonths());
+            commercialPolicyChanged = true;
         }
         if (request.billingEmail() != null) {
             farm.setBillingEmail(request.billingEmail());
@@ -88,6 +102,10 @@ public class FarmLicenseService {
         }
         if (request.licenseExpiryDate() != null) {
             farm.setLicenseExpiryDate(request.licenseExpiryDate());
+            commercialPolicyChanged = true;
+        }
+        if (commercialPolicyChanged || farm.getLicenseStartDate() != null || farm.getLicenseExpiryDate() != null) {
+            licenseService.applyCommercialSchedule(farm);
         }
         if (request.licenseGracePeriodEnd() != null) {
             farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
@@ -100,6 +118,9 @@ public class FarmLicenseService {
         }
         if (request.isArchived() != null) {
             farm.setIsArchived(request.isArchived());
+        }
+        if (commercialPolicyChanged || request.subscriptionStatus() != null) {
+            farm.setLicenseExpiryNotificationSentAt(null);
         }
 
         validateChronology(farm);
@@ -145,6 +166,9 @@ public class FarmLicenseService {
                 .farm(farm)
                 .licenseReference(farm.getLicenseReference())
                 .action(action)
+                .licenseType(farm.getLicenseType())
+                .licenseStartDate(farm.getLicenseStartDate())
+                .licenseExtensionMonths(farm.getLicenseExtensionMonths())
                 .subscriptionStatus(farm.getSubscriptionStatus())
                 .subscriptionTier(farm.getSubscriptionTier())
                 .billingEmail(farm.getBillingEmail())
@@ -170,6 +194,9 @@ public class FarmLicenseService {
                 farm.getId(),
                 farm.getName(),
                 farm.getLicenseReference(),
+                farm.getLicenseType(),
+                farm.getLicenseStartDate(),
+                farm.getLicenseExtensionMonths(),
                 farm.getSubscriptionStatus(),
                 farm.getSubscriptionTier(),
                 farm.getBillingEmail(),
@@ -181,6 +208,7 @@ public class FarmLicenseService {
                 farm.getLicenseArchivedDate(),
                 farm.getAutoRenewEnabled(),
                 farm.getIsArchived(),
+                toInstant(farm.getLicenseExpiryNotificationSentAt()),
                 generatedSnapshot.map(FarmLicenseHistory::getCreatedAt).map(this::toInstant).orElse(null),
                 toInstant(farm.getUpdatedAt())
         );
@@ -191,6 +219,9 @@ public class FarmLicenseService {
                 history.getId(),
                 history.getLicenseReference(),
                 history.getAction(),
+                history.getLicenseType(),
+                history.getLicenseStartDate(),
+                history.getLicenseExtensionMonths(),
                 history.getSubscriptionStatus(),
                 history.getSubscriptionTier(),
                 history.getBillingEmail(),
