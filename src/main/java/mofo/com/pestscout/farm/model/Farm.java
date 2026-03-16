@@ -119,6 +119,9 @@ public class Farm extends BaseEntity {
     @Column(name = "billing_email", length = 255)
     private String billingEmail;
 
+    @Column(name = "license_reference", length = 64, unique = true)
+    private String licenseReference;
+
     /**
      * Licensed area (hectares). Only super admin can modify this.
      */

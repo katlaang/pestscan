@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -19,6 +20,7 @@ import java.io.IOException;
  * This enables headless background sync jobs to call the cloud endpoints without a human session.
  */
 @Component
+@ConditionalOnBean(EdgeSyncProperties.class)
 @RequiredArgsConstructor
 @Slf4j
 public class EdgeSyncAuthenticationFilter extends OncePerRequestFilter {

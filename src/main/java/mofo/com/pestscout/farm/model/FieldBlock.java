@@ -5,6 +5,7 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +36,9 @@ public class FieldBlock extends BaseEntity {
 
     @Column(name = "spot_checks_per_bay")
     private Integer spotChecksPerBay;
+
+    @Column(name = "area_hectares", precision = 10, scale = 2)
+    private BigDecimal areaHectares;
 
     @Builder.Default
     @ElementCollection

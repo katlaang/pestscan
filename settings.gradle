@@ -6,12 +6,3 @@ pluginManagement {
 }
 
 rootProject.name = 'pestscout'
-
-include 'common'
-include 'auth'
-include 'farm'
-include 'scouting'
-include 'treatment'
-include 'alert'
-include 'sync'
-include 'web-api'

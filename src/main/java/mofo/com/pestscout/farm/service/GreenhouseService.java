@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseDto;
 import mofo.com.pestscout.farm.dto.UpdateGreenhouseRequest;
@@ -10,7 +11,6 @@ import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
-import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +42,7 @@ public class GreenhouseService {
                 .bayCount(request.bayCount())
                 .benchesPerBay(request.benchesPerBay())
                 .spotChecksPerBench(request.spotChecksPerBench())
+                .areaHectares(request.areaHectares())
                 .bayTags(normalizeTags(request.bayTags()))
                 .benchTags(normalizeTags(request.benchTags()))
                 .build();
@@ -79,6 +80,9 @@ public class GreenhouseService {
         }
         if (request.spotChecksPerBench() != null) {
             greenhouse.setSpotChecksPerBench(request.spotChecksPerBench());
+        }
+        if (isSuperAdmin && request.areaHectares() != null) {
+            greenhouse.setAreaHectares(request.areaHectares());
         }
 
         Greenhouse saved = greenhouseRepository.save(greenhouse);
@@ -134,7 +138,8 @@ public class GreenhouseService {
                 greenhouse.getSpotChecksPerBench(),
                 List.copyOf(greenhouse.getBayTags()),
                 List.copyOf(greenhouse.getBenchTags()),
-                greenhouse.getActive()
+                greenhouse.getActive(),
+                greenhouse.getAreaHectares()
         );
     }
 

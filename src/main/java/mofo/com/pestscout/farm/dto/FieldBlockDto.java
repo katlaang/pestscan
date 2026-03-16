@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.dto;
 
 import lombok.Builder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,7 +21,21 @@ public record FieldBlockDto(
         Integer bayCount,
         Integer spotChecksPerBay,
         List<String> bayTags,
-        Boolean active
+        Boolean active,
+        BigDecimal areaHectares
 ) {
+
+    public FieldBlockDto(
+            UUID id,
+            Long version,
+            UUID farmId,
+            String name,
+            Integer bayCount,
+            Integer spotChecksPerBay,
+            List<String> bayTags,
+            Boolean active
+    ) {
+        this(id, version, farmId, name, bayCount, spotChecksPerBay, bayTags, active, null);
+    }
 }
 

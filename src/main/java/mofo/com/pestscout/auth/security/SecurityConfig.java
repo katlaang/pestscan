@@ -1,6 +1,7 @@
 package mofo.com.pestscout.auth.security;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -31,7 +32,7 @@ public class SecurityConfig {
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CorsConfigurationSource corsConfigurationSource;
-    private final EdgeSyncAuthenticationFilter edgeSyncAuthenticationFilter;
+    private final ObjectProvider<EdgeSyncAuthenticationFilter> edgeSyncAuthenticationFilterProvider;
 
     /**
      * Password encoder bean
@@ -84,6 +85,8 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/register",
                                 "/api/auth/refresh",
+                                "/api/auth/forgot-password",
+                                "/api/auth/reset-password",
                                 "/actuator/**",
                                 "/api-docs/**",
                                 "/swagger-ui/**",
@@ -95,12 +98,15 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
-                // Add JWT authentication filter
-                .addFilterBefore(edgeSyncAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-
                 // Authentication provider
                 .authenticationProvider(authenticationProvider());
+
+        EdgeSyncAuthenticationFilter edgeSyncAuthenticationFilter = edgeSyncAuthenticationFilterProvider.getIfAvailable();
+        if (edgeSyncAuthenticationFilter != null) {
+            http.addFilterBefore(edgeSyncAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        }
+
+        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

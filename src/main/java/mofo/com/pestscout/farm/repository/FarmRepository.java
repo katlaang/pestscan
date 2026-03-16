@@ -44,4 +44,9 @@ public interface FarmRepository extends JpaRepository<Farm, UUID> {
      * Check if an external identifier is already assigned to a farm.
      */
     boolean existsByExternalId(String externalId);
+
+    /**
+     * Check if a generated license reference is already in use.
+     */
+    boolean existsByLicenseReference(String licenseReference);
 }

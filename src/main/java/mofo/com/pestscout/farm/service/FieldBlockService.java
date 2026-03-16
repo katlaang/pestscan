@@ -2,6 +2,7 @@ package mofo.com.pestscout.farm.service;
 
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFieldBlockRequest;
 import mofo.com.pestscout.farm.dto.FieldBlockDto;
 import mofo.com.pestscout.farm.dto.UpdateFieldBlockRequest;
@@ -10,7 +11,6 @@ import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.FieldBlockRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
-import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +40,7 @@ public class FieldBlockService {
                 .name(request.name())
                 .bayCount(request.bayCount())
                 .spotChecksPerBay(request.spotChecksPerBay())
+                .areaHectares(request.areaHectares())
                 .bayTags(normalizeTags(request.bayTags()))
                 .active(request.active() != null ? request.active() : Boolean.TRUE)
                 .build();
@@ -73,6 +74,9 @@ public class FieldBlockService {
             if (isSuperAdmin) {
                 block.setActive(request.active());
             }
+        }
+        if (isSuperAdmin && request.areaHectares() != null) {
+            block.setAreaHectares(request.areaHectares());
         }
 
         FieldBlock saved = fieldBlockRepository.save(block);
@@ -125,7 +129,8 @@ public class FieldBlockService {
                 block.getBayCount(),
                 block.getSpotChecksPerBay(),
                 List.copyOf(block.getBayTags()),
-                block.getActive()
+                block.getActive(),
+                block.getAreaHectares()
         );
     }
 

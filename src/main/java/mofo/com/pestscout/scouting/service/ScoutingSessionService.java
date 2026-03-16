@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
-import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
+import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
@@ -23,13 +23,11 @@ import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
-import mofo.com.pestscout.scouting.model.SessionAuditAction;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
 import mofo.com.pestscout.scouting.repository.SessionAuditEventRepository;
-import mofo.com.pestscout.scouting.service.SessionAuditService;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -974,7 +972,20 @@ public class ScoutingSessionService {
                 ? target.greenhouse().resolvedBayCount()
                 : target.fieldBlock().resolvedBayCount();
         int selectedBays = Boolean.TRUE.equals(target.includeAllBays()) ? bayCount : target.bayTags().size();
-        return BigDecimal.valueOf(selectedBays);
+        BigDecimal structureArea = target.greenhouse() != null
+                ? target.greenhouse().getAreaHectares()
+                : target.fieldBlock().getAreaHectares();
+        String structureName = target.greenhouse() != null
+                ? target.greenhouse().getName()
+                : target.fieldBlock().getName();
+
+        return licenseService.calculateSelectedAreaHectares(
+                structureArea,
+                bayCount,
+                Boolean.TRUE.equals(target.includeAllBays()),
+                selectedBays,
+                structureName
+        );
     }
 
     private List<String> normalizeTags(List<String> tags) {

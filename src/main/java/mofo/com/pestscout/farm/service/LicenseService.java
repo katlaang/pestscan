@@ -61,6 +61,33 @@ public class LicenseService {
         }
     }
 
+    public BigDecimal calculateSelectedAreaHectares(
+            BigDecimal structureAreaHectares,
+            int totalBayCount,
+            boolean includeAllBays,
+            int selectedBayCount,
+            String structureName
+    ) {
+        BigDecimal normalizedArea = normalizeArea(structureAreaHectares);
+        if (normalizedArea.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException(
+                    "Area in hectares must be configured for " + structureName + " before creating sessions."
+            );
+        }
+
+        if (includeAllBays || totalBayCount <= 0) {
+            return normalizedArea;
+        }
+
+        int boundedSelectedBays = Math.max(0, Math.min(selectedBayCount, totalBayCount));
+        if (boundedSelectedBays == 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return normalizedArea.multiply(BigDecimal.valueOf(boundedSelectedBays))
+                .divide(BigDecimal.valueOf(totalBayCount), 2, RoundingMode.HALF_UP);
+    }
+
     private BigDecimal normalizePercentage(BigDecimal percentage) {
         if (percentage == null) {
             return BigDecimal.ZERO;
@@ -72,6 +99,13 @@ public class LicenseService {
             return ONE_HUNDRED;
         }
         return percentage;
+    }
+
+    private BigDecimal normalizeArea(BigDecimal area) {
+        if (area == null || area.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return area.setScale(2, RoundingMode.HALF_UP);
     }
 }
 

@@ -25,17 +25,23 @@ PestScout is a Spring Boot 3 service for managing farms, user access, scouting s
   - Shared configuration (caching), error handling, DTOs, and utilities. `CacheAdminController` provides endpoints to clear farm/user caches.
 
 ## Architecture notes
-- **Spring Boot** 3.5 with Java 21 and Spring Data JPA for persistence; Flyway handles schema migrations under `src/main/resources/db/migration`.
+
+- **Spring Boot** 3.5 with Java 25 and Spring Data JPA for persistence; Flyway handles schema migrations under
+  `src/main/resources/db/migration`.
 - **Security**: JWT authentication with BCrypt password hashing and stateless sessions. Public routes: `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`, `/api-docs/**`, `/swagger-ui/**`, `/actuator/**`.
 - **Data model**: Base entities include audit columns and optimistic locking. Farms own greenhouses/field blocks; sessions attach to farms and targets; observations reference session targets.
 - **Caching**: Redis caching via `RedisCacheConfig` for farm metadata, users, and permissions.
 - **Runtime modes**: `app.runtime.mode` toggles CLOUD (default) vs EDGE. Run edge instances with `SPRING_CACHE_TYPE=simple` to disable Redis requirements while keeping caching semantics.
+- **Optional capabilities**: `app.features.*` controls global feature rollout, while `/api/farms/{farmId}/features` lets
+  super admins override features per farm.
 - **Edge sync auth**: `/api/cloud/sync/**` accepts a dedicated service token for headless edge uploads. Provide it via `X-Edge-Sync-Token` (or `Authorization: Bearer <token>`) and set `EDGE_SYNC_TOKEN`, `EDGE_COMPANY_NUMBER`, and `EDGE_NODE_ID` in the environment.
 - **Edge sync scheduler**: `EdgeSyncScheduler` only detects pending sessions/photos and logs work; transport to cloud sync endpoints is intentionally handled by an external agent or future implementation.
 - **Validation**: Jakarta Bean Validation on DTOs; global error responses use `ErrorResponse`.
 
 ## Running locally
-1. **Prerequisites**: Java 21, Gradle (wrapper included), PostgreSQL (defaults to `localhost:5433/pestscan_scouting`), and Redis (`localhost:6379`). Override credentials via environment variables in `src/main/resources/application.yml`.
+
+1. **Prerequisites**: Java 25, Gradle (wrapper included), PostgreSQL (defaults to `localhost:5433/pestscan_scouting`),
+   and Redis (`localhost:6379`). Override credentials via environment variables in `src/main/resources/application.yml`.
 2. **Database**: Ensure the database exists and run Flyway migrations automatically on startup.
 3. **Tests**: Run the suite with:
    ```bash

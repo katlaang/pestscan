@@ -40,6 +40,8 @@ spring:
       host: localhost
       port: 6379
       password: ${REDIS_PASSWORD:}
+      repositories:
+        enabled: false
       timeout: 60000
       lettuce:
         pool:
@@ -95,6 +97,38 @@ aws:
 app:
   name: Mofo Pest Scouting System
   version: 1.0.0
+  features:
+    ai-pest-identification:
+      enabled: false
+      allowed-tiers:
+        - PREMIUM
+    drone-image-processing:
+      enabled: false
+      allowed-tiers:
+        - PREMIUM
+    predictive-modeling:
+      enabled: false
+      allowed-tiers:
+        - PREMIUM
+    automated-pdf-reports:
+      enabled: true
+      allowed-tiers:
+        - BASIC
+        - STANDARD
+        - PREMIUM
+    gis-heatmaps:
+      enabled: false
+      allowed-tiers:
+        - PREMIUM
+    automated-treatment-recommendations:
+      enabled: false
+      allowed-tiers:
+        - STANDARD
+        - PREMIUM
+    supply-ordering:
+      enabled: false
+      allowed-tiers:
+        - PREMIUM
   runtime:
     mode: ${APP_RUNTIME_MODE:CLOUD}
   edge:

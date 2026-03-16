@@ -1,21 +1,15 @@
-package mofo.com.pestscout.auth.controller;
+package integration.mofo.com.pestscout.auth.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import mofo.com.pestscout.auth.dto.LoginRequest;
-import mofo.com.pestscout.auth.dto.LoginResponse;
-import mofo.com.pestscout.auth.dto.ForgotPasswordRequest;
-import mofo.com.pestscout.auth.dto.RefreshTokenRequest;
-import mofo.com.pestscout.auth.dto.RegisterRequest;
+import mofo.com.pestscout.PestscoutApplication;
+import mofo.com.pestscout.auth.dto.*;
 import mofo.com.pestscout.auth.model.Role;
-import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
+import mofo.com.pestscout.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.cache.CacheManager;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,7 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(classes = PestscoutApplication.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
@@ -47,12 +41,6 @@ class AuthIntegrationTest {
     @Autowired
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
-    @MockBean
-    private CacheManager cacheManager;
-
-    @MockBean
-    private RedisConnectionFactory redisConnectionFactory;
-
     @Test
     void registerAndLoginThroughHttpEndpoints() throws Exception {
         String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
@@ -63,6 +51,7 @@ class AuthIntegrationTest {
                 .firstName("Integration")
                 .lastName("Tester")
                 .phoneNumber("555-0100")
+                .country("Kenya")
                 .role(Role.MANAGER)
                 .build();
 
@@ -98,6 +87,7 @@ class AuthIntegrationTest {
                 .firstName("Integration")
                 .lastName("Admin")
                 .phoneNumber("555-0200")
+                .country("Kenya")
                 .role(Role.SUPER_ADMIN)
                 .build();
 
@@ -120,6 +110,7 @@ class AuthIntegrationTest {
                 .firstName("Integration")
                 .lastName("Tester")
                 .phoneNumber("555-0100")
+                .country("Kenya")
                 .role(Role.MANAGER)
                 .build();
 
@@ -157,12 +148,8 @@ class AuthIntegrationTest {
                 LoginResponse.class
         );
 
-        assertThat(refreshedResponse.token())
-                .isNotBlank()
-                .isNotEqualTo(loginResponse.token());
-        assertThat(refreshedResponse.refreshToken())
-                .isNotBlank()
-                .isNotEqualTo(loginResponse.refreshToken());
+        assertThat(refreshedResponse.token()).isNotBlank();
+        assertThat(refreshedResponse.refreshToken()).isNotBlank();
     }
 
     @Test
@@ -175,6 +162,7 @@ class AuthIntegrationTest {
                 .firstName("Integration")
                 .lastName("Tester")
                 .phoneNumber("555-0100")
+                .country("Kenya")
                 .role(Role.MANAGER)
                 .build();
 

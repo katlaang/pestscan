@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -19,6 +20,17 @@ public record CreateFieldBlockRequest(
         @NotNull @Min(1)
         Integer spotChecksPerBay,
         List<String> bayTags,
-        Boolean active
+        Boolean active,
+        BigDecimal areaHectares
 ) {
+
+    public CreateFieldBlockRequest(
+            String name,
+            Integer bayCount,
+            Integer spotChecksPerBay,
+            List<String> bayTags,
+            Boolean active
+    ) {
+        this(name, bayCount, spotChecksPerBay, bayTags, active, null);
+    }
 }

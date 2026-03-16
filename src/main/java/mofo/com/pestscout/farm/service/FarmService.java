@@ -211,6 +211,7 @@ public class FarmService {
                         .bayCount(ghRequest.bayCount())
                         .benchesPerBay(ghRequest.benchesPerBay())
                         .spotChecksPerBench(ghRequest.spotChecksPerBench())
+                        .areaHectares(ghRequest.areaHectares())
                         .bayTags(normalizeTags(ghRequest.bayTags()))
                         .benchTags(normalizeTags(ghRequest.benchTags()))
                         .build();
@@ -225,6 +226,7 @@ public class FarmService {
                         .name(blockRequest.name())
                         .bayCount(blockRequest.bayCount())
                         .spotChecksPerBay(blockRequest.spotChecksPerBay())
+                        .areaHectares(blockRequest.areaHectares())
                         .bayTags(normalizeTags(blockRequest.bayTags()))
                         .active(Boolean.TRUE.equals(blockRequest.active()))
                         .build();
