@@ -10,6 +10,7 @@ import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
+import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.FieldBlockRepository;
@@ -95,6 +96,7 @@ class ScoutingSessionServiceTest {
     private User manager;
     private User scout;
     private Greenhouse greenhouse;
+    private FieldBlock fieldBlock;
     private ScoutingSession testSession;
     private CreateScoutingSessionRequest createRequest;
 
@@ -136,6 +138,14 @@ class ScoutingSessionServiceTest {
                 .benchesPerBay(10)
                 .spotChecksPerBench(3)
                 .areaHectares(new BigDecimal("5.00"))
+                .build();
+
+        fieldBlock = FieldBlock.builder()
+                .id(UUID.randomUUID())
+                .farm(testFarm)
+                .name("Field Block 1")
+                .bayCount(8)
+                .areaHectares(new BigDecimal("4.00"))
                 .build();
 
         testSession = ScoutingSession.builder()
@@ -217,6 +227,119 @@ class ScoutingSessionServiceTest {
         assertThat(result.farmId()).isEqualTo(testFarm.getId());
         verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
         verify(sessionRepository).save(any(ScoutingSession.class));
+    }
+
+    @Test
+    @DisplayName("Should create session when scout and targets are omitted")
+    void createSession_WithoutScoutIdAndTargets_UsesFarmDefaults() {
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                null,
+                null,
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Test notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(false);
+        when(currentUserService.getCurrentUser())
+                .thenReturn(manager);
+        when(greenhouseRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(greenhouse));
+        when(fieldBlockRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(fieldBlock));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+        when(licenseService.calculateSelectedAreaHectares(
+                fieldBlock.getAreaHectares(),
+                fieldBlock.resolvedBayCount(),
+                true,
+                fieldBlock.resolvedBayCount(),
+                fieldBlock.getName()
+        )).thenReturn(new BigDecimal("4.00"));
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.scoutId()).isEqualTo(scout.getId());
+        assertThat(result.sections()).hasSize(2);
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("Should allow creating an unassigned session when farm has no scout")
+    void createSession_WithoutAnyScout_AssignsNoScout() {
+        testFarm.setScout(null);
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                null,
+                List.of(),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Test notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(false);
+        when(currentUserService.getCurrentUser())
+                .thenReturn(manager);
+        when(greenhouseRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(greenhouse));
+        when(fieldBlockRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of());
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.scoutId()).isNull();
+        assertThat(result.sections()).hasSize(1);
     }
 
     @Test
@@ -385,6 +508,36 @@ class ScoutingSessionServiceTest {
                         session.getCompletedAt() != null &&
                         session.isConfirmationAcknowledged()
         ));
+    }
+
+    @Test
+    @DisplayName("Should allow assigned scout to complete an in-progress session")
+    void completeSession_WithAssignedScout_CompletesSession() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setVersion(1L);
+        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Scout User");
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(
+                testSession.getId(),
+                request
+        );
+
+        assertThat(result).isNotNull();
+        verify(sessionRepository).save(argThat(session ->
+                session.getStatus() == SessionStatus.COMPLETED &&
+                        session.getCompletedAt() != null &&
+                        session.isConfirmationAcknowledged()
+        ));
+        verify(farmAccessService, never()).requireAdminOrSuperAdmin(any());
     }
 
     @Test
@@ -926,6 +1079,35 @@ class ScoutingSessionServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.id()).isEqualTo(testSession.getId());
         verify(sessionRepository).findById(testSession.getId());
+    }
+
+    @Test
+    @DisplayName("Should get session with audit metadata and record audit event")
+    void getSession_WithAuditMetadata_ReturnsSessionAndRecordsAudit() {
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.getSession(
+                testSession.getId(),
+                "device-1",
+                "web",
+                "office",
+                "System Admin"
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.id()).isEqualTo(testSession.getId());
+        verify(sessionAuditService).record(
+                eq(testSession),
+                eq(SessionAuditAction.SESSION_VIEWED),
+                isNull(),
+                eq("device-1"),
+                eq("web"),
+                eq("office"),
+                eq("System Admin")
+        );
     }
 
     @Test

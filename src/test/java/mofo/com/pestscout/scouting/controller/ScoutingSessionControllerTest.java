@@ -131,6 +131,70 @@ class ScoutingSessionControllerTest {
     }
 
     @Test
+    void createsSessionWithoutScoutOrTargets() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                farmId,
+                null,
+                null,
+                LocalDate.of(2024, 3, 5),
+                10,
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                UUID.randomUUID(),
+                1L,
+                farmId,
+                request.sessionDate(),
+                request.weekNumber(),
+                SessionStatus.DRAFT,
+                SyncStatus.SYNCED,
+                null,
+                null,
+                request.crop(),
+                request.variety(),
+                request.temperatureCelsius(),
+                request.relativeHumidityPercent(),
+                request.observationTime(),
+                request.weatherNotes(),
+                request.notes(),
+                request.defaultPhotoSourceType(),
+                null,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.createSession(any(CreateScoutingSessionRequest.class)))
+                .thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.farmId").value(farmId.toString()));
+    }
+
+    @Test
     void syncsSessionsWithParams() throws Exception {
         UUID farmId = UUID.randomUUID();
         LocalDateTime since = LocalDateTime.of(2024, 3, 1, 0, 0);

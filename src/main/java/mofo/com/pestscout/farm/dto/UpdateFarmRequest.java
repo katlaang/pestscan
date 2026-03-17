@@ -1,7 +1,7 @@
 package mofo.com.pestscout.farm.dto;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
@@ -11,7 +11,7 @@ import java.time.LocalDate;
 
 public record UpdateFarmRequest(
 
-        @NotBlank
+        @Pattern(regexp = ".*\\S.*", message = "must not be blank")
         @Size(max = 255)
         String name,
 
@@ -72,6 +72,7 @@ public record UpdateFarmRequest(
         String timezone,
 
         java.util.UUID ownerId,
-        java.util.UUID scoutId
+        java.util.UUID scoutId,
+        Boolean accessLocked
 ) {
 }

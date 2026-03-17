@@ -1,6 +1,7 @@
 package mofo.com.pestscout.scouting.repository;
 
 import mofo.com.pestscout.scouting.model.ScoutingSessionTarget;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -10,5 +11,6 @@ import java.util.UUID;
 public interface ScoutingSessionTargetRepository extends JpaRepository<ScoutingSessionTarget, UUID> {
     Optional<ScoutingSessionTarget> findByIdAndSessionId(UUID id, UUID sessionId);
 
+    @EntityGraph(attributePaths = {"greenhouse", "fieldBlock"})
     List<ScoutingSessionTarget> findBySessionIdIn(List<UUID> sessionIds);
 }

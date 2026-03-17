@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -23,6 +24,13 @@ public class GreenhouseController {
     private static final Logger LOGGER = LoggerFactory.getLogger(GreenhouseController.class);
 
     private final GreenhouseService greenhouseService;
+
+    @GetMapping("/farms/{farmId}/greenhouses")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<List<GreenhouseDto>> listGreenhouses(@PathVariable UUID farmId) {
+        LOGGER.info("GET /api/farms/{}/greenhouses - listing greenhouses", farmId);
+        return ResponseEntity.ok(greenhouseService.listGreenhouses(farmId));
+    }
 
     @PostMapping("/farms/{farmId}/greenhouses")
     @PreAuthorize("hasRole('SUPER_ADMIN')")

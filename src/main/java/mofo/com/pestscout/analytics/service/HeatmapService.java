@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
@@ -57,6 +58,7 @@ public class HeatmapService {
             keyGenerator = "tenantAwareKeyGenerator",
             unless = "#result == null || #result.cells().isEmpty()"
     )
+    @Transactional(readOnly = true)
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {
         LOGGER.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);
 
@@ -268,13 +270,27 @@ public class HeatmapService {
                     : fieldBlock != null ? fieldBlock.getName() : farm.getName();
 
             this.bayCount = greenhouse != null
-                    ? greenhouse.resolvedBayCount()
+                    ? resolveGreenhouseBayCount(farm, greenhouse)
                     : fieldBlock != null
-                    ? fieldBlock.resolvedBayCount()
+                    ? resolveFieldBlockBayCount(farm, fieldBlock)
                     : farm.resolveBayCount();
 
             this.benchesPerBay = greenhouse != null
-                    ? greenhouse.resolvedBenchesPerBay()
+                    ? resolveGreenhouseBenchesPerBay(farm, greenhouse)
+                    : farm.resolveBenchesPerBay();
+        }
+
+        private int resolveGreenhouseBayCount(Farm farm, Greenhouse greenhouse) {
+            return greenhouse.getBayCount() != null ? greenhouse.getBayCount() : farm.resolveBayCount();
+        }
+
+        private int resolveFieldBlockBayCount(Farm farm, FieldBlock fieldBlock) {
+            return fieldBlock.getBayCount() != null ? fieldBlock.getBayCount() : farm.resolveBayCount();
+        }
+
+        private int resolveGreenhouseBenchesPerBay(Farm farm, Greenhouse greenhouse) {
+            return greenhouse.getBenchesPerBay() != null
+                    ? greenhouse.getBenchesPerBay()
                     : farm.resolveBenchesPerBay();
         }
 

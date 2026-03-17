@@ -30,6 +30,12 @@ class SecurityConfigTest {
     @Mock
     private ObjectProvider<EdgeSyncAuthenticationFilter> edgeSyncAuthenticationFilterProvider;
 
+    @Mock
+    private RestAuthenticationEntryPoint restAuthenticationEntryPoint;
+
+    @Mock
+    private RestAccessDeniedHandler restAccessDeniedHandler;
+
     @InjectMocks
     private SecurityConfig securityConfig;
 

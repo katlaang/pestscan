@@ -32,6 +32,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Service
@@ -90,11 +91,12 @@ public class FarmService {
         LOGGER.info("Updating farm {} ({})", farm.getName(), farm.getId());
 
         // Enforce name uniqueness
-        if (!farm.getName().equalsIgnoreCase(request.name())) {
-            farmRepository.findByNameIgnoreCase(request.name())
+        String requestedName = normalizeNullableText(request.name());
+        if (requestedName != null && !farm.getName().equalsIgnoreCase(requestedName)) {
+            farmRepository.findByNameIgnoreCase(requestedName)
                     .filter(existing -> !existing.getId().equals(farmId))
                     .ifPresent(existing -> {
-                        throw new ConflictException("Farm already exists with name " + request.name());
+                        throw new ConflictException("Farm already exists with name " + requestedName);
                     });
         }
 
@@ -242,19 +244,17 @@ public class FarmService {
     private void applyAllowedFarmUpdates(Farm farm, UpdateFarmRequest request) {
 
         // Common fields editable by FARM_MANAGER or SUPER_ADMIN
-        farm.setName(request.name());
-        farm.setDescription(request.description());
-        farm.setAddress(request.address());
-        farm.setCity(request.city());
-        farm.setProvince(request.province());
-        farm.setPostalCode(request.postalCode());
-        farm.setCountry(request.country());
-        if (request.contactName() != null) {
-            farm.setContactName(normalizeNullableText(request.contactName()));
-        }
-        farm.setContactEmail(request.contactEmail());
-        farm.setContactPhone(request.contactPhone());
-        farm.setTimezone(request.timezone());
+        applyTextUpdate(request.name(), farm::setName);
+        applyTextUpdate(request.description(), farm::setDescription);
+        applyTextUpdate(request.address(), farm::setAddress);
+        applyTextUpdate(request.city(), farm::setCity);
+        applyTextUpdate(request.province(), farm::setProvince);
+        applyTextUpdate(request.postalCode(), farm::setPostalCode);
+        applyTextUpdate(request.country(), farm::setCountry);
+        applyTextUpdate(request.contactName(), farm::setContactName);
+        applyTextUpdate(request.contactEmail(), farm::setContactEmail);
+        applyTextUpdate(request.contactPhone(), farm::setContactPhone);
+        applyTextUpdate(request.timezone(), farm::setTimezone);
 
         // Defaults (manager allowed)
         if (request.defaultBayCount() != null)
@@ -271,20 +271,41 @@ public class FarmService {
             if (request.subscriptionTier() != null) {
                 farm.setSubscriptionTier(request.subscriptionTier());
             }
-            farm.setBillingEmail(request.billingEmail());
+            applyTextUpdate(request.billingEmail(), farm::setBillingEmail);
 
             if (request.licensedAreaHectares() != null) {
                 farm.setLicensedAreaHectares(request.licensedAreaHectares());
             }
-            farm.setLicensedUnitQuota(request.licensedUnitQuota());
-            farm.setQuotaDiscountPercentage(request.quotaDiscountPercentage());
-            farm.setLicenseExpiryDate(request.licenseExpiryDate());
-            farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
-            farm.setLicenseArchivedDate(request.licenseArchivedDate());
-            farm.setAutoRenewEnabled(request.autoRenewEnabled());
-            farm.setIsArchived(request.isArchived());
-            farm.setLatitude(request.latitude());
-            farm.setLongitude(request.longitude());
+            if (request.licensedUnitQuota() != null) {
+                farm.setLicensedUnitQuota(request.licensedUnitQuota());
+            }
+            if (request.quotaDiscountPercentage() != null) {
+                farm.setQuotaDiscountPercentage(request.quotaDiscountPercentage());
+            }
+            if (request.licenseExpiryDate() != null) {
+                farm.setLicenseExpiryDate(request.licenseExpiryDate());
+            }
+            if (request.licenseGracePeriodEnd() != null) {
+                farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
+            }
+            if (request.licenseArchivedDate() != null) {
+                farm.setLicenseArchivedDate(request.licenseArchivedDate());
+            }
+            if (request.autoRenewEnabled() != null) {
+                farm.setAutoRenewEnabled(request.autoRenewEnabled());
+            }
+            Boolean requestedArchivedState = request.isArchived() != null
+                    ? request.isArchived()
+                    : request.accessLocked();
+            if (requestedArchivedState != null) {
+                farm.setIsArchived(requestedArchivedState);
+            }
+            if (request.latitude() != null) {
+                farm.setLatitude(request.latitude());
+            }
+            if (request.longitude() != null) {
+                farm.setLongitude(request.longitude());
+            }
 
             if (request.ownerId() != null) {
                 User owner = resolveAssignedUser(request.ownerId(), "owner");
@@ -297,6 +318,13 @@ public class FarmService {
                 farm.setScout(resolveAssignedUser(request.scoutId(), "scout"));
             }
         }
+    }
+
+    private void applyTextUpdate(String requestedValue, Consumer<String> setter) {
+        if (requestedValue == null) {
+            return;
+        }
+        setter.accept(normalizeNullableText(requestedValue));
     }
 
     private FarmResponse mapToResponse(Farm farm) {

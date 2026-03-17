@@ -11,6 +11,6 @@ public record CompleteSessionRequest(
         String deviceId,
         String deviceType,
         String location,
-        @NotBlank(message = "Manager or admin name is required for audit") String actorName
+        @NotBlank(message = "Actor name is required for audit") String actorName
 ) {
 }

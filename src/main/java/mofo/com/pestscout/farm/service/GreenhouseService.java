@@ -110,6 +110,7 @@ public class GreenhouseService {
         Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
 
+        farmAccessService.requireViewAccess(greenhouse.getFarm());
         return toDto(greenhouse);
     }
 
@@ -120,6 +121,10 @@ public class GreenhouseService {
             unless = "#result == null || #result.isEmpty()"
     )
     public List<GreenhouseDto> listGreenhouses(UUID farmId) {
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+
+        farmAccessService.requireViewAccess(farm);
         return greenhouseRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(Greenhouse::getName, String.CASE_INSENSITIVE_ORDER))
                 .map(this::toDto)

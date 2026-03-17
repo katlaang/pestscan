@@ -370,6 +370,57 @@ class HeatmapServiceTest {
     }
 
     @Test
+    @DisplayName("Should use farm defaults when greenhouse counts are not set")
+    void generateHeatmap_WithGreenhouseMissingCounts_UsesFarmDefaults() {
+        int week = 1;
+        int year = 2025;
+
+        Greenhouse greenhouseWithDefaults = Greenhouse.builder()
+                .id(UUID.randomUUID())
+                .name("Default House")
+                .build();
+
+        ScoutingSessionTarget defaultTarget = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(session)
+                .greenhouse(greenhouseWithDefaults)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        ScoutingObservation observation = ScoutingObservation.builder()
+                .session(session)
+                .sessionTarget(defaultTarget)
+                .speciesCode(SpeciesCode.THRIPS)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(2)
+                .build();
+
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
+        when(sessionRepository.findByFarmIdAndSessionDateBetween(
+                any(), any(LocalDate.class), any(LocalDate.class)
+        ))
+                .thenReturn(List.of(session));
+        when(targetRepository.findBySessionIdIn(anyList()))
+                .thenReturn(List.of(defaultTarget));
+        when(observationRepository.findBySessionIdIn(anyList()))
+                .thenReturn(List.of(observation));
+
+        HeatmapResponse response = heatmapService.generateHeatmap(
+                testFarm.getId(),
+                week,
+                year
+        );
+
+        assertThat(response.sections()).hasSize(1);
+        assertThat(response.sections().getFirst().bayCount()).isEqualTo(testFarm.resolveBayCount());
+        assertThat(response.sections().getFirst().benchesPerBay()).isEqualTo(testFarm.resolveBenchesPerBay());
+    }
+
+    @Test
     @DisplayName("Should exclude beneficial observations from severity calculation")
     void generateHeatmap_WithBeneficials_ExcludesFromSeverity() {
         // Arrange

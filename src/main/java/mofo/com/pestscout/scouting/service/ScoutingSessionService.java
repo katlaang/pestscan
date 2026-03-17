@@ -70,15 +70,13 @@ public class ScoutingSessionService {
         farmAccessService.requireAdminOrSuperAdmin(farm);
         licenseService.validateFarmLicenseActive(farm);
 
-        List<ResolvedTarget> resolvedTargets = request.targets().stream()
-                .map(target -> resolveTarget(target, farm))
-                .toList();
+        List<ResolvedTarget> resolvedTargets = resolveTargets(request, farm);
 
         BigDecimal requestedArea = calculateRequestedArea(resolvedTargets);
         licenseService.validateAreaWithinLicense(farm, requestedArea);
 
         User manager = resolveManager(farm);
-        User scout = resolveScout(request);
+        User scout = resolveScout(request, farm);
 
         SessionStatus initialStatus = request.status() == null ? SessionStatus.DRAFT : request.status();
         if (initialStatus != SessionStatus.DRAFT && initialStatus != SessionStatus.NEW) {
@@ -265,13 +263,24 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
-        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role == Role.SCOUT) {
+            enforceScoutOwnsSession(session);
+        } else {
+            farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        }
 
         if (session.getStatus() == SessionStatus.COMPLETED) {
             throw new BadRequestException("Session is already completed.");
         }
 
-        if (session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.REOPENED) {
+        if (role == Role.SCOUT) {
+            if (session.getStatus() != SessionStatus.IN_PROGRESS
+                    && session.getStatus() != SessionStatus.SUBMITTED
+                    && session.getStatus() != SessionStatus.REOPENED) {
+                throw new BadRequestException("Scout can only complete an in-progress, submitted, or reopened session.");
+            }
+        } else if (session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.REOPENED) {
             throw new BadRequestException("Session must be submitted before approval.");
         }
 
@@ -284,7 +293,7 @@ public class ScoutingSessionService {
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
-        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.COMPLETED, farmAccessService.getCurrentUserRole());
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.COMPLETED, role);
         session.markCompleted(true);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
@@ -459,6 +468,7 @@ public class ScoutingSessionService {
         return getSessionInternal(sessionId, null, null, null, null, false);
     }
 
+    @Transactional(readOnly = true)
     public ScoutingSessionDetailDto getSession(UUID sessionId, String deviceId, String deviceType, String location, String actorName) {
         return getSessionInternal(sessionId, deviceId, deviceType, location, actorName, true);
     }
@@ -746,16 +756,53 @@ public class ScoutingSessionService {
         return currentUserService.getCurrentUser();
     }
 
-    private User resolveScout(CreateScoutingSessionRequest request) {
+    private List<ResolvedTarget> resolveTargets(CreateScoutingSessionRequest request, Farm farm) {
+        List<SessionTargetRequest> requestedTargets = request.targets();
+        if (requestedTargets == null || requestedTargets.isEmpty()) {
+            return resolveDefaultTargets(farm);
+        }
+
+        return requestedTargets.stream()
+                .map(target -> resolveTarget(target, farm))
+                .toList();
+    }
+
+    private List<ResolvedTarget> resolveDefaultTargets(Farm farm) {
+        List<ResolvedTarget> defaults = new ArrayList<>();
+
+        greenhouseRepository.findByFarmId(farm.getId()).forEach(greenhouse ->
+                defaults.add(new ResolvedTarget(greenhouse, null, true, true, List.of(), List.of()))
+        );
+
+        fieldBlockRepository.findByFarmId(farm.getId()).forEach(fieldBlock ->
+                defaults.add(new ResolvedTarget(null, fieldBlock, true, true, List.of(), List.of()))
+        );
+
+        return List.copyOf(defaults);
+    }
+
+    private User resolveScout(CreateScoutingSessionRequest request, Farm farm) {
+        if (request.scoutId() == null) {
+            return validateAssignedScout(farm.getScout(), "farm");
+        }
+
         User scout = userRepository.findById(request.scoutId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
 
+        return validateAssignedScout(scout, "requested");
+    }
+
+    private User validateAssignedScout(User scout, String source) {
+        if (scout == null) {
+            return null;
+        }
+
         if (scout.getRole() != Role.SCOUT) {
-            throw new BadRequestException("Assigned user must be a scout.");
+            throw new BadRequestException("The " + source + " assigned user must have the SCOUT role.");
         }
 
         if (!scout.isActive()) {
-            throw new BadRequestException("Assigned scout is inactive or deleted.");
+            throw new BadRequestException("The " + source + " assigned scout is inactive or deleted.");
         }
 
         return scout;

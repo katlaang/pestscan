@@ -8,6 +8,7 @@ import mofo.com.pestscout.farm.model.LicenseType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,5 +92,18 @@ class LicenseServiceTest {
         assertThatThrownBy(() -> licenseService.assertDashboardAccess(farm))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("hidden");
+    }
+
+    @Test
+    void calculateSelectedAreaHectares_returnsZeroWhenStructureAreaMissing() {
+        BigDecimal selectedArea = licenseService.calculateSelectedAreaHectares(
+                null,
+                12,
+                true,
+                12,
+                "Greenhouse A"
+        );
+
+        assertThat(selectedArea).isEqualByComparingTo("0.00");
     }
 }

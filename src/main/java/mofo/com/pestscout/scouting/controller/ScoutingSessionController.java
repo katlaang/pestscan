@@ -26,7 +26,7 @@ public class ScoutingSessionController {
     private final ScoutingSessionService sessionService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> createSession(@Valid @RequestBody CreateScoutingSessionRequest request) {
         LOGGER.info("POST /api/scouting/sessions — creating session");
         ScoutingSessionDetailDto session = sessionService.createSession(request);

@@ -20,8 +20,8 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = FieldBlockController.class)
@@ -39,6 +39,18 @@ class FieldBlockControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void listsFieldBlocks() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        FieldBlockDto dto = new FieldBlockDto(UUID.randomUUID(), 1L, farmId, "Block A", 10, 3, List.of("Bay-1"), true, null);
+
+        when(fieldBlockService.listFieldBlocks(farmId)).thenReturn(List.of(dto));
+
+        mockMvc.perform(get("/api/farms/{farmId}/field-blocks", farmId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Block A"));
+    }
 
     @Test
     void createsFieldBlock() throws Exception {

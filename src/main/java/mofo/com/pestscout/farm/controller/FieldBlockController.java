@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -23,6 +24,13 @@ public class FieldBlockController {
     private static final Logger LOGGER = LoggerFactory.getLogger(FieldBlockController.class);
 
     private final FieldBlockService fieldBlockService;
+
+    @GetMapping("/farms/{farmId}/field-blocks")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<List<FieldBlockDto>> listFieldBlocks(@PathVariable UUID farmId) {
+        LOGGER.info("GET /api/farms/{}/field-blocks - listing field blocks", farmId);
+        return ResponseEntity.ok(fieldBlockService.listFieldBlocks(farmId));
+    }
 
     @PostMapping("/farms/{farmId}/field-blocks")
     @PreAuthorize("hasRole('SUPER_ADMIN')")

@@ -19,8 +19,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,6 +38,18 @@ class GreenhouseControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void listsGreenhouses() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        GreenhouseDto dto = new GreenhouseDto(UUID.randomUUID(), 1L, farmId, "G1", "demo", 8, 6, 4, List.of(), List.of(), true);
+
+        when(greenhouseService.listGreenhouses(farmId)).thenReturn(List.of(dto));
+
+        mockMvc.perform(get("/api/farms/{farmId}/greenhouses", farmId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("G1"));
+    }
 
     @Test
     void createsGreenhouse() throws Exception {

@@ -7,8 +7,8 @@ package mofo.com.pestscout.auth.model;
  */
 public enum Role {
     /**
-     * Scout - Can create scouting sessions and observations
-     * Limited to data entry for assigned sites
+     * Scout - Can execute assigned scouting sessions and record observations.
+     * Cannot create or administer sessions.
      */
     SCOUT,
 

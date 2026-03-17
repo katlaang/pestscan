@@ -144,9 +144,8 @@ public class LicenseService {
     ) {
         BigDecimal normalizedArea = normalizeArea(structureAreaHectares);
         if (normalizedArea.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException(
-                    "Area in hectares must be configured for " + structureName + " before creating sessions."
-            );
+            // Structure-level area is optional. Farm-level licensed hectares remain the source of truth.
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
 
         if (includeAllBays || totalBayCount <= 0) {

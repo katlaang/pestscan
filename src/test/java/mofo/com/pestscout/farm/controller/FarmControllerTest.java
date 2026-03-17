@@ -1,7 +1,10 @@
 package mofo.com.pestscout.farm.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import mofo.com.pestscout.auth.dto.UserDto;
+import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
+import mofo.com.pestscout.auth.service.UserService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
@@ -43,6 +46,9 @@ class FarmControllerTest {
 
     @MockitoBean
     private FarmService farmService;
+
+    @MockitoBean
+    private UserService userService;
 
     // Provide a JwtTokenProvider bean so JwtAuthenticationFilter can be constructed
     @MockitoBean
@@ -205,7 +211,8 @@ class FarmControllerTest {
                 6,                                 // defaultSpotChecksPerBench
                 "Africa/Nairobi",                  // timezone
                 null,                              // ownerId
-                null                               // scoutId
+                null,                              // scoutId
+                null                               // accessLocked
         );
 
         FarmResponse response = new FarmResponse(
@@ -249,5 +256,77 @@ class FarmControllerTest {
                         .content(objectMapper.writeValueAsString(updateRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Updated"));
+    }
+
+    @Test
+    void updatesFarmAccessWithPartialPayload() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        FarmResponse response = new FarmResponse(
+                farmId,
+                "TAG-1",
+                "Farm",
+                "Demo farm",
+                "EXT-LOCK",
+                "789 New St",
+                "Thika",
+                "Kiambu",
+                "01000",
+                "Kenya",
+                "Alice Doe",
+                "alice@example.com",
+                "+254722222222",
+                SubscriptionStatus.SUSPENDED,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                BigDecimal.valueOf(1.8),
+                120,
+                BigDecimal.valueOf(5),
+                LocalDate.of(2026, 6, 30),
+                true,
+                true,
+                FarmStructureType.GREENHOUSE,
+                5,
+                12,
+                6,
+                Instant.parse("2024-03-01T00:00:00Z"),
+                Instant.parse("2024-03-10T00:00:00Z"),
+                "Africa/Nairobi",
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+
+        when(farmService.updateFarm(eq(farmId), any(UpdateFarmRequest.class))).thenReturn(response);
+
+        mockMvc.perform(put("/api/farms/{farmId}", farmId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "subscriptionStatus": "SUSPENDED",
+                                  "accessLocked": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.subscriptionStatus").value("SUSPENDED"))
+                .andExpect(jsonPath("$.accessLocked").value(true));
+    }
+
+    @Test
+    void listsFarmMembers() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UserDto user = UserDto.builder()
+                .id(UUID.randomUUID())
+                .email("member@example.com")
+                .role(Role.MANAGER)
+                .farmId(farmId)
+                .build();
+
+        when(userService.getUsersByFarm(farmId, userId)).thenReturn(List.of(user));
+
+        mockMvc.perform(get("/api/farms/{farmId}/members", farmId)
+                        .requestAttr("userId", userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].email").value("member@example.com"));
     }
 }

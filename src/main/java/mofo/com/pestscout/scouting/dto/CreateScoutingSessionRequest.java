@@ -1,7 +1,6 @@
 package mofo.com.pestscout.scouting.dto;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
@@ -14,16 +13,17 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Manager creates a new scouting session for one or more greenhouses/fields.
- * The scout is selected explicitly (dropdown on the client) so sessions stay scoped to the assigned user.
+ * Admin roles create a new scouting session for a farm.
+ * Scout assignment and structure targeting may be provided up front, but they are
+ * optional so the client can create draft sessions first and fill in details later.
  */
 public record CreateScoutingSessionRequest(
 
         @NotNull UUID farmId,
 
-        @NotNull UUID scoutId,
+        UUID scoutId,
 
-        @NotEmpty List<@Valid SessionTargetRequest> targets,
+        @Valid List<SessionTargetRequest> targets,
 
         @NotNull LocalDate sessionDate,
 

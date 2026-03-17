@@ -104,6 +104,7 @@ public class FieldBlockService {
         FieldBlock block = fieldBlockRepository.findById(fieldBlockId)
                 .orElseThrow(() -> new ResourceNotFoundException("FieldBlock", "id", fieldBlockId));
 
+        farmAccessService.requireViewAccess(block.getFarm());
         return toDto(block);
     }
 
@@ -114,6 +115,10 @@ public class FieldBlockService {
             unless = "#result == null || #result.isEmpty()"
     )
     public List<FieldBlockDto> listFieldBlocks(UUID farmId) {
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+
+        farmAccessService.requireViewAccess(farm);
         return fieldBlockRepository.findByFarmId(farmId).stream()
                 .sorted(Comparator.comparing(FieldBlock::getName, String.CASE_INSENSITIVE_ORDER))
                 .map(this::toDto)

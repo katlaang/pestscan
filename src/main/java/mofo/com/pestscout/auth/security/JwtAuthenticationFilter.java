@@ -41,6 +41,8 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+    public static final String AUTH_FAILURE_CODE_ATTR = "authFailureCode";
+    public static final String AUTH_FAILURE_MESSAGE_ATTR = "authFailureMessage";
 
     private final JwtTokenProvider tokenProvider;
     private final UserDetailsService userDetailsService;
@@ -82,6 +84,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     userDetails = userDetailsService.loadUserByUsername(email);
                 } catch (UsernameNotFoundException ex) {
                     LOGGER.debug("Ignoring JWT for deleted or unknown user '{}'", email);
+                    markAuthenticationFailure(request, "SESSION_INVALID", "Your session is no longer valid. Please log in again.");
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
@@ -89,6 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 if (!userDetails.isEnabled()) {
                     LOGGER.debug("Ignoring JWT for disabled user '{}'", email);
+                    markAuthenticationFailure(request, "SESSION_INVALID", "Your session is no longer valid. Please log in again.");
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
@@ -100,6 +104,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     User domainUser = userRepository.findById(userId).orElse(null);
                     if (domainUser == null) {
                         LOGGER.debug("Ignoring JWT for deleted or unknown user '{}'", email);
+                        markAuthenticationFailure(request, "SESSION_INVALID", "Your session is no longer valid. Please log in again.");
                         SecurityContextHolder.clearContext();
                         filterChain.doFilter(request, response);
                         return;
@@ -107,6 +112,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                     if (userSessionService.isIdleExpired(domainUser)) {
                         LOGGER.debug("Ignoring JWT for idle-expired user '{}'", email);
+                        markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session expired due to inactivity. Please log in again.");
                         SecurityContextHolder.clearContext();
                         filterChain.doFilter(request, response);
                         return;
@@ -142,11 +148,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         email, farmId, role);
             } else if (StringUtils.hasText(jwt)) {
                 LOGGER.debug("JWT present but invalid or expired");
+                markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session has expired. Please log in again.");
                 SecurityContextHolder.clearContext();
             }
         } catch (Exception ex) {
             // We log the error but do not block the request pipeline here.
             LOGGER.warn("Could not set user authentication in security context: {}", ex.getMessage());
+            if (StringUtils.hasText(getJwtFromRequest(request))) {
+                markAuthenticationFailure(request, "SESSION_INVALID", "Authentication failed. Please log in again.");
+            }
             SecurityContextHolder.clearContext();
         }
 
@@ -175,5 +185,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean shouldRecordActivity(HttpServletRequest request) {
         return !"/api/auth/refresh".equals(request.getRequestURI());
+    }
+
+    private void markAuthenticationFailure(HttpServletRequest request, String errorCode, String message) {
+        request.setAttribute(AUTH_FAILURE_CODE_ATTR, errorCode);
+        request.setAttribute(AUTH_FAILURE_MESSAGE_ATTR, message);
     }
 }

@@ -95,6 +95,11 @@ class FarmServiceTest {
                 .id(UUID.randomUUID())
                 .name("Test Farm")
                 .description("Test Description")
+                .address("123 Existing Road")
+                .city("Old City")
+                .province("Old Province")
+                .postalCode("A1A1A1")
+                .country("Canada")
                 .owner(farmOwner)
                 .scout(scout)
                 .subscriptionStatus(SubscriptionStatus.ACTIVE)
@@ -166,6 +171,7 @@ class FarmServiceTest {
                 12,
                 4,
                 "America/Montreal",
+                null,
                 null,
                 null
         );
@@ -336,7 +342,8 @@ class FarmServiceTest {
                 4,
                 "America/Montreal",
                 farmOwner.getId(),
-                scout.getId()
+                scout.getId(),
+                null
         );
 
         testFarm.setOwner(null);
@@ -524,6 +531,63 @@ class FarmServiceTest {
         verify(farmRepository).save(argThat(farm ->
                 farm.getName().equals(updateRequest.name()) &&
                         farm.getDescription().equals(updateRequest.description())
+        ));
+    }
+
+    @Test
+    @DisplayName("SuperAdmin can partially update farm access without sending name")
+    void updateFarm_WithAccessOnlyPayload_PreservesExistingMetadata() {
+        UpdateFarmRequest accessRequest = new UpdateFarmRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                SubscriptionStatus.SUSPENDED,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.TRUE
+        );
+
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(true);
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.updateFarm(testFarm.getId(), accessRequest);
+
+        assertThat(response.name()).isEqualTo("Test Farm");
+        assertThat(response.subscriptionStatus()).isEqualTo(SubscriptionStatus.SUSPENDED);
+        assertThat(response.accessLocked()).isTrue();
+        verify(farmRepository).save(argThat(farm ->
+                farm.getName().equals("Test Farm")
+                        && farm.getDescription().equals("Test Description")
+                        && Boolean.TRUE.equals(farm.getIsArchived())
         ));
     }
 
