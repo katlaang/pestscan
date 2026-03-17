@@ -1,6 +1,7 @@
 package mofo.com.pestscout.scouting.dto;
 
 import mofo.com.pestscout.common.model.SyncStatus;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 
 import java.math.BigDecimal;
@@ -39,6 +40,8 @@ public record ScoutingSessionDetailDto(
 
         // Session-level notes
         String notes,
+
+        PhotoSourceType defaultPhotoSourceType,
 
         LocalDateTime startedAt,
         LocalDateTime submittedAt,

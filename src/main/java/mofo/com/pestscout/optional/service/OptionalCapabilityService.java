@@ -16,6 +16,7 @@ import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingPhotoRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.scouting.service.ScoutingImageAnalysisService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,92 +39,26 @@ public class OptionalCapabilityService {
     private final HeatmapService heatmapService;
     private final TrendAnalysisService trendAnalysisService;
     private final TreatmentRecommendationEngine treatmentRecommendationEngine;
+    private final ScoutingImageAnalysisService imageAnalysisService;
 
     @Transactional(readOnly = true)
     public AiPestIdentificationResponse identifyFromPhoto(UUID farmId, UUID photoId) {
-        accessService.loadFarmAndEnsureViewer(farmId);
-        featureAccessService.assertEnabled(FeatureKey.AI_PEST_IDENTIFICATION, farmId);
-
-        ScoutingPhoto photo = photoRepository.findById(photoId)
-                .orElseThrow(() -> new ResourceNotFoundException("ScoutingPhoto", "id", photoId));
-
-        if (!farmId.equals(photo.getFarmId())) {
-            throw new ResourceNotFoundException("ScoutingPhoto", "id", photoId);
-        }
-
-        List<ScoutingObservation> sessionObservations = observationRepository.findBySessionId(photo.getSession().getId());
-        EnumMap<SpeciesCode, CandidateAccumulator> candidates = new EnumMap<>(SpeciesCode.class);
-
-        if (photo.getObservation() != null && photo.getObservation().getSpeciesCode() != null) {
-            int count = Optional.ofNullable(photo.getObservation().getCount()).orElse(0);
-            double linkedConfidence = count >= 10 ? 0.86 : count >= 5 ? 0.78 : 0.68;
-            upsertCandidate(
-                    candidates,
-                    photo.getObservation().getSpeciesCode(),
-                    linkedConfidence,
-                    "Linked to a scouting observation recorded for this image."
-            );
-        }
-
-        String metadata = normalizeText(photo.getPurpose(), photo.getObjectKey(), photo.getLocalPhotoId());
-        keywordSpecies().forEach((speciesCode, keywords) -> {
-            for (String keyword : keywords) {
-                if (metadata.contains(keyword)) {
-                    upsertCandidate(
-                            candidates,
-                            speciesCode,
-                            0.19,
-                            "Photo metadata contains keyword '" + keyword + "'."
-                    );
-                    break;
-                }
-            }
-        });
-
-        Map<SpeciesCode, Integer> sessionCounts = aggregateCountsBySpecies(sessionObservations);
-        int totalSessionCount = sessionCounts.values().stream().mapToInt(Integer::intValue).sum();
-        sessionCounts.entrySet().stream()
-                .sorted(Map.Entry.<SpeciesCode, Integer>comparingByValue().reversed())
-                .limit(3)
-                .forEach(entry -> {
-                    double contextualBoost = totalSessionCount == 0
-                            ? 0.08
-                            : Math.min(0.22, entry.getValue() / (double) totalSessionCount);
-                    upsertCandidate(
-                            candidates,
-                            entry.getKey(),
-                            contextualBoost,
-                            "Commonly observed in the same scouting session (" + entry.getValue() + " counts)."
-                    );
-                });
-
-        if (candidates.isEmpty()) {
-            upsertCandidate(
-                    candidates,
-                    SpeciesCode.PEST_OTHER,
-                    0.34,
-                    "No strong heuristic match was found in photo metadata or linked observations."
-            );
-        }
-
-        List<AiPestCandidate> resolvedCandidates = candidates.values().stream()
-                .map(CandidateAccumulator::toResponse)
-                .sorted(Comparator.comparing(AiPestCandidate::confidence).reversed())
-                .limit(3)
-                .toList();
-
-        AiPestCandidate topCandidate = resolvedCandidates.getFirst();
-        boolean reviewRequired = topCandidate.confidence() < 0.82 || photo.getObservation() == null;
-        String summary = "Most likely " + topCandidate.displayName().toLowerCase(Locale.ROOT)
-                + " based on image metadata and recent session observations.";
-
+        var response = imageAnalysisService.analyzePhoto(farmId, photoId);
         return new AiPestIdentificationResponse(
-                farmId,
-                photoId,
-                "heuristic-local-v1",
-                summary,
-                reviewRequired,
-                resolvedCandidates
+                response.farmId(),
+                response.photoId(),
+                response.provider(),
+                response.summary(),
+                response.reviewRequired(),
+                response.candidates().stream()
+                        .map(candidate -> new AiPestCandidate(
+                                candidate.speciesCode(),
+                                candidate.displayName(),
+                                candidate.category(),
+                                candidate.confidence(),
+                                candidate.rationale()
+                        ))
+                        .toList()
         );
     }
 
@@ -347,6 +282,9 @@ public class OptionalCapabilityService {
     }
 
     private boolean isDroneLike(ScoutingPhoto photo) {
+        if (photo.getSourceType() == PhotoSourceType.DRONE) {
+            return true;
+        }
         String text = normalizeText(photo.getPurpose(), photo.getObjectKey(), photo.getLocalPhotoId());
         return DRONE_KEYWORDS.stream().anyMatch(text::contains);
     }
@@ -418,46 +356,6 @@ public class OptionalCapabilityService {
         );
     }
 
-    private Map<SpeciesCode, Integer> aggregateCountsBySpecies(List<ScoutingObservation> observations) {
-        Map<SpeciesCode, Integer> counts = new LinkedHashMap<>();
-        for (ScoutingObservation observation : observations) {
-            if (observation.getSpeciesCode() == null) {
-                continue;
-            }
-            counts.merge(
-                    observation.getSpeciesCode(),
-                    Optional.ofNullable(observation.getCount()).orElse(0),
-                    Integer::sum
-            );
-        }
-        return counts;
-    }
-
-    private Map<SpeciesCode, List<String>> keywordSpecies() {
-        Map<SpeciesCode, List<String>> keywords = new EnumMap<>(SpeciesCode.class);
-        keywords.put(SpeciesCode.THRIPS, List.of("thrip", "silvering", "streak"));
-        keywords.put(SpeciesCode.RED_SPIDER_MITE, List.of("red spider", "mite", "webbing"));
-        keywords.put(SpeciesCode.WHITEFLIES, List.of("whitefly", "whiteflies", "honeydew"));
-        keywords.put(SpeciesCode.MEALYBUGS, List.of("mealy", "cottony", "wax"));
-        keywords.put(SpeciesCode.CATERPILLARS, List.of("caterpillar", "larva", "chewed"));
-        keywords.put(SpeciesCode.FALSE_CODLING_MOTH, List.of("codling", "fcm", "fruit entry"));
-        keywords.put(SpeciesCode.DOWNY_MILDEW, List.of("downy", "angular lesion"));
-        keywords.put(SpeciesCode.POWDERY_MILDEW, List.of("powdery", "white powder"));
-        keywords.put(SpeciesCode.BOTRYTIS, List.of("botrytis", "grey mold", "gray mold"));
-        keywords.put(SpeciesCode.BACTERIAL_WILT, List.of("wilt", "vascular"));
-        return keywords;
-    }
-
-    private void upsertCandidate(
-            Map<SpeciesCode, CandidateAccumulator> candidates,
-            SpeciesCode speciesCode,
-            double scoreIncrement,
-            String rationale
-    ) {
-        CandidateAccumulator accumulator = candidates.computeIfAbsent(speciesCode, CandidateAccumulator::new);
-        accumulator.add(scoreIncrement, rationale);
-    }
-
     private String normalizeText(String... values) {
         StringBuilder builder = new StringBuilder();
         for (String value : values) {
@@ -486,31 +384,5 @@ public class OptionalCapabilityService {
     }
 
     private record TrendSeriesDefinition(SpeciesCode speciesCode, ToIntFunction<WeeklyPestTrendDto> extractor) {
-    }
-
-    private static final class CandidateAccumulator {
-
-        private final SpeciesCode speciesCode;
-        private final Set<String> rationales = new LinkedHashSet<>();
-        private double score;
-
-        private CandidateAccumulator(SpeciesCode speciesCode) {
-            this.speciesCode = speciesCode;
-        }
-
-        private void add(double scoreIncrement, String rationale) {
-            score += scoreIncrement;
-            rationales.add(rationale);
-        }
-
-        private AiPestCandidate toResponse() {
-            return new AiPestCandidate(
-                    speciesCode.name(),
-                    speciesCode.getDisplayName(),
-                    speciesCode.getCategory().name(),
-                    Math.max(0.20d, Math.min(0.98d, Math.round(score * 100.0d) / 100.0d)),
-                    String.join(" ", rationales)
-            );
-        }
     }
 }

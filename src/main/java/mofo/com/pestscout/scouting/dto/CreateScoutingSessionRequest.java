@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 
 import java.math.BigDecimal;
@@ -43,6 +44,9 @@ public record CreateScoutingSessionRequest(
 
         // General remarks for the whole session (not per bay)
         String notes,
+
+        // Default capture source for photos in this session; photo registration may override it
+        PhotoSourceType defaultPhotoSourceType,
 
         // Optional initial lifecycle state (defaults to NEW)
         SessionStatus status,

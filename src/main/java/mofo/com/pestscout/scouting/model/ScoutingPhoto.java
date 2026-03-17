@@ -42,6 +42,11 @@ public class ScoutingPhoto extends BaseEntity {
     @Column(name = "object_key", length = 500)
     private String objectKey;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_type", nullable = false, length = 32)
+    private PhotoSourceType sourceType = PhotoSourceType.SCOUT_HANDHELD;
+
     @Column(name = "captured_at")
     private LocalDateTime capturedAt;
 }

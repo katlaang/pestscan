@@ -98,6 +98,11 @@ public class ScoutingSessionService {
                 .observationTime(request.observationTime())
                 .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
+                .defaultPhotoSourceType(
+                        request.defaultPhotoSourceType() != null
+                                ? request.defaultPhotoSourceType()
+                                : PhotoSourceType.SCOUT_HANDHELD
+                )
                 .status(initialStatus)
                 .confirmationAcknowledged(false)
                 .recommendations(new EnumMap<>(RecommendationType.class))
@@ -156,6 +161,9 @@ public class ScoutingSessionService {
         }
         if (request.notes() != null) {
             session.setNotes(request.notes());
+        }
+        if (request.defaultPhotoSourceType() != null) {
+            session.setDefaultPhotoSourceType(request.defaultPhotoSourceType());
         }
 
         if (request.status() != null && request.status() != session.getStatus()) {
@@ -882,6 +890,7 @@ public class ScoutingSessionService {
                 session.getObservationTime(),
                 session.getWeatherNotes(),
                 session.getNotes(),
+                session.getDefaultPhotoSourceType(),
                 session.getStartedAt(),
                 session.getSubmittedAt(),
                 session.getCompletedAt(),

@@ -2,6 +2,7 @@ package mofo.com.pestscout.scouting.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -11,6 +12,7 @@ public record PhotoMetadataRequest(
         UUID observationId,
         @NotBlank String localPhotoId,
         String purpose,
+        PhotoSourceType sourceType,
         LocalDateTime capturedAt
 ) {
 }

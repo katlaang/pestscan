@@ -1,6 +1,7 @@
 package mofo.com.pestscout.scouting.dto;
 
 import mofo.com.pestscout.common.model.SyncStatus;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -13,6 +14,7 @@ public record ScoutingPhotoDto(
         String localPhotoId,
         String purpose,
         String objectKey,
+        PhotoSourceType sourceType,
         LocalDateTime capturedAt,
         LocalDateTime updatedAt,
         SyncStatus syncStatus

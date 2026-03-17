@@ -87,6 +87,11 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "weather_notes", length = 2000)
     private String weatherNotes;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_photo_source_type", nullable = false, length = 32)
+    private PhotoSourceType defaultPhotoSourceType = PhotoSourceType.SCOUT_HANDHELD;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SessionStatus status;

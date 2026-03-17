@@ -2,21 +2,19 @@ package mofo.com.pestscout.optional.service;
 
 import mofo.com.pestscout.analytics.service.HeatmapService;
 import mofo.com.pestscout.analytics.service.TrendAnalysisService;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.optional.dto.OptionalCapabilityDtos.AiPestIdentificationResponse;
-import mofo.com.pestscout.scouting.model.*;
+import mofo.com.pestscout.scouting.dto.ImageAnalysisDtos.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingPhotoRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.scouting.service.ScoutingImageAnalysisService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,65 +47,65 @@ class OptionalCapabilityServiceTest {
     @Mock
     private TreatmentRecommendationEngine treatmentRecommendationEngine;
 
+    @Mock
+    private ScoutingImageAnalysisService imageAnalysisService;
+
     @InjectMocks
     private OptionalCapabilityService optionalCapabilityService;
 
     @Test
-    void identifyFromPhoto_prefersLinkedObservationAndSessionContext() {
+    void identifyFromPhoto_delegatesToCoreAnalysisService() {
         UUID farmId = UUID.randomUUID();
         UUID photoId = UUID.randomUUID();
 
-        Farm farm = Farm.builder().name("North Farm").build();
-        ScoutingSession session = ScoutingSession.builder()
-                .farm(farm)
-                .sessionDate(LocalDate.now())
-                .build();
-        session.setId(UUID.randomUUID());
+        when(imageAnalysisService.analyzePhoto(farmId, photoId)).thenReturn(new PhotoAnalysisResponse(
+                farmId,
+                photoId,
+                "SCOUT_HANDHELD",
+                "heuristic-local-v1",
+                "heuristic-local-v1",
+                "Most likely thrips based on photo metadata and recent session observations.",
+                false,
+                "PENDING_REVIEW",
+                "THRIPS",
+                "Thrips",
+                "PEST",
+                0.91d,
+                null,
+                null,
+                null,
+                null,
+                LocalDateTime.now(),
+                null,
+                null,
+                List.of(new PhotoAnalysisCandidate("THRIPS", "Thrips", "PEST", 0.91d, "Linked observation")),
+                new AiAnalysisSnapshot(
+                        "heuristic-local-v1",
+                        "heuristic-local-v1",
+                        "Most likely thrips based on photo metadata and recent session observations.",
+                        "THRIPS",
+                        "Thrips",
+                        "PEST",
+                        0.91d,
+                        List.of(new PhotoAnalysisCandidate("THRIPS", "Thrips", "PEST", 0.91d, "Linked observation"))
+                ),
+                new ManualAnalysisSnapshot(
+                        "PENDING_REVIEW",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                new AnalysisComparison("PENDING_MANUAL_REVIEW", false, false)
+        ));
 
-        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
-                .session(session)
-                .build();
-
-        ScoutingObservation linkedObservation = ScoutingObservation.builder()
-                .session(session)
-                .sessionTarget(target)
-                .speciesCode(SpeciesCode.THRIPS)
-                .bayIndex(1)
-                .benchIndex(1)
-                .spotIndex(1)
-                .count(9)
-                .build();
-
-        ScoutingObservation whitefliesObservation = ScoutingObservation.builder()
-                .session(session)
-                .sessionTarget(target)
-                .speciesCode(SpeciesCode.WHITEFLIES)
-                .bayIndex(2)
-                .benchIndex(1)
-                .spotIndex(1)
-                .count(2)
-                .build();
-
-        ScoutingPhoto photo = ScoutingPhoto.builder()
-                .session(session)
-                .observation(linkedObservation)
-                .farmId(farmId)
-                .localPhotoId("thrips-leaf-01")
-                .purpose("Close-up thrip damage")
-                .build();
-        photo.setId(photoId);
-
-        when(photoRepository.findById(photoId)).thenReturn(Optional.of(photo));
-        when(observationRepository.findBySessionId(session.getId()))
-                .thenReturn(List.of(linkedObservation, whitefliesObservation));
-
-        AiPestIdentificationResponse response = optionalCapabilityService.identifyFromPhoto(farmId, photoId);
+        var response = optionalCapabilityService.identifyFromPhoto(farmId, photoId);
 
         assertThat(response.provider()).isEqualTo("heuristic-local-v1");
         assertThat(response.reviewRequired()).isFalse();
-        assertThat(response.summary()).contains("thrips");
-        assertThat(response.candidates()).isNotEmpty();
+        assertThat(response.candidates()).hasSize(1);
         assertThat(response.candidates().getFirst().speciesCode()).isEqualTo("THRIPS");
-        assertThat(response.candidates().getFirst().confidence()).isGreaterThanOrEqualTo(0.9d);
     }
 }

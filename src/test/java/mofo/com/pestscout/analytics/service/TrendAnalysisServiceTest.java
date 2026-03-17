@@ -31,11 +31,14 @@ class TrendAnalysisServiceTest {
     @Mock
     private ScoutingObservationRepository observationRepository;
 
+    @Mock
+    private AnalyticsAccessService analyticsAccessService;
+
     private TrendAnalysisService service;
 
     @Test
     void aggregatesWeeklyPestTrendsAcrossWindow() {
-        service = new TrendAnalysisService(sessionRepository, observationRepository);
+        service = new TrendAnalysisService(sessionRepository, observationRepository, analyticsAccessService);
         UUID farmId = UUID.randomUUID();
         LocalDate referenceMonday = LocalDate.of(2024, 6, 3); // Monday for deterministic week numbers
 
@@ -44,6 +47,7 @@ class TrendAnalysisServiceTest {
         ScoutingObservation redSpider = observation(session, SpeciesCode.RED_SPIDER_MITE, 2);
 
         mockCurrentDate(referenceMonday, () -> {
+            when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
             when(sessionRepository.findByFarmIdAndSessionDateBetween(Mockito.eq(farmId), Mockito.any(), Mockito.any()))
                     .thenReturn(List.of(session));
             when(observationRepository.findBySessionIdIn(List.of(session.getId())))
@@ -66,7 +70,7 @@ class TrendAnalysisServiceTest {
 
     @Test
     void aggregatesSeverityTrendByWeek() {
-        service = new TrendAnalysisService(sessionRepository, observationRepository);
+        service = new TrendAnalysisService(sessionRepository, observationRepository, analyticsAccessService);
         UUID farmId = UUID.randomUUID();
         LocalDate referenceMonday = LocalDate.of(2024, 6, 3);
 
@@ -79,6 +83,7 @@ class TrendAnalysisServiceTest {
                 observation(session, SpeciesCode.MEALYBUGS, SeverityLevel.HIGH);
 
         mockCurrentDate(referenceMonday, () -> {
+            when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
             when(sessionRepository.findByFarmIdAndSessionDateBetween(Mockito.eq(farmId), Mockito.any(), Mockito.any()))
                     .thenReturn(List.of(session));
             when(observationRepository.findBySessionIdIn(List.of(session.getId())))
@@ -100,7 +105,7 @@ class TrendAnalysisServiceTest {
 
     @Test
     void buildsPestTrendResponseAcrossSessions() {
-        service = new TrendAnalysisService(sessionRepository, observationRepository);
+        service = new TrendAnalysisService(sessionRepository, observationRepository, analyticsAccessService);
         UUID farmId = UUID.randomUUID();
         LocalDate start = LocalDate.of(2024, 1, 1);
         LocalDate end = LocalDate.of(2024, 1, 31);
@@ -112,6 +117,7 @@ class TrendAnalysisServiceTest {
         ScoutingObservation obs2 = observation(second, SpeciesCode.WHITEFLIES, 6);
         ScoutingObservation differentSpecies = observation(second, SpeciesCode.THRIPS, 10);
 
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(farmId, start, end))
                 .thenReturn(List.of(first, second));
         when(observationRepository.findBySessionIdIn(List.of(first.getId())))

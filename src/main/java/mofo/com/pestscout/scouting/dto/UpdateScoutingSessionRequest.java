@@ -2,6 +2,7 @@ package mofo.com.pestscout.scouting.dto;
 
 
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 
 import java.math.BigDecimal;
@@ -29,6 +30,7 @@ public record UpdateScoutingSessionRequest(
         LocalTime observationTime,
         String weatherNotes,
         String notes,
+        PhotoSourceType defaultPhotoSourceType,
         SessionStatus status,
         Long version,
         String deviceId,

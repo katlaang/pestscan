@@ -5,7 +5,6 @@ import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
-import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -21,7 +20,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,7 +43,7 @@ class HeatmapServiceTest {
     private ScoutingSessionTargetRepository targetRepository;
 
     @Mock
-    private FarmAccessService farmAccessService;
+    private AnalyticsAccessService analyticsAccessService;
 
     @InjectMocks
     private HeatmapService heatmapService;
@@ -124,8 +122,8 @@ class HeatmapServiceTest {
                 .count(3)
                 .build();
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 eq(testFarm.getId()),
                 any(LocalDate.class),
@@ -153,7 +151,7 @@ class HeatmapServiceTest {
         assertThat(response.sections()).isNotEmpty();
         assertThat(response.severityLegend()).isNotEmpty();
 
-        verify(farmAccessService).requireViewAccess(testFarm);
+        verify(analyticsAccessService).loadFarmAndEnsureAnalyticsAccess(testFarm.getId());
     }
 
     @Test
@@ -163,8 +161,8 @@ class HeatmapServiceTest {
         int week = 1;
         int year = 2025;
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 eq(testFarm.getId()),
                 any(LocalDate.class),
@@ -191,8 +189,8 @@ class HeatmapServiceTest {
     void generateHeatmap_WithInvalidFarm_ThrowsResourceNotFoundException() {
         // Arrange
         UUID invalidFarmId = UUID.randomUUID();
-        when(farmRepository.findById(invalidFarmId))
-                .thenReturn(Optional.empty());
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(invalidFarmId))
+                .thenThrow(new ResourceNotFoundException("Farm", "id", invalidFarmId));
 
         // Act & Assert
         assertThatThrownBy(() -> heatmapService.generateHeatmap(invalidFarmId, 1, 2025))
@@ -228,8 +226,8 @@ class HeatmapServiceTest {
                 .count(3)
                 .build();
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 any(), any(LocalDate.class), any(LocalDate.class)
         ))
@@ -282,8 +280,8 @@ class HeatmapServiceTest {
                 .count(15)
                 .build();
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 any(), any(LocalDate.class), any(LocalDate.class)
         ))
@@ -347,8 +345,8 @@ class HeatmapServiceTest {
                 .count(3)
                 .build();
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 any(), any(LocalDate.class), any(LocalDate.class)
         ))
@@ -398,8 +396,8 @@ class HeatmapServiceTest {
                 .count(10)
                 .build();
 
-        when(farmRepository.findById(testFarm.getId()))
-                .thenReturn(Optional.of(testFarm));
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
         when(sessionRepository.findByFarmIdAndSessionDateBetween(
                 any(), any(LocalDate.class), any(LocalDate.class)
         ))

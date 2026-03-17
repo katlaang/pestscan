@@ -38,6 +38,7 @@ At a high level, PestScout supports the full flow of a licensed scouting product
 - a farm owner or manager configures structures such as greenhouses and field blocks
 - a manager creates scouting sessions and assigns scouts
 - scouts collect observations and photos, including offline-friendly updates
+- scouting photos can be analyzed as a core workflow with manual review and accuracy tracking
 - the backend aggregates those records into dashboards, heatmaps, trends, and reports
 - optional advanced modules can be turned on per deployment and per farm
 
@@ -214,6 +215,11 @@ Photos are attached to sessions and optionally to observations. The system suppo
 - metadata registration
 - upload via external object storage
 - confirmation after upload
+- session-level default photo source selection, with per-photo override when needed
+- core pest/disease image analysis for registered photos
+- explicit AI-versus-manual comparison for each analyzed photo
+- manual review of model output and farm-level accuracy metrics
+- explicit photo source tracking, including scout handheld and drone captures
 
 ### Heatmaps and analytics DTOs
 
@@ -365,13 +371,15 @@ The optional capability framework supports deployment-wide rollout plus per-farm
 
 | Capability                               | Feature key                           | Global default | Default tiers                  | Primary endpoint(s)                                                                                                                                                       |
 |------------------------------------------|---------------------------------------|----------------|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| AI pest identification                   | `ai-pest-identification`              | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/ai-pest-identification/photos/{photoId}`                                                                                                  |
 | Drone or aerial image processing         | `drone-image-processing`              | Off            | `PREMIUM`                      | `POST /api/optional-capabilities/drone-image-processing/analyze`                                                                                                          |
 | Predictive modeling                      | `predictive-modeling`                 | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/predictive-modeling/forecast`                                                                                                             |
 | Automated PDF reports                    | `automated-pdf-reports`               | On             | `BASIC`, `STANDARD`, `PREMIUM` | `POST /api/analytics/reports/export`                                                                                                                                      |
 | GIS heatmaps or advanced mapping layers  | `gis-heatmaps`                        | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/gis-heatmaps/layers`                                                                                                                      |
 | Automated treatment recommendations      | `automated-treatment-recommendations` | Off            | `STANDARD`, `PREMIUM`          | `GET /api/optional-capabilities/automated-treatment-recommendations`                                                                                                      |
 | Integrated purchasing or supply ordering | `supply-ordering`                     | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/supply-ordering/draft`, `POST /api/optional-capabilities/supply-ordering/orders`, `GET /api/optional-capabilities/supply-ordering/orders` |
+
+General scouting photo analysis is part of the core scouting workflow and is exposed under `/api/scouting/photos`.
+The legacy optional AI-photo route remains only as a compatibility shim.
 
 ### How feature resolution works
 
@@ -399,7 +407,6 @@ For most advanced capabilities:
 
 So a farm can still see dashboards during the post-expiry window but still be blocked from:
 
-- AI pest identification
 - drone analysis
 - predictive modeling
 - treatment recommendations
@@ -420,7 +427,7 @@ Example:
 ```yml
 app:
   features:
-    ai-pest-identification:
+    drone-image-processing:
       enabled: true
       allowed-tiers:
         - PREMIUM
@@ -458,7 +465,7 @@ Example request body:
 Example:
 
 ```bash
-curl -X PUT "http://localhost:8080/api/farms/{farmId}/features/ai-pest-identification" \
+curl -X PUT "http://localhost:8080/api/farms/{farmId}/features/drone-image-processing" \
   -H "Authorization: Bearer <super-admin-jwt>" \
   -H "Content-Type: application/json" \
   -d "{\"enabled\":true}"
@@ -629,6 +636,10 @@ Important session operations:
 - add observations
 - bulk add observations
 - delete observations
+- set the default photo source type for the session
+- run photo analysis
+- review photo analysis
+- inspect photo-analysis accuracy
 - list sessions
 - sync sessions
 - fetch audits
@@ -919,7 +930,7 @@ The offboarding export is a plain PDF containing raw data and metadata. It is no
 
 Current optional capability implementations are mostly heuristic or rule-based:
 
-- AI identification is local heuristic logic
+- core scouting photo analysis is local heuristic logic with manual review support
 - drone analysis is heatmap-correlated logic
 - predictive modeling is weighted trend extrapolation
 - treatment recommendations are rule-based

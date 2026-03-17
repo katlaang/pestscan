@@ -12,10 +12,7 @@ import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.scouting.dto.PhotoMetadataRequest;
 import mofo.com.pestscout.scouting.dto.PhotoUploadConfirmationRequest;
 import mofo.com.pestscout.scouting.dto.ScoutingPhotoDto;
-import mofo.com.pestscout.scouting.model.ScoutingObservation;
-import mofo.com.pestscout.scouting.model.ScoutingPhoto;
-import mofo.com.pestscout.scouting.model.ScoutingSession;
-import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingPhotoRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -64,6 +61,7 @@ public class ScoutingPhotoService {
                 .farmId(session.getFarm().getId())
                 .localPhotoId(request.localPhotoId())
                 .purpose(request.purpose())
+                .sourceType(resolvePhotoSourceType(request.sourceType(), session))
                 .capturedAt(request.capturedAt())
                 .build();
 
@@ -105,6 +103,16 @@ public class ScoutingPhotoService {
         }
     }
 
+    private PhotoSourceType resolvePhotoSourceType(PhotoSourceType requestedSourceType, ScoutingSession session) {
+        if (requestedSourceType != null) {
+            return requestedSourceType;
+        }
+        if (session.getDefaultPhotoSourceType() != null) {
+            return session.getDefaultPhotoSourceType();
+        }
+        return PhotoSourceType.SCOUT_HANDHELD;
+    }
+
     private ScoutingPhotoDto toDto(ScoutingPhoto photo) {
         return new ScoutingPhotoDto(
                 photo.getId(),
@@ -114,6 +122,7 @@ public class ScoutingPhotoService {
                 photo.getLocalPhotoId(),
                 photo.getPurpose(),
                 photo.getObjectKey(),
+                photo.getSourceType(),
                 photo.getCapturedAt(),
                 photo.getUpdatedAt(),
                 photo.getSyncStatus()

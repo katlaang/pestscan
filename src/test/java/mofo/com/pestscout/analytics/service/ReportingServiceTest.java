@@ -378,6 +378,7 @@ class ReportingServiceTest {
                 LocalTime.NOON,
                 "Clear",
                 "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
                 LocalDateTime.now(),
                 LocalDateTime.now(),
                 LocalDateTime.now(),

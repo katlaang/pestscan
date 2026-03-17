@@ -640,6 +640,9 @@ CREATE TRIGGER trg_sessions_updated
     ON scouting_sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+ALTER TABLE scouting_sessions
+    ADD COLUMN IF NOT EXISTS default_photo_source_type VARCHAR (32) NOT NULL DEFAULT 'SCOUT_HANDHELD';
+
 -- ============================================================
 --  SESSION AUDIT EVENTS
 -- ============================================================
@@ -832,6 +835,122 @@ CREATE TRIGGER trg_photos_updated
     BEFORE UPDATE
     ON scouting_photos
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE scouting_photos
+    ADD COLUMN IF NOT EXISTS source_type VARCHAR (32) NOT NULL DEFAULT 'SCOUT_HANDHELD';
+
+CREATE TABLE IF NOT EXISTS scouting_photo_analyses
+(
+    id
+    UUID
+    PRIMARY
+    KEY
+    DEFAULT
+    uuid_generate_v4
+(
+),
+    version BIGINT NOT NULL DEFAULT 0,
+    photo_id UUID NOT NULL REFERENCES scouting_photos
+(
+    id
+) ON DELETE CASCADE,
+    farm_id UUID NOT NULL REFERENCES farms
+(
+    id
+)
+  ON DELETE CASCADE,
+    provider VARCHAR
+(
+    100
+) NOT NULL,
+    model_version VARCHAR
+(
+    100
+) NOT NULL,
+    summary VARCHAR
+(
+    1000
+),
+    review_required BOOLEAN NOT NULL DEFAULT TRUE,
+    predicted_species_code VARCHAR
+(
+    64
+),
+    predicted_confidence NUMERIC
+(
+    5,
+    2
+),
+    review_status VARCHAR
+(
+    32
+) NOT NULL DEFAULT 'PENDING_REVIEW',
+    reviewed_species_code VARCHAR
+(
+    64
+),
+    reviewed_at TIMESTAMP
+  WITH TIME ZONE,
+      reviewer_id UUID,
+      reviewer_name VARCHAR (255),
+    review_notes VARCHAR
+(
+    2000
+),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at TIMESTAMP
+  WITH TIME ZONE,
+      sync_status VARCHAR (32) NOT NULL DEFAULT 'SYNCED',
+    CONSTRAINT uk_photo_analysis_photo UNIQUE
+(
+    photo_id
+)
+    );
+
+CREATE INDEX IF NOT EXISTS idx_photo_analysis_farm
+    ON scouting_photo_analyses (farm_id);
+
+CREATE INDEX IF NOT EXISTS idx_photo_analysis_review_status
+    ON scouting_photo_analyses (review_status);
+
+CREATE TRIGGER trg_photo_analysis_updated
+    BEFORE UPDATE
+    ON scouting_photo_analyses
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE IF NOT EXISTS scouting_photo_analysis_candidates
+(
+    analysis_id
+    UUID
+    NOT
+    NULL
+    REFERENCES
+    scouting_photo_analyses
+(
+    id
+) ON DELETE CASCADE,
+    candidate_rank INTEGER NOT NULL,
+    species_code VARCHAR
+(
+    64
+) NOT NULL,
+    confidence_score NUMERIC
+(
+    5,
+    2
+) NOT NULL,
+    rationale VARCHAR
+(
+    1000
+),
+    CONSTRAINT pk_photo_analysis_candidates PRIMARY KEY
+(
+    analysis_id,
+    candidate_rank
+)
+    );
 
 -- ============================================================
 --  SESSION RECOMMENDATIONS

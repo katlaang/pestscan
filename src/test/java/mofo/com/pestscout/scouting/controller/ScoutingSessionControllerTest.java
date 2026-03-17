@@ -5,6 +5,7 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.dto.*;
+import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.junit.jupiter.api.Test;
@@ -71,6 +72,7 @@ class ScoutingSessionControllerTest {
                 LocalTime.NOON,
                 "Clear",
                 "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
                 SessionStatus.DRAFT,
                 null,
                 null,
@@ -96,6 +98,7 @@ class ScoutingSessionControllerTest {
                 request.observationTime(),
                 request.weatherNotes(),
                 request.notes(),
+                request.defaultPhotoSourceType(),
                 null,
                 null,
                 null,
