@@ -39,6 +39,8 @@ import java.util.stream.Collectors;
 public class FarmService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FarmService.class);
+    private static final UUID UNASSIGNED_USER_ID = new UUID(0L, 0L);
+
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
@@ -164,13 +166,10 @@ public class FarmService {
     // -------------------------------
 
     private Farm toFarmEntity(CreateFarmRequest request, String countryCode) {
-        User owner = userRepository.findById(request.ownerId())
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.ownerId()));
-        User scout = null;
-        if (request.scoutId() != null) {
-            scout = userRepository.findById(request.scoutId())
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
-        }
+        User owner = resolveAssignedUser(request.ownerId(), "owner");
+        User scout = resolveAssignedUser(request.scoutId(), "scout");
+        boolean hasGreenhouses = request.greenhouses() != null && !request.greenhouses().isEmpty();
+        boolean hasFieldBlocks = request.fieldBlocks() != null && !request.fieldBlocks().isEmpty();
 
         Farm farm = Farm.builder()
                 .name(request.name())
@@ -184,7 +183,7 @@ public class FarmService {
                 .country(request.country())
                 .owner(owner)
                 .scout(scout)
-                .contactName(resolveContactName(owner))
+                .contactName(resolveContactName(request.contactName(), owner))
                 .contactEmail(request.contactEmail())
                 .contactPhone(request.contactPhone())
                 .subscriptionStatus(request.subscriptionStatus())
@@ -193,7 +192,7 @@ public class FarmService {
                 .licensedAreaHectares(request.licensedAreaHectares())
                 .licensedUnitQuota(request.licensedUnitQuota())
                 .quotaDiscountPercentage(request.quotaDiscountPercentage())
-                .structureType(resolveStructureType(request.structureType()))
+                .structureType(resolveStructureType(request.structureType(), hasGreenhouses, hasFieldBlocks))
                 .defaultBayCount(request.defaultBayCount())
                 .defaultBenchesPerBay(request.defaultBenchesPerBay())
                 .defaultSpotChecksPerBench(request.defaultSpotChecksPerBench())
@@ -208,9 +207,9 @@ public class FarmService {
                         .farm(farm)
                         .name(ghRequest.name())
                         .description(ghRequest.description())
-                        .bayCount(ghRequest.bayCount())
-                        .benchesPerBay(ghRequest.benchesPerBay())
-                        .spotChecksPerBench(ghRequest.spotChecksPerBench())
+                        .bayCount(ghRequest.bayCount() != null ? ghRequest.bayCount() : farm.resolveBayCount())
+                        .benchesPerBay(ghRequest.benchesPerBay() != null ? ghRequest.benchesPerBay() : farm.resolveBenchesPerBay())
+                        .spotChecksPerBench(ghRequest.spotChecksPerBench() != null ? ghRequest.spotChecksPerBench() : farm.resolveSpotChecksPerBench())
                         .areaHectares(ghRequest.areaHectares())
                         .bayTags(normalizeTags(ghRequest.bayTags()))
                         .benchTags(normalizeTags(ghRequest.benchTags()))
@@ -224,8 +223,8 @@ public class FarmService {
                 FieldBlock block = FieldBlock.builder()
                         .farm(farm)
                         .name(blockRequest.name())
-                        .bayCount(blockRequest.bayCount())
-                        .spotChecksPerBay(blockRequest.spotChecksPerBay())
+                        .bayCount(blockRequest.bayCount() != null ? blockRequest.bayCount() : farm.resolveBayCount())
+                        .spotChecksPerBay(blockRequest.spotChecksPerBay() != null ? blockRequest.spotChecksPerBay() : farm.resolveSpotChecksPerBench())
                         .areaHectares(blockRequest.areaHectares())
                         .bayTags(normalizeTags(blockRequest.bayTags()))
                         .active(Boolean.TRUE.equals(blockRequest.active()))
@@ -250,7 +249,9 @@ public class FarmService {
         farm.setProvince(request.province());
         farm.setPostalCode(request.postalCode());
         farm.setCountry(request.country());
-        farm.setContactName(resolveContactName(farm.getOwner()));
+        if (request.contactName() != null) {
+            farm.setContactName(normalizeNullableText(request.contactName()));
+        }
         farm.setContactEmail(request.contactEmail());
         farm.setContactPhone(request.contactPhone());
         farm.setTimezone(request.timezone());
@@ -284,6 +285,17 @@ public class FarmService {
             farm.setIsArchived(request.isArchived());
             farm.setLatitude(request.latitude());
             farm.setLongitude(request.longitude());
+
+            if (request.ownerId() != null) {
+                User owner = resolveAssignedUser(request.ownerId(), "owner");
+                farm.setOwner(owner);
+                if (request.contactName() == null) {
+                    farm.setContactName(resolveContactName(null, owner));
+                }
+            }
+            if (request.scoutId() != null) {
+                farm.setScout(resolveAssignedUser(request.scoutId(), "scout"));
+            }
         }
     }
 
@@ -393,11 +405,40 @@ public class FarmService {
     }
 
 
-    private FarmStructureType resolveStructureType(FarmStructureType requested) {
-        return requested != null ? requested : FarmStructureType.GREENHOUSE;
+    private FarmStructureType resolveStructureType(FarmStructureType requested,
+                                                   boolean hasGreenhouses,
+                                                   boolean hasFieldBlocks) {
+        if (requested != null) {
+            return requested;
+        }
+        if (hasFieldBlocks && !hasGreenhouses) {
+            return FarmStructureType.FIELD;
+        }
+        if (hasGreenhouses && !hasFieldBlocks) {
+            return FarmStructureType.GREENHOUSE;
+        }
+        return FarmStructureType.OTHER;
     }
 
-    private String resolveContactName(User owner) {
+    private User resolveAssignedUser(UUID userId, String fieldName) {
+        if (userId == null || UNASSIGNED_USER_ID.equals(userId)) {
+            return null;
+        }
+
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+    }
+
+    private String resolveContactName(String requestedContactName, User owner) {
+        String normalizedContactName = normalizeNullableText(requestedContactName);
+        if (normalizedContactName != null) {
+            return normalizedContactName;
+        }
+
+        return resolveOwnerName(owner);
+    }
+
+    private String resolveOwnerName(User owner) {
         if (owner == null) {
             return null;
         }
@@ -415,6 +456,14 @@ public class FarmService {
         }
         String result = name.toString();
         return result.isBlank() ? null : result;
+    }
+
+    private String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     private Instant toInstant(java.time.LocalDateTime value) {

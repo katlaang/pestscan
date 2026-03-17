@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -73,5 +74,28 @@ class FieldBlockServiceTest {
 
         assertThatThrownBy(() -> fieldBlockService.deleteFieldBlock(blockId))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void createFieldBlock_usesFarmDefaultsWhenCountsOmitted() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+        farm.setDefaultBayCount(12);
+        farm.setDefaultSpotChecksPerBench(5);
+
+        CreateFieldBlockRequest request = new CreateFieldBlockRequest("Field A", null, null, List.of(), true);
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(fieldBlockRepository.save(any(FieldBlock.class))).thenAnswer(invocation -> {
+            FieldBlock block = invocation.getArgument(0);
+            block.setId(UUID.randomUUID());
+            return block;
+        });
+
+        FieldBlockDto dto = fieldBlockService.createFieldBlock(farmId, request);
+
+        assertThat(dto.bayCount()).isEqualTo(12);
+        assertThat(dto.spotChecksPerBay()).isEqualTo(5);
     }
 }

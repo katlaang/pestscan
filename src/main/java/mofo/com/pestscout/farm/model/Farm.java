@@ -79,8 +79,8 @@ public class Farm extends BaseEntity {
      * The farm owner (manager/farm admin).
      * Has full operational permissions.
      */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "owner_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
     private User owner;
 
     /**

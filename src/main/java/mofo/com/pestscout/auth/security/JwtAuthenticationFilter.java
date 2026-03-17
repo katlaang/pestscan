@@ -5,13 +5,18 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.service.UserSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -39,6 +44,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
     private final UserDetailsService userDetailsService;
+    private final ObjectProvider<UserRepository> userRepositoryProvider;
+    private final ObjectProvider<UserSessionService> userSessionServiceProvider;
 
     /**
      * Core filter logic.
@@ -70,8 +77,45 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UUID farmId = tokenProvider.getFarmIdFromToken(jwt);
                 String role = tokenProvider.getRoleFromToken(jwt);
 
-                // Load user details from our UserDetailsService
-                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+                UserDetails userDetails;
+                try {
+                    userDetails = userDetailsService.loadUserByUsername(email);
+                } catch (UsernameNotFoundException ex) {
+                    LOGGER.debug("Ignoring JWT for deleted or unknown user '{}'", email);
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                if (!userDetails.isEnabled()) {
+                    LOGGER.debug("Ignoring JWT for disabled user '{}'", email);
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                UserRepository userRepository = userRepositoryProvider.getIfAvailable();
+                UserSessionService userSessionService = userSessionServiceProvider.getIfAvailable();
+                if (userRepository != null && userSessionService != null) {
+                    User domainUser = userRepository.findByEmail(email).orElse(null);
+                    if (domainUser == null) {
+                        LOGGER.debug("Ignoring JWT for deleted or unknown user '{}'", email);
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
+                    if (userSessionService.isIdleExpired(domainUser)) {
+                        LOGGER.debug("Ignoring JWT for idle-expired user '{}'", email);
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
+                    if (shouldRecordActivity(request)) {
+                        userSessionService.recordActivity(domainUser);
+                    }
+                }
 
                 // Build an authentication object for Spring Security
                 UsernamePasswordAuthenticationToken authentication =
@@ -102,7 +146,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         } catch (Exception ex) {
             // We log the error but do not block the request pipeline here.
-            LOGGER.error("Could not set user authentication in security context", ex);
+            LOGGER.warn("Could not set user authentication in security context: {}", ex.getMessage());
             SecurityContextHolder.clearContext();
         }
 
@@ -127,5 +171,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         return null;
+    }
+
+    private boolean shouldRecordActivity(HttpServletRequest request) {
+        return !"/api/auth/refresh".equals(request.getRequestURI());
     }
 }

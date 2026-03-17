@@ -75,6 +75,39 @@ class GreenhouseServiceTest {
     }
 
     @Test
+    void createGreenhouse_usesFarmDefaultsWhenCountsOmitted() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+        farm.setDefaultBayCount(8);
+        farm.setDefaultBenchesPerBay(6);
+        farm.setDefaultSpotChecksPerBench(4);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "Defaulted",
+                "Uses farm defaults",
+                null,
+                null,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bayCount()).isEqualTo(8);
+        assertThat(dto.benchesPerBay()).isEqualTo(6);
+        assertThat(dto.spotChecksPerBench()).isEqualTo(4);
+    }
+
+    @Test
     void deleteGreenhouse_throwsWhenMissing() {
         UUID greenhouseId = UUID.randomUUID();
         when(greenhouseRepository.findById(greenhouseId)).thenReturn(Optional.empty());

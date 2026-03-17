@@ -80,7 +80,7 @@ server:
 # JWT Configuration
 jwt:
   secret: ${JWT_SECRET:your-super-secret-jwt-key-change-this-in-production-minimum-64-characters}
-  expiration: 86400000  # 24 hours in milliseconds
+  expiration: 300000  # 5 minutes in milliseconds
   refresh-expiration: 2592000000  # 30 days in milliseconds
 
 # AWS S3 Configuration (can use MinIO for local development)
@@ -137,6 +137,11 @@ app:
     dashboard-visibility-days-after-expiry: 30
     notification-cron: "0 0 7 * * *"
     public-base-url: ${APP_PUBLIC_BASE_URL:http://localhost:8080}
+  auth:
+    idle-timeout-minutes: 5
+    temporary-password-valid-days: 5
+    invitation-expiry-cron: "0 0 * * * *"
+    public-reset-url: ${APP_AUTH_PUBLIC_RESET_URL:http://localhost:3000/reset-password}
   runtime:
     mode: ${APP_RUNTIME_MODE:CLOUD}
   edge:

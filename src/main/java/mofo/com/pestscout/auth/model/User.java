@@ -6,6 +6,7 @@ import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * User entity representing system users
@@ -51,8 +52,22 @@ public class User extends BaseEntity {
     @Column(name = "is_enabled")
     private Boolean isEnabled = true;
 
+    @Builder.Default
+    @Column(name = "password_change_required", nullable = false)
+    private Boolean passwordChangeRequired = false;
+
+    @Column(name = "temporary_password_expires_at")
+    private LocalDateTime temporaryPasswordExpiresAt;
+
+    @Builder.Default
+    @Column(name = "reactivation_required", nullable = false)
+    private Boolean reactivationRequired = false;
+
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
+
+    @Column(name = "last_activity_at")
+    private LocalDateTime lastActivityAt;
 
 
     /**
@@ -60,7 +75,14 @@ public class User extends BaseEntity {
      */
     @Transient
     public boolean isActive() {
-        return Boolean.TRUE.equals(isEnabled) && !isDeleted();
+        return Boolean.TRUE.equals(isEnabled) && !isDeleted() && !isTemporaryPasswordExpired();
+    }
+
+    @Transient
+    public boolean isTemporaryPasswordExpired() {
+        return Boolean.TRUE.equals(passwordChangeRequired)
+                && temporaryPasswordExpiresAt != null
+                && LocalDateTime.now().isAfter(temporaryPasswordExpiresAt);
     }
 
     /**
@@ -68,6 +90,31 @@ public class User extends BaseEntity {
      */
     public void updateLastLogin() {
         this.lastLogin = LocalDateTime.now();
+    }
+
+    public void recordActivity() {
+        this.lastActivityAt = LocalDateTime.now();
+    }
+
+    public void beginTemporaryPasswordWindow(LocalDateTime expiresAt) {
+        this.passwordChangeRequired = true;
+        this.temporaryPasswordExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+        this.reactivationRequired = false;
+        this.isEnabled = true;
+        restore();
+    }
+
+    public void completePasswordReset() {
+        this.passwordChangeRequired = false;
+        this.temporaryPasswordExpiresAt = null;
+        this.reactivationRequired = false;
+        this.isEnabled = true;
+    }
+
+    public void markTemporaryPasswordExpired() {
+        markDeleted();
+        this.isEnabled = false;
+        this.reactivationRequired = true;
     }
 
     @Override

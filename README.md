@@ -35,6 +35,7 @@ This README is intended to help a new engineer, operator, or technical stakehold
 
 At a high level, PestScout supports the full flow of a licensed scouting product:
 
+- the platform is bootstrapped with exactly one initial `SUPER_ADMIN`
 - a `SUPER_ADMIN` creates and licenses farms
 - a farm owner or manager configures structures such as greenhouses and field blocks
 - a manager creates scouting sessions and assigns scouts
@@ -58,11 +59,54 @@ The backend is organized into these top-level domains:
 
 System-level operator. This role can:
 
+- create the very first super admin through the one-time bootstrap endpoint when the system has none
+- create additional `SUPER_ADMIN` profiles after logging in as an existing super admin
+- create any user with a temporary password that remains valid for 5 days
+- trigger the password-setup email that tells the invited user to replace that temporary password
+- reactivate invited users whose temporary password window expired
 - create farms
-- generate and update licenses
+- generate licenses
+- activate licenses by setting `subscriptionStatus`
+- set license activation dates through `licenseStartDate`
+- update license schedules, extensions, expiry dates, grace periods, archive dates, and billing metadata
 - inspect license history
 - manage per-farm feature overrides
+- view, search, update, and disable users across all farms
+- access all farm, scouting, analytics, image-analysis, and optional-capability data in the application
 - see all farms regardless of normal license visibility rules
+- clear and inspect caches through the admin cache endpoints
+
+This is the top interactive role in the platform. In practical terms, `SUPER_ADMIN` is the only role that can issue or
+activate commercial licensing, and it has global visibility into application data across all farms.
+
+### Super-admin bootstrap and gating
+
+The system enforces a two-stage super-admin creation model:
+
+1. before any super admin exists, the public bootstrap endpoint may create exactly one initial `SUPER_ADMIN`
+2. after that first super admin exists, the bootstrap endpoint is permanently closed and additional super admins can
+   only be created by an authenticated existing super admin
+
+The relevant routes are:
+
+- `GET /api/auth/bootstrap/super-admin/status`
+- `POST /api/auth/bootstrap/super-admin`
+- `POST /api/auth/users`
+
+Important rules:
+
+- `POST /api/auth/bootstrap/super-admin` succeeds only when no super admin exists yet
+- public self-registration through `POST /api/auth/register` does not allow `SUPER_ADMIN`
+- once the first super admin is created, only a logged-in super admin may create more super admins
+- when a super admin creates any user through `POST /api/auth/users`, the submitted password is treated as a temporary
+  password
+- temporary passwords are valid for 5 days and the backend also queues an account-setup email with a password-reset
+  token
+- invited users are expected to reset their own password through `POST /api/auth/reset-password`
+- if the user does not reset that password within the 5-day window, the profile is soft-deleted and marked for
+  reactivation
+- only a logged-in `SUPER_ADMIN` may restore that profile through `POST /api/auth/users/{userId}/reactivate`
+- super admins are global users and are not farm-scoped
 
 ### `FARM_ADMIN`
 
@@ -280,6 +324,21 @@ The commercial lifecycle is based on:
 
 The practical "license end date" is `licenseExpiryDate`.
 
+### Who controls license generation and activation
+
+License generation and license activation are deliberately centralized under `SUPER_ADMIN`.
+
+That means:
+
+- only `SUPER_ADMIN` can generate a license reference
+- only `SUPER_ADMIN` can move a farm from `PENDING_ACTIVATION` to `ACTIVE`
+- only `SUPER_ADMIN` can set or change the activation date through `licenseStartDate`
+- only `SUPER_ADMIN` can change license type, extension months, expiry dates, grace-period dates, archive dates, and
+  other commercial schedule fields
+
+Operationally, a farm manager or farm admin may manage normal farm data, but they do not own the commercial lifecycle
+of the license.
+
 ### Trial and paid terms
 
 The implemented defaults are:
@@ -305,6 +364,9 @@ When the dashboard visibility window ends:
 - dashboards are hidden from farm managers/admins
 - the farm data is still not deleted
 - super admins can still inspect farm state for administration
+
+Super admins also continue to have global access to application data for administration, support, compliance, and
+commercial operations. They are not limited by normal farm membership rules when reading platform data.
 
 ### Hectare enforcement
 
@@ -1033,15 +1095,36 @@ If the team later adds true model inference, this section should be updated to c
 
 ## Main workflows
 
+### 0. Initial super-admin bootstrap
+
+Before the rest of the platform can be administered, the deployment needs its first `SUPER_ADMIN`.
+
+Typical flow:
+
+1. check whether bootstrap is still open
+2. create the first super admin if none exists
+3. log in as that super admin
+4. use authenticated admin endpoints for any additional privileged profile creation
+5. when creating other users, provide a temporary password and let the backend queue the password-setup email
+
+Key endpoints:
+
+- `GET /api/auth/bootstrap/super-admin/status`
+- `POST /api/auth/bootstrap/super-admin`
+- `POST /api/auth/login`
+- `POST /api/auth/users`
+- `POST /api/auth/users/{userId}/reactivate`
+
 ### 1. Super admin creates and licenses a farm
 
 Typical flow:
 
 1. create the farm
 2. create or update structures
-3. set license type, start date, and extension months
-4. generate a license reference if needed
-5. optionally override per-farm feature flags
+3. set license type, activation date, and extension months
+4. activate the farm by setting `subscriptionStatus=ACTIVE` when commercially ready
+5. generate a license reference if needed
+6. optionally override per-farm feature flags
 
 Key endpoints:
 
@@ -1152,6 +1235,8 @@ Base path: `/api/auth`
 
 Examples:
 
+- `/bootstrap/super-admin/status`
+- `/bootstrap/super-admin`
 - `/login`
 - `/register`
 - `/refresh`
@@ -1159,6 +1244,27 @@ Examples:
 - `/reset-password`
 - `/me`
 - `/users`
+- `/users/{userId}/reactivate`
+
+Key intent split:
+
+- `/bootstrap/super-admin` is a one-time public bootstrap route for the first super admin only
+- `/register` is self-service registration for non-super-admin profiles
+- `/users` is the authenticated admin-managed profile creation route and is where existing super admins create other
+  super admins
+- `/users/{userId}/reactivate` is the super-admin-only recovery route for profiles that were soft-deleted after the
+  temporary-password deadline elapsed
+
+Admin-created user lifecycle:
+
+- a super admin submits the new profile, including a temporary password
+- the backend stores that profile with `passwordChangeRequired=true` and a 5-day `temporaryPasswordExpiresAt`
+- the backend queues an account-setup email that points the user at the reset-password flow
+- the user may sign in with the temporary password during that 5-day window, but the frontend should prompt for an
+  immediate password change because the profile is still in onboarding state
+- once the user completes `POST /api/auth/reset-password`, the onboarding flags are cleared
+- if the 5-day window elapses first, the backend soft-deletes the profile, disables access, invalidates open reset
+  tokens, and requires a `SUPER_ADMIN` reactivation
 
 ### Farms, structures, and licensing
 

@@ -29,7 +29,7 @@ public record CreateFarmRequest(
         String postalCode,
         String country,
 
-        @NotNull UUID ownerId,
+        UUID ownerId,
 
         // Optional scout assignment on creation
         UUID scoutId,

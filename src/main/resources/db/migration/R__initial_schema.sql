@@ -36,7 +36,11 @@ CREATE TABLE users
     customer_number VARCHAR(100)             NOT NULL,
     role            VARCHAR(50)              NOT NULL,
     is_enabled      BOOLEAN                  NOT NULL DEFAULT TRUE,
+    password_change_required      BOOLEAN NOT NULL DEFAULT FALSE,
+    temporary_password_expires_at TIMESTAMP WITH TIME ZONE,
+    reactivation_required         BOOLEAN NOT NULL DEFAULT FALSE,
     last_login      TIMESTAMP WITH TIME ZONE,
+    last_activity_at              TIMESTAMP WITH TIME ZONE,
     created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     version         BIGINT                   NOT NULL DEFAULT 0,
@@ -51,6 +55,8 @@ CREATE TABLE users
 );
 
 CREATE INDEX idx_users_role ON users (role);
+CREATE INDEX idx_users_temp_password_expiry ON users (temporary_password_expires_at);
+CREATE INDEX idx_users_last_activity_at ON users (last_activity_at);
 
 CREATE TRIGGER trg_users_updated
     BEFORE UPDATE
@@ -117,7 +123,7 @@ CREATE TABLE farms
     province                            VARCHAR(100),
     postal_code                         VARCHAR(20),
     country                             VARCHAR(100)                      DEFAULT 'Canada',
-    owner_id                            UUID                     NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    owner_id UUID REFERENCES users (id) ON DELETE RESTRICT,
     scout_id                            UUID                     REFERENCES users (id) ON DELETE SET NULL,
     contact_name                        VARCHAR(255),
     contact_email                       VARCHAR(255),

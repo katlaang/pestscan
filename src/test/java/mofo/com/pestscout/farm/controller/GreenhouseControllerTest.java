@@ -56,6 +56,21 @@ class GreenhouseControllerTest {
     }
 
     @Test
+    void createsGreenhouseWhenCountsOmitted() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest("G2", "defaults", null, null, null, List.of(), List.of());
+        GreenhouseDto dto = new GreenhouseDto(UUID.randomUUID(), 1L, UUID.randomUUID(), "G2", "defaults", 8, 6, 4, List.of(), List.of(), true);
+
+        when(greenhouseService.createGreenhouse(any(UUID.class), any(CreateGreenhouseRequest.class))).thenReturn(dto);
+
+        mockMvc.perform(post("/api/farms/" + farmId + "/greenhouses")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.spotChecksPerBench").value(4));
+    }
+
+    @Test
     void updatesGreenhouse() throws Exception {
         UUID greenhouseId = UUID.randomUUID();
 

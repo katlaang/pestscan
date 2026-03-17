@@ -28,7 +28,14 @@ public class UserDto {
     private String customerNumber;
     private Role role;
     private Boolean isEnabled;
+    private Boolean active;
+    private Boolean deleted;
+    private Boolean passwordChangeRequired;
+    private Boolean reactivationRequired;
+    private LocalDateTime temporaryPasswordExpiresAt;
+    private LocalDateTime deletedAt;
     private LocalDateTime lastLogin;
+    private LocalDateTime lastActivityAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

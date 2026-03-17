@@ -69,6 +69,9 @@ public record UpdateFarmRequest(
         Integer defaultSpotChecksPerBench,
 
         @Size(max = 100)
-        String timezone
+        String timezone,
+
+        java.util.UUID ownerId,
+        java.util.UUID scoutId
 ) {
 }

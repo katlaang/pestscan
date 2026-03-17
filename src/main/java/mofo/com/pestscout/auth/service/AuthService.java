@@ -43,12 +43,16 @@ public class AuthService {
     private final FarmRepository farmRepository;
     private final CustomerNumberService customerNumberService;
     private final UserFarmMembershipRepository membershipRepository;
+    private final UserOnboardingService userOnboardingService;
+    private final UserSessionService userSessionService;
 
     /**
      * Authenticate user and generate JWT tokens
      */
     @Transactional
     public LoginResponse login(LoginRequest request) {
+        userRepository.findByEmail(request.email()).ifPresent(this::assertLoginAllowed);
+
         try {
             // Authenticate user
             Authentication authentication = authenticationManager.authenticate(
@@ -69,6 +73,7 @@ public class AuthService {
 
             // Update last login
             user.updateLastLogin();
+            user.recordActivity();
             userRepository.save(user);
 
             // Generate tokens
@@ -80,7 +85,7 @@ public class AuthService {
             return LoginResponse.builder()
                     .token(accessToken)
                     .refreshToken(refreshToken)
-                    .expiresIn(86400000L)  // 24 hours
+                    .expiresIn(tokenProvider.getAccessTokenExpirationMillis())
                     .user(userService.convertToDto(user))
                     .build();
 
@@ -96,7 +101,7 @@ public class AuthService {
     @Transactional
     public UserDto register(RegisterRequest request) {
         validateSelfServiceRegistration(request);
-        return createUser(request);
+        return createUser(request, false);
     }
 
     /**
@@ -105,7 +110,7 @@ public class AuthService {
     @Transactional
     public UserDto bootstrapInitialSuperAdmin(RegisterRequest request) {
         validateInitialSuperAdminBootstrap(request);
-        return createUser(request);
+        return createUser(request, false);
     }
 
     /**
@@ -121,7 +126,36 @@ public class AuthService {
         }
 
         validateSuperAdminManagedRegistration(request);
-        return createUser(request);
+        return createUser(request, true);
+    }
+
+    @Transactional
+    public UserDto reactivateUser(UUID userId, ReactivateUserRequest request, UUID requestingUserId) {
+        User requester = userRepository.findById(requestingUserId)
+                .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
+
+        if (requester.getRole() != Role.SUPER_ADMIN) {
+            throw new UnauthorizedException("Only super admins can reactivate user profiles");
+        }
+
+        User targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        if (!targetUser.isDeleted() && Boolean.TRUE.equals(targetUser.getIsEnabled()) && !Boolean.TRUE.equals(targetUser.getReactivationRequired())) {
+            throw new BadRequestException("User does not require reactivation");
+        }
+
+        targetUser.restore();
+        targetUser.setIsEnabled(true);
+        targetUser.setPassword(passwordEncoder.encode(request.temporaryPassword()));
+        targetUser.beginTemporaryPasswordWindow(userOnboardingService.calculateTemporaryPasswordExpiry());
+
+        User savedUser = userRepository.save(targetUser);
+        userOnboardingService.issueSetupInvitation(savedUser, true);
+
+        log.info("User profile reactivated: {} by {}", savedUser.getEmail(), requester.getEmail());
+
+        return userService.convertToDto(savedUser);
     }
 
     @Transactional(readOnly = true)
@@ -152,6 +186,11 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
+        expirePendingInvitationIfNeeded(user);
+        if (userSessionService.isIdleExpired(user)) {
+            throw new BadRequestException("Session expired due to inactivity. Please log in again.");
+        }
+
         // Check if user is enabled
         if (!user.isActive()) {
             throw new BadRequestException("User account is disabled");
@@ -166,7 +205,7 @@ public class AuthService {
         return LoginResponse.builder()
                 .token(newAccessToken)
                 .refreshToken(newRefreshToken)
-                .expiresIn(86400000L)
+                .expiresIn(tokenProvider.getAccessTokenExpirationMillis())
                 .user(userService.convertToDto(user))
                 .build();
     }
@@ -223,6 +262,8 @@ public class AuthService {
         }
 
         User user = resetToken.getUser();
+        expirePendingInvitationIfNeeded(user);
+
         if (!user.isActive()) {
             throw new BadRequestException("User account is disabled");
         }
@@ -237,10 +278,18 @@ public class AuthService {
         }
 
         user.setPassword(passwordEncoder.encode(request.password()));
+        user.completePasswordReset();
         userRepository.save(user);
 
         resetToken.setUsedAt(LocalDateTime.now());
         passwordResetTokenRepository.save(resetToken);
+
+        passwordResetTokenRepository.findByUserAndUsedAtIsNull(user).stream()
+                .filter(token -> !token.getId().equals(resetToken.getId()))
+                .forEach(token -> {
+                    token.setUsedAt(LocalDateTime.now());
+                    passwordResetTokenRepository.save(token);
+                });
 
         log.info("Password reset completed for {} via {}", user.getEmail(), channel);
     }
@@ -386,13 +435,17 @@ public class AuthService {
         }
     }
 
-    private UserDto createUser(RegisterRequest request) {
+    private UserDto createUser(RegisterRequest request, boolean adminManaged) {
         if (userRepository.existsByEmail(request.email())) {
             throw new ConflictException("Email already registered");
         }
 
         String normalizedCountry = customerNumberService.normalizeCountryCode(request.country());
         String customerNumber = resolveCustomerNumber(request, normalizedCountry);
+
+        LocalDateTime temporaryPasswordExpiresAt = adminManaged
+                ? userOnboardingService.calculateTemporaryPasswordExpiry()
+                : null;
 
         User user = User.builder()
                 .email(request.email())
@@ -404,10 +457,19 @@ public class AuthService {
                 .customerNumber(customerNumber)
                 .role(request.role())
                 .isEnabled(true)
+                .passwordChangeRequired(adminManaged)
+                .temporaryPasswordExpiresAt(temporaryPasswordExpiresAt)
+                .reactivationRequired(false)
                 .build();
 
         User savedUser = userRepository.save(user);
         attachFarmMembership(savedUser, request);
+
+        if (adminManaged) {
+            savedUser.beginTemporaryPasswordWindow(temporaryPasswordExpiresAt);
+            savedUser = userRepository.save(savedUser);
+            userOnboardingService.issueSetupInvitation(savedUser, false);
+        }
 
         log.info("New user profile created: {} ({})", savedUser.getEmail(), savedUser.getRole());
 
@@ -446,5 +508,24 @@ public class AuthService {
                 .build();
 
         membershipRepository.save(membership);
+    }
+
+    private void assertLoginAllowed(User user) {
+        expirePendingInvitationIfNeeded(user);
+
+        if (!user.isActive()) {
+            throw new BadRequestException("User account is disabled");
+        }
+    }
+
+    private void expirePendingInvitationIfNeeded(User user) {
+        if (!user.isTemporaryPasswordExpired()) {
+            return;
+        }
+
+        user.markTemporaryPasswordExpired();
+        userRepository.save(user);
+        userOnboardingService.invalidateActiveTokens(user);
+        throw new BadRequestException("Temporary password has expired. Contact a super admin to reactivate your profile.");
     }
 }

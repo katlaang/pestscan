@@ -203,7 +203,9 @@ class FarmControllerTest {
                 5,                                 // defaultBayCount
                 12,                                // defaultBenchesPerBay
                 6,                                 // defaultSpotChecksPerBench
-                "Africa/Nairobi"                   // timezone
+                "Africa/Nairobi",                  // timezone
+                null,                              // ownerId
+                null                               // scoutId
         );
 
         FarmResponse response = new FarmResponse(

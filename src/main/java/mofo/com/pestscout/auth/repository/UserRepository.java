@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,6 +47,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * Check whether a non-deleted user exists for the requested role.
      */
     boolean existsByRoleAndDeletedFalse(Role role);
+
+    List<User> findByDeletedFalseAndPasswordChangeRequiredTrueAndTemporaryPasswordExpiresAtBefore(LocalDateTime cutoff);
 
     /**
      * Basic text search over user fields (no farm filter).

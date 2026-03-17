@@ -9,6 +9,7 @@ import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFarmRequest;
+import mofo.com.pestscout.farm.dto.CreateFieldBlockRequest;
 import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
 import mofo.com.pestscout.farm.model.Farm;
@@ -164,7 +165,9 @@ class FarmServiceTest {
                 6,
                 12,
                 4,
-                "America/Montreal"
+                "America/Montreal",
+                null,
+                null
         );
     }
 
@@ -192,6 +195,56 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmAccessService).requireSuperAdmin();
         verify(farmRepository).save(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("SuperAdmin can create farm without owner or scout")
+    void createFarm_WithoutAssignedUsers_AllowsUnassignedFarm() {
+        CreateFarmRequest unassignedRequest = new CreateFarmRequest(
+                "Unassigned Farm",
+                "No owner yet",
+                "123 Farm Road",
+                "Farmville",
+                "Ontario",
+                "N1N 1N1",
+                "Canada",
+                new UUID(0L, 0L),
+                new UUID(0L, 0L),
+                "Ops Contact",
+                "ops@example.com",
+                "555-1234",
+                SubscriptionStatus.PENDING_ACTIVATION,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                new BigDecimal("5.00"),
+                10,
+                BigDecimal.ZERO,
+                FarmStructureType.GREENHOUSE,
+                2,
+                4,
+                2,
+                new ArrayList<>(),
+                new ArrayList<>(),
+                "America/Toronto",
+                LocalDate.now().plusYears(1),
+                false
+        );
+
+        when(customerNumberService.normalizeCountryCode(unassignedRequest.country()))
+                .thenReturn("CA");
+        when(farmRepository.findByNameIgnoreCase(unassignedRequest.name()))
+                .thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.createFarm(unassignedRequest);
+
+        assertThat(response.ownerId()).isNull();
+        assertThat(response.scoutId()).isNull();
+        assertThat(response.contactName()).isEqualTo("Ops Contact");
+        verify(userRepository, never()).findById(new UUID(0L, 0L));
     }
 
     @Test
@@ -249,6 +302,65 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
         verify(farmRepository).save(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("SuperAdmin can assign owner and scout later")
+    void updateFarm_WithOwnerAndScoutAssignment_UpdatesAssignments() {
+        UpdateFarmRequest assignmentRequest = new UpdateFarmRequest(
+                "Updated Farm Name",
+                "Updated Description",
+                "456 New Road",
+                new BigDecimal("43.123456"),
+                new BigDecimal("-80.123456"),
+                "New City",
+                "Quebec",
+                "H1H 1H1",
+                "Canada",
+                null,
+                "jane@example.com",
+                "555-5678",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                6,
+                12,
+                4,
+                "America/Montreal",
+                farmOwner.getId(),
+                scout.getId()
+        );
+
+        testFarm.setOwner(null);
+        testFarm.setScout(null);
+
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmRepository.findByNameIgnoreCase(assignmentRequest.name()))
+                .thenReturn(Optional.empty());
+        when(userRepository.findById(farmOwner.getId()))
+                .thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId()))
+                .thenReturn(Optional.of(scout));
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(true);
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.updateFarm(testFarm.getId(), assignmentRequest);
+
+        assertThat(response.ownerId()).isEqualTo(farmOwner.getId());
+        assertThat(response.scoutId()).isEqualTo(scout.getId());
     }
 
     @Test
@@ -441,6 +553,55 @@ class FarmServiceTest {
                 farm.getDefaultBayCount().equals(createRequest.defaultBayCount()) &&
                         farm.getDefaultBenchesPerBay().equals(createRequest.defaultBenchesPerBay()) &&
                         farm.getDefaultSpotChecksPerBench().equals(createRequest.defaultSpotChecksPerBench())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should infer FIELD structure type from field blocks when type omitted")
+    void createFarm_WithFieldBlocksAndNoStructureType_InfersField() {
+        CreateFarmRequest fieldFarmRequest = new CreateFarmRequest(
+                "Field Farm",
+                "Open field setup",
+                "123 Field Road",
+                "Farmville",
+                "Ontario",
+                "N1N 1N1",
+                "Canada",
+                null,
+                null,
+                "Field Ops",
+                "field@example.com",
+                "555-0000",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                new BigDecimal("20.00"),
+                50,
+                BigDecimal.ZERO,
+                null,
+                9,
+                0,
+                4,
+                new ArrayList<>(),
+                List.of(new CreateFieldBlockRequest("North Field", null, null, List.of("Row-1"), true)),
+                "America/Toronto",
+                LocalDate.now().plusYears(1),
+                false
+        );
+
+        when(customerNumberService.normalizeCountryCode(fieldFarmRequest.country())).thenReturn("CA");
+        when(farmRepository.findByNameIgnoreCase(fieldFarmRequest.name())).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.createFarm(fieldFarmRequest);
+
+        assertThat(response.structureType()).isEqualTo(FarmStructureType.FIELD);
+        verify(farmRepository).save(argThat(farm ->
+                farm.getStructureType() == FarmStructureType.FIELD
+                        && farm.getFieldBlocks().size() == 1
+                        && farm.getFieldBlocks().getFirst().getBayCount() == 9
+                        && farm.getFieldBlocks().getFirst().getSpotChecksPerBay() == 4
         ));
     }
 

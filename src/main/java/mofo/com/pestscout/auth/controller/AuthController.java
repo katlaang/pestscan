@@ -148,7 +148,7 @@ public class AuthController {
     @SecurityRequirement(name = "bearerAuth")
     @Operation(
             summary = "Create user profile",
-            description = "Create a new user profile as a super admin. Supports scout, manager, farm admin, and additional super admin roles."
+            description = "Create a new user profile as a super admin. The supplied password is treated as a temporary password that expires after 5 days unless the user resets it from the email invitation."
     )
     public ResponseEntity<UserDto> createUserProfile(
             @Valid @RequestBody RegisterRequest request,
@@ -157,6 +157,22 @@ public class AuthController {
         LOGGER.info("Admin profile creation request for email: {} by {}", request.email(), requestingUserId);
         UserDto user = authService.createUserProfile(request, requestingUserId);
         return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+
+    @PostMapping("/users/{userId}/reactivate")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Reactivate user profile",
+            description = "Reactivate a soft-deleted or disabled profile as a super admin. The supplied password becomes a new temporary password and a new password reset email is queued."
+    )
+    public ResponseEntity<UserDto> reactivateUser(
+            @PathVariable UUID userId,
+            @Valid @RequestBody ReactivateUserRequest request,
+            @RequestAttribute("userId") UUID requestingUserId) {
+
+        LOGGER.info("Reactivation request for user {} by {}", userId, requestingUserId);
+        UserDto user = authService.reactivateUser(userId, request, requestingUserId);
+        return ResponseEntity.ok(user);
     }
 
     /**

@@ -220,6 +220,35 @@ class AuthControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("POST /api/auth/users/{userId}/reactivate reactivates user profile")
+    void reactivateUser_WithAuthenticatedAdmin_ReturnsOk() throws Exception {
+        UUID targetUserId = UUID.randomUUID();
+        ReactivateUserRequest reactivateRequest = new ReactivateUserRequest("TempPass123");
+
+        UserDto reactivatedUser = UserDto.builder()
+                .id(targetUserId)
+                .email("reactivated@example.com")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .reactivationRequired(false)
+                .build();
+
+        when(authService.reactivateUser(any(UUID.class), any(ReactivateUserRequest.class), any(UUID.class)))
+                .thenReturn(reactivatedUser);
+
+        mockMvc.perform(post("/api/auth/users/{userId}/reactivate", targetUserId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reactivateRequest))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("reactivated@example.com"))
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/auth/me returns current profile")
     void getCurrentUser_WithValidToken_ReturnsUser() throws Exception {
         when(authService.getCurrentUser(any(UUID.class))).thenReturn(userDto);

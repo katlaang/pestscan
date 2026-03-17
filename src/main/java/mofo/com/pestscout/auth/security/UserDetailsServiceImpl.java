@@ -50,7 +50,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> {
-                    LOGGER.warn("User not found with email: {}", email);
+                    LOGGER.debug("User not found with email: {}", email);
                     return new UsernameNotFoundException("User not found with email: " + email);
                 });
 

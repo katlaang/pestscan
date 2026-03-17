@@ -2,7 +2,6 @@ package mofo.com.pestscout.farm.dto;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,9 +14,9 @@ import java.util.List;
 
 public record CreateFieldBlockRequest(
         @NotBlank String name,
-        @NotNull @Min(1)
+        @Min(1)
         Integer bayCount,
-        @NotNull @Min(1)
+        @Min(1)
         Integer spotChecksPerBay,
         List<String> bayTags,
         Boolean active,

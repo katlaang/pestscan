@@ -65,6 +65,10 @@ public class JwtTokenProvider {
         return createToken(claims, user.getId().toString(), refreshExpiration);
     }
 
+    public long getAccessTokenExpirationMillis() {
+        return jwtExpiration;
+    }
+
     /**
      * Core token creation logic using non-deprecated JJWT 0.12.x API.
      */

@@ -6,6 +6,7 @@ import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
@@ -24,6 +25,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,6 +65,12 @@ class AuthServiceTest {
 
     @Mock
     private UserFarmMembershipRepository membershipRepository;
+
+    @Mock
+    private UserOnboardingService userOnboardingService;
+
+    @Mock
+    private UserSessionService userSessionService;
 
     @InjectMocks
     private AuthService authService;
@@ -113,6 +121,7 @@ class AuthServiceTest {
                 .thenReturn("accessToken");
         when(tokenProvider.generateRefreshToken(testUser))
                 .thenReturn("refreshToken");
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
         when(userService.convertToDto(testUser))
                 .thenReturn(UserDto.builder()
                         .id(testUser.getId())
@@ -285,6 +294,7 @@ class AuthServiceTest {
         when(customerNumberService.resolveCustomerNumber(createRequest.customerNumber(), "KE"))
                 .thenReturn("KE00000123");
         when(userRepository.existsByCustomerNumber("KE00000123")).thenReturn(false);
+        when(userOnboardingService.calculateTemporaryPasswordExpiry()).thenReturn(LocalDateTime.now().plusDays(5));
         when(passwordEncoder.encode(createRequest.password())).thenReturn("encodedPassword");
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
         when(userService.convertToDto(savedUser)).thenReturn(UserDto.builder()
@@ -292,12 +302,14 @@ class AuthServiceTest {
                 .email(savedUser.getEmail())
                 .role(savedUser.getRole())
                 .customerNumber(savedUser.getCustomerNumber())
+                .passwordChangeRequired(true)
                 .build());
 
         UserDto result = authService.createUserProfile(createRequest, requesterId);
 
         assertThat(result.getRole()).isEqualTo(Role.SUPER_ADMIN);
         assertThat(result.getEmail()).isEqualTo(createRequest.email());
+        verify(userOnboardingService).issueSetupInvitation(savedUser, false);
         verify(membershipRepository, never()).save(any(UserFarmMembership.class));
     }
 
@@ -345,6 +357,7 @@ class AuthServiceTest {
         when(customerNumberService.resolveCustomerNumber(createRequest.customerNumber(), "KE"))
                 .thenReturn("KE00000222");
         when(userRepository.existsByCustomerNumber("KE00000222")).thenReturn(false);
+        when(userOnboardingService.calculateTemporaryPasswordExpiry()).thenReturn(LocalDateTime.now().plusDays(5));
         when(passwordEncoder.encode(createRequest.password())).thenReturn("encodedPassword");
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
         when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
@@ -352,11 +365,13 @@ class AuthServiceTest {
                 .id(savedUser.getId())
                 .email(savedUser.getEmail())
                 .role(savedUser.getRole())
+                .passwordChangeRequired(true)
                 .build());
 
         UserDto result = authService.createUserProfile(createRequest, requesterId);
 
         assertThat(result.getFarmId()).isEqualTo(farmId);
+        verify(userOnboardingService).issueSetupInvitation(savedUser, false);
         verify(membershipRepository).save(any(UserFarmMembership.class));
     }
 
@@ -388,14 +403,33 @@ class AuthServiceTest {
         when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
         when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(userSessionService.isIdleExpired(testUser)).thenReturn(false);
         when(tokenProvider.generateToken(testUser)).thenReturn("newAccessToken");
         when(tokenProvider.generateRefreshToken(testUser)).thenReturn("newRefreshToken");
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
         when(userService.convertToDto(testUser)).thenReturn(UserDto.builder().id(testUser.getId()).build());
 
         LoginResponse response = authService.refreshToken(request);
 
         assertThat(response.token()).isEqualTo("newAccessToken");
         assertThat(response.refreshToken()).isEqualTo("newRefreshToken");
+    }
+
+    @Test
+    @DisplayName("Should reject refresh token after 5-minute inactivity")
+    void refreshToken_WhenIdleExpired_ThrowsBadRequestException() {
+        String refreshToken = "validRefreshToken";
+        RefreshTokenRequest request = new RefreshTokenRequest(refreshToken);
+
+        when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
+        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(userSessionService.isIdleExpired(testUser)).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.refreshToken(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Session expired due to inactivity");
     }
 
     @Test
@@ -435,5 +469,135 @@ class AuthServiceTest {
         authService.requestPasswordReset(request);
 
         verify(passwordResetTokenRepository).save(any(PasswordResetToken.class));
+    }
+
+    @Test
+    @DisplayName("Should soft-delete expired temporary-password user before login")
+    void login_WithExpiredTemporaryPassword_ThrowsBadRequestException() {
+        User expiredUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("expired@example.com")
+                .password("encodedPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000888")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+
+        when(userRepository.findByEmail(expiredUser.getEmail())).thenReturn(Optional.of(expiredUser));
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest(expiredUser.getEmail(), "password123")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Temporary password has expired");
+
+        verify(userRepository).save(expiredUser);
+        verify(userOnboardingService).invalidateActiveTokens(expiredUser);
+    }
+
+    @Test
+    @DisplayName("Should clear temporary-password requirement when reset completes")
+    void resetPassword_WithInvitationToken_ClearsTemporaryPasswordFlags() {
+        User invitedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("invited@example.com")
+                .password("oldPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000555")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().plusDays(5))
+                .build();
+
+        PasswordResetToken token = PasswordResetToken.builder()
+                .id(UUID.randomUUID())
+                .user(invitedUser)
+                .token("setup-token")
+                .expiresAt(LocalDateTime.now().plusDays(5))
+                .verificationChannel(ResetChannel.EMAIL)
+                .build();
+
+        ResetPasswordRequest request = new ResetPasswordRequest(
+                "setup-token",
+                "newPassword123",
+                ResetChannel.EMAIL,
+                null,
+                null,
+                invitedUser.getEmail(),
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(passwordResetTokenRepository.findByToken("setup-token")).thenReturn(Optional.of(token));
+        when(passwordResetTokenRepository.findByUserAndUsedAtIsNull(invitedUser)).thenReturn(List.of(token));
+        when(passwordEncoder.encode("newPassword123")).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.resetPassword(request, null);
+
+        assertThat(invitedUser.getPassword()).isEqualTo("encodedPassword");
+        assertThat(invitedUser.getPasswordChangeRequired()).isFalse();
+        assertThat(invitedUser.getTemporaryPasswordExpiresAt()).isNull();
+        assertThat(invitedUser.getReactivationRequired()).isFalse();
+        verify(userRepository).save(invitedUser);
+    }
+
+    @Test
+    @DisplayName("Should let super admin reactivate a soft-deleted profile")
+    void reactivateUser_WithSuperAdminRequester_RestoresProfile() {
+        UUID requesterId = UUID.randomUUID();
+        UUID targetUserId = UUID.randomUUID();
+
+        User requester = User.builder()
+                .id(requesterId)
+                .email("admin@example.com")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        User targetUser = User.builder()
+                .id(targetUserId)
+                .email("disabled@example.com")
+                .password("oldPassword")
+                .phoneNumber("1112223333")
+                .country("KE")
+                .customerNumber("KE00000111")
+                .role(Role.SCOUT)
+                .isEnabled(false)
+                .passwordChangeRequired(true)
+                .reactivationRequired(true)
+                .build();
+        targetUser.markDeleted();
+
+        UserDto reactivatedUser = UserDto.builder()
+                .id(targetUserId)
+                .email(targetUser.getEmail())
+                .role(targetUser.getRole())
+                .passwordChangeRequired(true)
+                .reactivationRequired(false)
+                .build();
+
+        when(userRepository.findById(requesterId)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(targetUserId)).thenReturn(Optional.of(targetUser));
+        when(userOnboardingService.calculateTemporaryPasswordExpiry()).thenReturn(LocalDateTime.now().plusDays(5));
+        when(passwordEncoder.encode("TempPass123")).thenReturn("encodedTempPassword");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userService.convertToDto(targetUser)).thenReturn(reactivatedUser);
+
+        UserDto result = authService.reactivateUser(targetUserId, new ReactivateUserRequest("TempPass123"), requesterId);
+
+        assertThat(result.getEmail()).isEqualTo(targetUser.getEmail());
+        assertThat(targetUser.isDeleted()).isFalse();
+        assertThat(targetUser.getIsEnabled()).isTrue();
+        assertThat(targetUser.getPassword()).isEqualTo("encodedTempPassword");
+        assertThat(targetUser.getPasswordChangeRequired()).isTrue();
+        verify(userOnboardingService).issueSetupInvitation(targetUser, true);
     }
 }

@@ -63,6 +63,27 @@ class FieldBlockControllerTest {
     }
 
     @Test
+    void createsFieldBlockWhenCountsOmitted() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        CreateFieldBlockRequest request = new CreateFieldBlockRequest(
+                "Field B",
+                null,
+                null,
+                List.of(),
+                true
+        );
+
+        when(fieldBlockService.createFieldBlock(any(UUID.class), any(CreateFieldBlockRequest.class)))
+                .thenReturn(mock(FieldBlockDto.class));
+
+        mockMvc.perform(post("/api/farms/{farmId}/field-blocks", farmId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void updatesFieldBlock() throws Exception {
         UUID blockId = UUID.randomUUID();
 
