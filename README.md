@@ -21,14 +21,15 @@ This README is intended to help a new engineer, operator, or technical stakehold
 4. Core domain model
 5. Licensing and commercial rules
 6. Optional capabilities and feature flags
-7. Main workflows
-8. API map
-9. Configuration
-10. Local development
-11. Docker
-12. Repository map
-13. Supporting docs
-14. Known limitations and current implementation notes
+7. Image analysis and review
+8. Main workflows
+9. API map
+10. Configuration
+11. Local development
+12. Docker
+13. Repository map
+14. Supporting docs
+15. Known limitations and current implementation notes
 
 ## Project summary
 
@@ -220,6 +221,9 @@ Photos are attached to sessions and optionally to observations. The system suppo
 - explicit AI-versus-manual comparison for each analyzed photo
 - manual review of model output and farm-level accuracy metrics
 - explicit photo source tracking, including scout handheld and drone captures
+
+Detailed behavior for source selection, analysis execution, manual review, and accuracy reporting is described in the
+`Image analysis and review` section below.
 
 ### Heatmaps and analytics DTOs
 
@@ -478,6 +482,555 @@ The feature status response exposes:
 - `overrideEnabled`
 - `effectiveEnabled`
 
+## Image analysis and review
+
+This section is intentionally detailed because image analysis now spans core scouting behavior, manual QA, and one
+optional drone-specific path. New engineers should read this section before changing photo registration, mobile sync,
+or AI-related endpoints.
+
+### Core versus optional image analysis
+
+The system now treats image analysis in two different ways:
+
+- core scouting photo analysis:
+  standard pest and disease analysis for normal scouting photos is part of the core scouting workflow
+- optional drone image analysis:
+  aerial or drone processing remains an optional capability controlled through feature flags and licensing
+
+This split is deliberate.
+
+Core scouting photo analysis exists because a normal scout taking close-up or handheld pictures is a standard product
+workflow, not an upsell. The user should not lose the ability to analyze normal scouting photos because a feature flag
+was turned off.
+
+Drone image analysis remains optional because it usually implies:
+
+- premium capture hardware
+- different operating workflows
+- potentially different licensing or commercial packaging
+- broader-area correlation rather than single-leaf close-up diagnosis
+
+### The system does not infer photo source from the image pixels
+
+This is the most important design point.
+
+The backend does **not** currently inspect EXIF metadata, camera hardware signatures, or the image content itself to
+guess whether a photo came from a drone or from a scout's phone.
+
+Instead, the source type is provided as metadata by the client application and persisted in two layers:
+
+1. session-level default source
+2. photo-level source
+
+The effective rule is:
+
+1. when a session is created, the client may set `defaultPhotoSourceType`
+2. when a photo is registered, the client may set `sourceType`
+3. if the photo request contains `sourceType`, that value wins
+4. if the photo request omits `sourceType`, the backend uses the session's `defaultPhotoSourceType`
+5. if neither value is present, the backend falls back to `SCOUT_HANDHELD`
+
+This means the expected UX is:
+
+- if the whole session is a normal scout walkthrough, set `defaultPhotoSourceType=SCOUT_HANDHELD` once at session start
+- if the whole session is a drone capture session, set `defaultPhotoSourceType=DRONE` once at session start
+- if most images are handheld but one or two are drone-derived, register those photos with `sourceType=DRONE`
+- if most images are drone-derived but one close-up was captured manually, override just that photo
+
+This design keeps the backend deterministic. It avoids hidden "magic" behavior where the source type silently changes
+because some heuristic guessed wrong.
+
+### Source types
+
+Current source types are:
+
+- `SCOUT_HANDHELD`
+- `DRONE`
+- `OTHER`
+
+Operational meaning:
+
+- `SCOUT_HANDHELD`: normal close-up or mid-range scouting photos captured by a human using a phone, tablet, or similar
+  device
+- `DRONE`: aerial, ortho, canopy, or other drone/UAV-derived captures
+- `OTHER`: edge cases where the client knows the image is neither standard handheld nor drone, but still wants to
+  register it
+
+### Data model for image analysis
+
+Image analysis spans three related storage concepts.
+
+#### 1. `ScoutingSession`
+
+The session now carries `defaultPhotoSourceType`.
+
+Purpose:
+
+- define the expected capture mode at the beginning of the session
+- reduce repeated client metadata submission for every photo
+- make UI behavior simpler for mobile/edge clients
+
+Practical effect:
+
+- if a scout starts a normal field session, the client can set the session default to `SCOUT_HANDHELD`
+- if a manager starts an aerial imagery session, the client can set the session default to `DRONE`
+
+#### 2. `ScoutingPhoto`
+
+Each photo stores `sourceType`.
+
+Purpose:
+
+- persist the actual source assigned to that photo
+- allow per-photo override when the session default is not enough
+- let downstream analysis behave differently for handheld versus drone imagery
+
+Important distinction:
+
+- `defaultPhotoSourceType` is session intent
+- `sourceType` is the effective source of the specific stored photo
+
+#### 3. `ScoutingPhotoAnalysis`
+
+This is the persisted analysis record for one photo.
+
+It stores:
+
+- which photo was analyzed
+- which provider produced the result
+- which model version was used
+- a textual summary
+- whether manual review is required
+- the top predicted species code and confidence
+- the review status
+- the manually reviewed or corrected species code
+- reviewer identity and notes
+
+This record exists because the system must preserve both:
+
+- what the AI predicted
+- what the human reviewer later confirmed or corrected
+
+Without that persistence, there is no reliable way to calculate model accuracy over time.
+
+#### 4. `scouting_photo_analysis_candidates`
+
+This table stores the ranked candidate predictions for a single analysis run.
+
+Purpose:
+
+- preserve the top few model options, not just the winner
+- expose rationale to the UI
+- support later auditing of "the model almost chose X but human reviewers consistently picked Y"
+
+### End-to-end photo analysis flow
+
+The full handheld-photo flow is:
+
+1. create or update a scouting session with `defaultPhotoSourceType`
+2. register a photo for that session
+3. upload the actual file to object storage
+4. confirm the upload with the resulting object key
+5. run photo analysis for that registered photo
+6. optionally review and correct the result
+7. inspect farm-level accuracy metrics across reviewed photos
+
+Each phase is separate on purpose.
+
+The system does not analyze a photo before it has a persisted photo record. Analysis is tied to the `ScoutingPhoto`
+entity rather than to an anonymous binary upload.
+
+### Session creation and source defaults
+
+When a session is created, the client should set `defaultPhotoSourceType` according to the expected capture mode.
+
+Example handheld session:
+
+```json
+{
+  "farmId": "0f1d7dd7-6a8a-4c8a-9f31-9d0d4fef2c1a",
+  "scoutId": "04c9a9db-c9e6-4ef6-a2b7-2f8a0bcf07ef",
+  "targets": [
+    {
+      "greenhouseId": "1b6a3d3f-bd7a-4572-9e8d-6d90a4b4a21c",
+      "fieldBlockId": null,
+      "includeAllBays": true,
+      "includeAllBenches": true,
+      "bayTags": [],
+      "benchTags": []
+    }
+  ],
+  "sessionDate": "2026-03-16",
+  "weekNumber": 12,
+  "crop": "Tomato",
+  "variety": "Cherry",
+  "temperatureCelsius": 22.5,
+  "relativeHumidityPercent": 65.0,
+  "observationTime": "10:30:00",
+  "weatherNotes": "Sunny and warm",
+  "notes": "Routine scouting round",
+  "defaultPhotoSourceType": "SCOUT_HANDHELD",
+  "status": "DRAFT"
+}
+```
+
+Example drone-oriented session:
+
+```json
+{
+  "farmId": "0f1d7dd7-6a8a-4c8a-9f31-9d0d4fef2c1a",
+  "scoutId": "04c9a9db-c9e6-4ef6-a2b7-2f8a0bcf07ef",
+  "targets": [
+    {
+      "greenhouseId": "1b6a3d3f-bd7a-4572-9e8d-6d90a4b4a21c",
+      "fieldBlockId": null,
+      "includeAllBays": true,
+      "includeAllBenches": true,
+      "bayTags": [],
+      "benchTags": []
+    }
+  ],
+  "sessionDate": "2026-03-16",
+  "weekNumber": 12,
+  "notes": "Aerial mapping pass",
+  "defaultPhotoSourceType": "DRONE",
+  "status": "DRAFT"
+}
+```
+
+Recommendation for client teams:
+
+- always send `defaultPhotoSourceType`
+- do not rely on the backend fallback except as a safety net
+
+### Photo registration and source override
+
+Photo registration still happens before upload confirmation.
+
+Handheld photo inheriting the session default:
+
+```json
+{
+  "sessionId": "7604d577-5eb1-4d9f-8c32-8d7806d7b8be",
+  "observationId": "a91df441-2c52-4630-8aa7-4e2b39849f9d",
+  "localPhotoId": "leaf-closeup-001",
+  "purpose": "Close-up on leaf damage",
+  "capturedAt": "2026-03-16T10:35:00Z"
+}
+```
+
+Drone photo explicitly overriding a handheld session default:
+
+```json
+{
+  "sessionId": "7604d577-5eb1-4d9f-8c32-8d7806d7b8be",
+  "localPhotoId": "uav-grid-pass-004",
+  "purpose": "Drone canopy sweep north quadrant",
+  "sourceType": "DRONE",
+  "capturedAt": "2026-03-16T10:40:00Z"
+}
+```
+
+Important backend behavior:
+
+- `purpose` is descriptive metadata only
+- `purpose` may help the heuristic classifier, but it does not define the authoritative source type
+- `sourceType` is the authoritative source for that photo record
+
+### Upload confirmation
+
+After the client uploads the image to object storage, it confirms the final object key.
+
+Example:
+
+```json
+{
+  "sessionId": "7604d577-5eb1-4d9f-8c32-8d7806d7b8be",
+  "localPhotoId": "leaf-closeup-001",
+  "objectKey": "farms/0f1d7dd7/photos/2026/03/16/leaf-closeup-001.jpg"
+}
+```
+
+Only after registration and confirmation does the photo have:
+
+- a stable backend photo ID
+- the effective source type
+- the object storage pointer
+
+Those are the minimum pieces required for reliable analysis and audit.
+
+### Core photo analysis endpoints
+
+The core endpoints are:
+
+- `POST /api/scouting/photos/{photoId}/analysis`
+- `GET /api/scouting/photos/{photoId}/analysis`
+- `PUT /api/scouting/photos/{photoId}/analysis/review`
+- `GET /api/scouting/photos/analysis/accuracy`
+
+#### Run analysis
+
+Request:
+
+```json
+{
+  "farmId": "0f1d7dd7-6a8a-4c8a-9f31-9d0d4fef2c1a"
+}
+```
+
+Purpose:
+
+- run or refresh the current stored AI analysis for one photo
+- persist the top predicted label, confidence, summary, and ranked candidates
+
+Current implementation note:
+
+- the provider is currently heuristic and local
+- this is intentionally persisted behind a provider and model-version abstraction so it can later be replaced with a
+  real external or embedded model
+
+#### Get analysis
+
+`GET /api/scouting/photos/{photoId}/analysis?farmId={farmId}`
+
+Purpose:
+
+- read the most recent stored analysis
+- lazily generate one if none exists yet
+
+#### Manual review
+
+Request:
+
+```json
+{
+  "farmId": "0f1d7dd7-6a8a-4c8a-9f31-9d0d4fef2c1a",
+  "speciesCode": "WHITEFLIES",
+  "reviewNotes": "Manager review changed diagnosis after inspecting full plant context"
+}
+```
+
+Purpose:
+
+- confirm the AI prediction if it was correct
+- correct the prediction if a human reviewer disagrees
+- create an auditable record for accuracy reporting
+
+Who should use this endpoint:
+
+- managers
+- farm admins
+- super admins
+
+Scouts can run analysis, but the review step is intentionally restricted to roles responsible for validation.
+
+#### Accuracy reporting
+
+`GET /api/scouting/photos/analysis/accuracy?farmId={farmId}`
+
+Purpose:
+
+- summarize how often the model matched human review
+- show pending review volume
+- provide per-species breakdowns
+
+This endpoint is about monitored quality, not real-time prediction.
+
+### Response model: explicit AI-versus-manual comparison
+
+The response intentionally contains both flattened summary fields and structured comparison blocks.
+
+Important fields:
+
+- `predictedSpeciesCode`: top AI label
+- `reviewedSpeciesCode`: final human-reviewed label, if one exists
+- `reviewStatus`: current human-review state
+- `candidates`: ranked AI options
+- `aiAnalysis`: structured AI snapshot
+- `manualAnalysis`: structured manual review snapshot
+- `comparison`: normalized AI-versus-manual comparison result
+
+Example response:
+
+```json
+{
+  "farmId": "0f1d7dd7-6a8a-4c8a-9f31-9d0d4fef2c1a",
+  "photoId": "c3b4586b-1808-4562-80e5-6ecce388ce9d",
+  "photoSourceType": "SCOUT_HANDHELD",
+  "provider": "heuristic-local-v1",
+  "modelVersion": "heuristic-local-v1",
+  "summary": "Most likely thrips based on photo metadata and recent session observations.",
+  "reviewRequired": false,
+  "reviewStatus": "CORRECTED",
+  "predictedSpeciesCode": "THRIPS",
+  "predictedDisplayName": "Thrips",
+  "predictedCategory": "PEST",
+  "predictedConfidence": 0.91,
+  "reviewedSpeciesCode": "WHITEFLIES",
+  "reviewedDisplayName": "Whiteflies",
+  "reviewedCategory": "PEST",
+  "reviewNotes": "Manager review changed diagnosis after inspecting full plant context",
+  "reviewerName": "Mia Manager",
+  "candidates": [
+    {
+      "speciesCode": "THRIPS",
+      "displayName": "Thrips",
+      "category": "PEST",
+      "confidence": 0.91,
+      "rationale": "Linked observation"
+    }
+  ],
+  "aiAnalysis": {
+    "provider": "heuristic-local-v1",
+    "modelVersion": "heuristic-local-v1",
+    "summary": "Most likely thrips based on photo metadata and recent session observations.",
+    "speciesCode": "THRIPS",
+    "displayName": "Thrips",
+    "category": "PEST",
+    "confidence": 0.91,
+    "candidates": [
+      {
+        "speciesCode": "THRIPS",
+        "displayName": "Thrips",
+        "category": "PEST",
+        "confidence": 0.91,
+        "rationale": "Linked observation"
+      }
+    ]
+  },
+  "manualAnalysis": {
+    "reviewStatus": "CORRECTED",
+    "speciesCode": "WHITEFLIES",
+    "displayName": "Whiteflies",
+    "category": "PEST",
+    "reviewNotes": "Manager review changed diagnosis after inspecting full plant context",
+    "reviewedAt": "2026-03-16T16:11:32Z",
+    "reviewerName": "Mia Manager"
+  },
+  "comparison": {
+    "status": "CATEGORY_MATCH",
+    "exactMatch": false,
+    "sameCategory": true
+  }
+}
+```
+
+### Comparison status semantics
+
+Current comparison statuses are:
+
+- `PENDING_MANUAL_REVIEW`
+- `EXACT_MATCH`
+- `CATEGORY_MATCH`
+- `MISMATCH`
+
+Meaning:
+
+- `PENDING_MANUAL_REVIEW`: no human has reviewed the photo yet
+- `EXACT_MATCH`: AI label and manual label are the same species code
+- `CATEGORY_MATCH`: AI and manual labels differ, but both belong to the same category such as `PEST`
+- `MISMATCH`: AI and manual labels differ across categories or otherwise do not match
+
+Why `CATEGORY_MATCH` exists:
+
+- it distinguishes "the AI missed the exact pest but stayed in the right family of problem" from a total miss such as
+  pest versus disease
+- it gives product and ML teams a more useful signal than a strict binary correct/incorrect metric
+
+### Review status semantics
+
+Current review statuses are:
+
+- `PENDING_REVIEW`
+- `CONFIRMED`
+- `CORRECTED`
+
+Meaning:
+
+- `PENDING_REVIEW`: no reviewer has finalized the result
+- `CONFIRMED`: a human reviewed the photo and agreed with the AI
+- `CORRECTED`: a human reviewed the photo and chose a different final label
+
+### Accuracy metrics
+
+Accuracy is calculated from reviewed photos only.
+
+This is important.
+
+Unreviewed photos are not treated as correct and are not treated as wrong. They are simply pending. Otherwise the
+reported metric would mix unknown truth with known truth and become misleading.
+
+The farm-level accuracy response includes:
+
+- `totalAnalyses`: all persisted analyses for the farm
+- `pendingReviewCount`: analyses not yet manually reviewed
+- `reviewedCount`: analyses with either `CONFIRMED` or `CORRECTED`
+- `exactMatchCount`: reviewed cases where AI and manual labels are the same
+- `correctedCount`: reviewed cases where human reviewers changed the label
+- `accuracyRate`: `exactMatchCount / reviewedCount`
+- `averagePredictedConfidence`: mean of stored top-prediction confidence over reviewed cases
+- `speciesBreakdown`: per-species reviewed counts and exact-match rates
+
+### How drone analysis fits into the picture
+
+Drone image analysis is optional and remains under:
+
+- `POST /api/optional-capabilities/drone-image-processing/analyze`
+
+The drone feature uses explicit photo source metadata when selecting drone images. In other words:
+
+- if a photo has `sourceType=DRONE`, the optional drone processor treats it as drone imagery
+- if the source type is not explicitly set, the optional processor may still fall back to metadata text heuristics
+- but the preferred and authoritative signal is the persisted `sourceType`
+
+This makes the drone path more reliable without turning it into a mandatory capability.
+
+### Legacy compatibility route
+
+For compatibility with existing clients, the old optional AI-photo route still exists:
+
+- `GET /api/optional-capabilities/ai-pest-identification/photos/{photoId}`
+
+But that route is now only a shim over the core scouting photo-analysis service. It should not be treated as the main
+integration path for new frontend or mobile work.
+
+Use the core scouting endpoints instead.
+
+### Persistence and migration policy
+
+The project currently keeps the baseline schema in:
+
+- `src/main/resources/db/migration/R__initial_schema.sql`
+
+The image-analysis schema changes are folded into that file rather than being split into a separate versioned migration.
+
+That includes:
+
+- `scouting_sessions.default_photo_source_type`
+- `scouting_photos.source_type`
+- `scouting_photo_analyses`
+- `scouting_photo_analysis_candidates`
+
+When updating this schema area, keep it aligned with the repeatable baseline unless the migration strategy of the
+project changes.
+
+### Current limitations
+
+These points are intentional and should not be glossed over:
+
+- source type is not auto-detected from image pixels, EXIF, or device hardware
+- source type depends on client-supplied metadata
+- the current core photo-analysis provider is heuristic, not a full production vision model
+- drone analysis remains optional and follows separate commercial controls
+- accuracy metrics are only as good as the manual review discipline applied by managers and admins
+
+If the team later adds true model inference, this section should be updated to clearly state:
+
+- how inference is executed
+- whether inference is local or remote
+- whether source type can be auto-suggested
+- whether manual review remains mandatory or only recommended
+
 ## Main workflows
 
 ### 1. Super admin creates and licenses a farm
@@ -643,6 +1196,15 @@ Important session operations:
 - list sessions
 - sync sessions
 - fetch audits
+
+Important photo operations:
+
+- `POST /api/scouting/photos/register`
+- `POST /api/scouting/photos/confirm`
+- `POST /api/scouting/photos/{photoId}/analysis`
+- `GET /api/scouting/photos/{photoId}/analysis`
+- `PUT /api/scouting/photos/{photoId}/analysis/review`
+- `GET /api/scouting/photos/analysis/accuracy`
 
 ### Analytics
 
