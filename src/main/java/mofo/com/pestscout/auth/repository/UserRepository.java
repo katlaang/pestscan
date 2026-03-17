@@ -43,6 +43,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     List<User> findByRole(Role role);
 
     /**
+     * Check whether a non-deleted user exists for the requested role.
+     */
+    boolean existsByRoleAndDeletedFalse(Role role);
+
+    /**
      * Basic text search over user fields (no farm filter).
      * If you need farm scoped search, use UserFarmMembershipRepository
      * and join on the user.

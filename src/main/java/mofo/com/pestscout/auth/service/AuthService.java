@@ -3,16 +3,15 @@ package mofo.com.pestscout.auth.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.dto.*;
-import mofo.com.pestscout.auth.model.PasswordResetToken;
-import mofo.com.pestscout.auth.model.ResetChannel;
-import mofo.com.pestscout.auth.model.Role;
-import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.*;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.exception.UnauthorizedException;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -43,6 +42,7 @@ public class AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final FarmRepository farmRepository;
     private final CustomerNumberService customerNumberService;
+    private final UserFarmMembershipRepository membershipRepository;
 
     /**
      * Authenticate user and generate JWT tokens
@@ -95,44 +95,42 @@ public class AuthService {
      */
     @Transactional
     public UserDto register(RegisterRequest request) {
-        // Check if email already exists
-        if (userRepository.existsByEmail(request.email())) {
-            throw new ConflictException("Email already registered");
+        validateSelfServiceRegistration(request);
+        return createUser(request);
+    }
+
+    /**
+     * Create a user profile on behalf of someone else. Reserved for the existing super admin.
+     */
+    @Transactional
+    public UserDto createUserProfile(RegisterRequest request, UUID requestingUserId) {
+        User requester = userRepository.findById(requestingUserId)
+                .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
+
+        if (requester.getRole() != Role.SUPER_ADMIN) {
+            throw new UnauthorizedException("Only super admins can create user profiles");
         }
 
-        String customerNumber;
-        String normalizedCountry = customerNumberService.normalizeCountryCode(request.country());
-        if (request.role() == Role.SUPER_ADMIN) {
-            customerNumber = "00000000";
-            if (userRepository.existsByCustomerNumber(customerNumber)) {
-                throw new ConflictException("Customer number already registered");
-            }
-        } else {
-            String countryCode = resolveCountryCode(normalizedCountry, request.farmId());
-            customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
+        validateSuperAdminManagedRegistration(request);
+        return createUser(request);
+    }
 
-            if (userRepository.existsByCustomerNumber(customerNumber)) {
-                throw new ConflictException("Customer number already registered");
-            }
+    /**
+     * Create the first super admin during startup bootstrap when the system has none.
+     */
+    @Transactional
+    public UserDto bootstrapSuperAdmin(RegisterRequest request) {
+        if (request.role() != Role.SUPER_ADMIN) {
+            throw new BadRequestException("Bootstrap account must use the SUPER_ADMIN role");
+        }
+        if (request.farmId() != null) {
+            throw new BadRequestException("Super admin profiles cannot be scoped to a farm");
+        }
+        if (userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN)) {
+            throw new ConflictException("Super admin profile already exists");
         }
 
-        // Create user
-        User user = User.builder()
-                .email(request.email())
-                .password(passwordEncoder.encode(request.password()))
-                .firstName(request.firstName())
-                .lastName(request.lastName())
-                .phoneNumber(request.phoneNumber())
-                .country(normalizedCountry)
-                .customerNumber(customerNumber)
-                .role(request.role())
-                .isEnabled(true)
-                .build();
-
-        User savedUser = userRepository.save(user);
-        log.info("New user registered: {} ({})", savedUser.getEmail(), savedUser.getRole());
-
-        return userService.convertToDto(savedUser);
+        return createUser(request);
     }
 
     /**
@@ -359,5 +357,91 @@ public class AuthService {
             return "";
         }
         return phoneNumber.replaceAll("[^0-9]", "");
+    }
+
+    private void validateSelfServiceRegistration(RegisterRequest request) {
+        if (request.role() == Role.FARM_ADMIN || request.role() == Role.SUPER_ADMIN || request.role() == Role.EDGE_SYNC) {
+            throw new UnauthorizedException("Self-service registration is only available for scout and manager profiles");
+        }
+    }
+
+    private void validateSuperAdminManagedRegistration(RegisterRequest request) {
+        if (request.role() == Role.SUPER_ADMIN) {
+            throw new BadRequestException("SUPER_ADMIN is bootstrapped separately at startup");
+        }
+        if (request.role() == Role.EDGE_SYNC) {
+            throw new BadRequestException("EDGE_SYNC accounts must be provisioned through sync configuration");
+        }
+    }
+
+    private UserDto createUser(RegisterRequest request) {
+        if (userRepository.existsByEmail(request.email())) {
+            throw new ConflictException("Email already registered");
+        }
+
+        String normalizedCountry = customerNumberService.normalizeCountryCode(request.country());
+        String customerNumber = resolveCustomerNumber(request, normalizedCountry);
+
+        User user = User.builder()
+                .email(request.email())
+                .password(passwordEncoder.encode(request.password()))
+                .firstName(request.firstName())
+                .lastName(request.lastName())
+                .phoneNumber(request.phoneNumber())
+                .country(normalizedCountry)
+                .customerNumber(customerNumber)
+                .role(request.role())
+                .isEnabled(true)
+                .build();
+
+        User savedUser = userRepository.save(user);
+        attachFarmMembership(savedUser, request);
+
+        log.info("New user profile created: {} ({})", savedUser.getEmail(), savedUser.getRole());
+
+        UserDto userDto = userService.convertToDto(savedUser);
+        userDto.setFarmId(request.farmId());
+        return userDto;
+    }
+
+    private String resolveCustomerNumber(RegisterRequest request, String normalizedCountry) {
+        String customerNumber;
+        if (request.role() == Role.SUPER_ADMIN) {
+            customerNumber = "00000000";
+            if (userRepository.existsByCustomerNumber(customerNumber)) {
+                throw new ConflictException("Customer number already registered");
+            }
+            return customerNumber;
+        }
+
+        String countryCode = resolveCountryCode(normalizedCountry, request.farmId());
+        customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
+
+        if (userRepository.existsByCustomerNumber(customerNumber)) {
+            throw new ConflictException("Customer number already registered");
+        }
+
+        return customerNumber;
+    }
+
+    private void attachFarmMembership(User user, RegisterRequest request) {
+        if (request.role() == Role.SUPER_ADMIN) {
+            return;
+        }
+        if (request.farmId() == null) {
+            return;
+        }
+
+        Farm farm = farmRepository.findById(request.farmId())
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.farmId()));
+
+        UserFarmMembership membership = UserFarmMembership.builder()
+                .user(user)
+                .farm(farm)
+                .role(request.role())
+                .isActive(true)
+                .build();
+
+        membershipRepository.save(membership);
     }
 }

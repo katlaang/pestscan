@@ -86,8 +86,8 @@ public class AuthController {
      */
     @PostMapping("/register")
     @Operation(
-            summary = "User registration",
-            description = "Register a new user in the system. Email must be unique.",
+            summary = "Self-service user registration",
+            description = "Register a new user in the system. Public registration is limited to scout and manager profiles.",
             responses = {
                     @io.swagger.v3.oas.annotations.responses.ApiResponse(
                             responseCode = "201",
@@ -116,8 +116,26 @@ public class AuthController {
             }
     )
     public ResponseEntity<UserDto> register(@Valid @RequestBody RegisterRequest request) {
-        LOGGER.info("Registration request for email: {} (role: {})", request.email(), request.role());
+        LOGGER.info("Self-registration request for email: {} (role: {})", request.email(), request.role());
         UserDto user = authService.register(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+
+    /**
+     * Create a new user profile as the active super admin.
+     */
+    @PostMapping("/users")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Create user profile",
+            description = "Create a new user profile as a super admin. Supports scout, manager, and farm admin roles."
+    )
+    public ResponseEntity<UserDto> createUserProfile(
+            @Valid @RequestBody RegisterRequest request,
+            @RequestAttribute("userId") UUID requestingUserId) {
+
+        LOGGER.info("Admin profile creation request for email: {} by {}", request.email(), requestingUserId);
+        UserDto user = authService.createUserProfile(request, requestingUserId);
         return ResponseEntity.status(HttpStatus.CREATED).body(user);
     }
 
