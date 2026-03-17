@@ -97,7 +97,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UserRepository userRepository = userRepositoryProvider.getIfAvailable();
                 UserSessionService userSessionService = userSessionServiceProvider.getIfAvailable();
                 if (userRepository != null && userSessionService != null) {
-                    User domainUser = userRepository.findByEmail(email).orElse(null);
+                    User domainUser = userRepository.findById(userId).orElse(null);
                     if (domainUser == null) {
                         LOGGER.debug("Ignoring JWT for deleted or unknown user '{}'", email);
                         SecurityContextHolder.clearContext();

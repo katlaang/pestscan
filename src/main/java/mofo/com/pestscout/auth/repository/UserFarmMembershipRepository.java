@@ -23,6 +23,12 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
     List<UserFarmMembership> findByUser_Id(UUID userId);
 
     /**
+     * Active memberships for a set of users.
+     * Used to attach farm context to super-admin user listings without N+1 lookups.
+     */
+    List<UserFarmMembership> findByUser_IdInAndIsActiveTrue(List<UUID> userIds);
+
+    /**
      * All memberships for a given farm.
      * Used when you want to list all users attached to a farm.
      */

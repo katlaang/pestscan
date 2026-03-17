@@ -87,7 +87,7 @@ class JwtAuthenticationFilterTest {
         UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
         when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
         when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
-        when(userRepository.findByEmail(userDetails.getUsername())).thenReturn(Optional.of(domainUser));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
         when(userSessionService.isIdleExpired(domainUser)).thenReturn(false);
 
         filter.doFilterInternal(request, response, filterChain);
@@ -172,7 +172,7 @@ class JwtAuthenticationFilterTest {
         UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
         when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
         when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
-        when(userRepository.findByEmail("idle@example.com")).thenReturn(Optional.of(domainUser));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
         when(userSessionService.isIdleExpired(domainUser)).thenReturn(true);
 
         filter.doFilterInternal(request, response, filterChain);

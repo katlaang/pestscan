@@ -139,6 +139,7 @@ app:
     public-base-url: ${APP_PUBLIC_BASE_URL:http://localhost:8080}
   auth:
     idle-timeout-minutes: 5
+    activity-write-throttle-seconds: 30
     temporary-password-valid-days: 5
     invitation-expiry-cron: "0 0 * * * *"
     public-reset-url: ${APP_AUTH_PUBLIC_RESET_URL:http://localhost:3000/reset-password}

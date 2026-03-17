@@ -18,6 +18,9 @@ public class UserSessionService {
     @Value("${app.auth.idle-timeout-minutes:5}")
     private long idleTimeoutMinutes;
 
+    @Value("${app.auth.activity-write-throttle-seconds:30}")
+    private long activityWriteThrottleSeconds;
+
     public boolean isIdleExpired(User user) {
         LocalDateTime lastSeenAt = resolveLastSeenAt(user);
         if (lastSeenAt == null) {
@@ -28,8 +31,19 @@ public class UserSessionService {
 
     @Transactional
     public void recordActivity(User user) {
-        user.recordActivity();
-        userRepository.save(user);
+        if (user.getId() == null) {
+            return;
+        }
+
+        LocalDateTime activityAt = LocalDateTime.now();
+        LocalDateTime minimumPreviousActivityAt = activityAt.minusSeconds(activityWriteThrottleSeconds);
+
+        if (user.getLastActivityAt() != null && !user.getLastActivityAt().isBefore(minimumPreviousActivityAt)) {
+            return;
+        }
+
+        userRepository.updateLastActivityAtIfStale(user.getId(), activityAt, minimumPreviousActivityAt);
+        user.setLastActivityAt(activityAt);
     }
 
     private LocalDateTime resolveLastSeenAt(User user) {

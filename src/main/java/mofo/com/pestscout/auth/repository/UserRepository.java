@@ -5,6 +5,9 @@ import mofo.com.pestscout.auth.model.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -49,6 +52,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByRoleAndDeletedFalse(Role role);
 
     List<User> findByDeletedFalseAndPasswordChangeRequiredTrueAndTemporaryPasswordExpiresAtBefore(LocalDateTime cutoff);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update User u
+               set u.lastActivityAt = :activityAt
+             where u.id = :userId
+               and (u.lastActivityAt is null or u.lastActivityAt < :minimumPreviousActivityAt)
+            """)
+    int updateLastActivityAtIfStale(@Param("userId") UUID userId,
+                                    @Param("activityAt") LocalDateTime activityAt,
+                                    @Param("minimumPreviousActivityAt") LocalDateTime minimumPreviousActivityAt);
 
     /**
      * Basic text search over user fields (no farm filter).

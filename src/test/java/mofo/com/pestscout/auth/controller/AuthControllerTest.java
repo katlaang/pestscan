@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -257,6 +258,17 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(userDto.getEmail()))
                 .andExpect(jsonPath("$.role").value(userDto.getRole().name()));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/auth/users works for super admin without farm request attribute")
+    void getUsers_WithoutFarmContext_ReturnsGlobalList() throws Exception {
+        when(userService.getUsersByFarm(null, userId)).thenReturn(List.of(userDto));
+
+        mockMvc.perform(get("/api/auth/users").requestAttr("userId", userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].email").value(userDto.getEmail()));
     }
 
     @Test

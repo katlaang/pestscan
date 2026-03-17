@@ -264,6 +264,38 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("SUPER_ADMIN can list all users globally without farm context")
+    void getUsersByFarm_superAdminListsAllUsersGlobally() {
+        UUID farmId = UUID.randomUUID();
+        User farmUser = buildUser(UUID.randomUUID(), Role.MANAGER);
+        User globalUser = buildUser(UUID.randomUUID(), Role.SUPER_ADMIN);
+
+        when(userRepository.findById(superAdmin.getId()))
+                .thenReturn(Optional.of(superAdmin));
+        when(userRepository.findAll())
+                .thenReturn(List.of(farmUser, globalUser));
+        when(membershipRepository.findByUser_IdInAndIsActiveTrue(List.of(farmUser.getId(), globalUser.getId())))
+                .thenReturn(List.of(buildMembership(farmUser, farmId, true, Role.MANAGER)));
+
+        List<UserDto> users = userService.getUsersByFarm(null, superAdmin.getId());
+
+        assertThat(users).hasSize(2);
+        assertThat(users)
+                .extracting(UserDto::getId)
+                .containsExactlyInAnyOrder(farmUser.getId(), globalUser.getId());
+        assertThat(users.stream()
+                .filter(user -> user.getId().equals(farmUser.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getFarmId()).isEqualTo(farmId);
+        assertThat(users.stream()
+                .filter(user -> user.getId().equals(globalUser.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getFarmId()).isNull();
+    }
+
+    @Test
     @DisplayName("MANAGER without membership in farm cannot list users")
     void getUsersByFarm_managerWithoutMembershipThrows() {
         UUID farmId = UUID.randomUUID();

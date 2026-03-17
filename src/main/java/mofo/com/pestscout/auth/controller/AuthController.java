@@ -320,11 +320,13 @@ public class AuthController {
                     "Managers/Farm Admins must belong to the farm; Super Admin can access any farm."
     )
     public ResponseEntity<List<UserDto>> getUsers(
-            @RequestAttribute("farmId") UUID farmId,
+            @RequestParam(required = false) UUID farmId,
+            @RequestAttribute(value = "farmId", required = false) UUID contextFarmId,
             @RequestAttribute("userId") UUID requestingUserId) {
 
-        LOGGER.info("Get users request for farm {} by requester {}", farmId, requestingUserId);
-        List<UserDto> users = userService.getUsersByFarm(farmId, requestingUserId);
+        UUID effectiveFarmId = farmId != null ? farmId : contextFarmId;
+        LOGGER.info("Get users request for farm {} by requester {}", effectiveFarmId, requestingUserId);
+        List<UserDto> users = userService.getUsersByFarm(effectiveFarmId, requestingUserId);
         return ResponseEntity.ok(users);
     }
 
@@ -339,11 +341,13 @@ public class AuthController {
     )
     public ResponseEntity<List<UserDto>> getUsersByRole(
             @PathVariable Role role,
-            @RequestAttribute("farmId") UUID farmId,
+            @RequestParam(required = false) UUID farmId,
+            @RequestAttribute(value = "farmId", required = false) UUID contextFarmId,
             @RequestAttribute("userId") UUID requestingUserId) {
 
-        LOGGER.info("Get users by role {} for farm {} by requester {}", role, farmId, requestingUserId);
-        List<UserDto> users = userService.getUsersByFarmAndRole(farmId, role, requestingUserId);
+        UUID effectiveFarmId = farmId != null ? farmId : contextFarmId;
+        LOGGER.info("Get users by role {} for farm {} by requester {}", role, effectiveFarmId, requestingUserId);
+        List<UserDto> users = userService.getUsersByFarmAndRole(effectiveFarmId, role, requestingUserId);
         return ResponseEntity.ok(users);
     }
 
@@ -355,15 +359,17 @@ public class AuthController {
     @Operation(summary = "Search users", description = "Search users by name or email")
     public ResponseEntity<PagedResponse<UserDto>> searchUsers(
             @RequestParam String q,
-            @RequestAttribute("farmId") UUID farmId,
+            @RequestParam(required = false) UUID farmId,
+            @RequestAttribute(value = "farmId", required = false) UUID contextFarmId,
             @RequestAttribute("userId") UUID requestingUserId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        LOGGER.info("Search users request: '{}' for farm: {} by user: {}", q, farmId, requestingUserId);
+        UUID effectiveFarmId = farmId != null ? farmId : contextFarmId;
+        LOGGER.info("Search users request: '{}' for farm: {} by user: {}", q, effectiveFarmId, requestingUserId);
 
         Pageable pageable = PageRequest.of(page, size);
-        Page<UserDto> users = userService.searchUsers(farmId, q, pageable, requestingUserId);
+        Page<UserDto> users = userService.searchUsers(effectiveFarmId, q, pageable, requestingUserId);
 
         PagedResponse<UserDto> body = new PagedResponse<>(
                 users.getContent(),
@@ -425,13 +431,15 @@ public class AuthController {
             description = "Get basic statistics (total/active/inactive users) for the current farm."
     )
     public ResponseEntity<UserStatsDto> getUserStats(
-            @RequestAttribute("farmId") UUID farmId,
+            @RequestParam(required = false) UUID farmId,
+            @RequestAttribute(value = "farmId", required = false) UUID contextFarmId,
             @RequestAttribute("userId") UUID requestingUserId) {
 
-        LOGGER.info("Get user stats for farm {} by requester {}", farmId, requestingUserId);
+        UUID effectiveFarmId = farmId != null ? farmId : contextFarmId;
+        LOGGER.info("Get user stats for farm {} by requester {}", effectiveFarmId, requestingUserId);
 
-        long totalUsers = userService.getUserCount(farmId, requestingUserId);
-        long activeUsers = userService.getActiveUserCount(farmId, requestingUserId);
+        long totalUsers = userService.getUserCount(effectiveFarmId, requestingUserId);
+        long activeUsers = userService.getActiveUserCount(effectiveFarmId, requestingUserId);
 
         UserStatsDto stats = new UserStatsDto(
                 totalUsers,

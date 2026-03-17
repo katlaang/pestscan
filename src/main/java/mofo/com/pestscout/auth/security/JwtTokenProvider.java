@@ -138,11 +138,11 @@ public class JwtTokenProvider {
 
             return !isTokenExpired(token);
         } catch (ExpiredJwtException ex) {
-            LOGGER.error("Expired JWT token", ex);
+            LOGGER.debug("Expired JWT token");
         } catch (JwtException ex) {
-            LOGGER.error("Invalid JWT token", ex);
+            LOGGER.warn("Invalid JWT token: {}", ex.getMessage());
         } catch (IllegalArgumentException ex) {
-            LOGGER.error("JWT claims string is empty", ex);
+            LOGGER.warn("JWT claims string is empty");
         }
         return false;
     }

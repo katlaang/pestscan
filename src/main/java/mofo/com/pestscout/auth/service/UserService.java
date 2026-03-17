@@ -10,18 +10,22 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.model.UserFarmMembership;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
 import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -132,6 +136,13 @@ public class UserService {
 
         Role requesterRole = requester.getRole();
 
+        if (farmId == null) {
+            if (requesterRole != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Farm context is required to list users");
+            }
+            return convertToDtosWithPrimaryFarm(userRepository.findAll());
+        }
+
         if (requesterRole != Role.SUPER_ADMIN) {
             boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
             if (!hasMembership) {
@@ -146,7 +157,7 @@ public class UserService {
         return memberships.stream()
                 .map(UserFarmMembership::getUser)
                 .distinct()
-                .map(this::convertToDto)
+                .map(user -> convertToDto(user, farmId))
                 .collect(Collectors.toList());
     }
 
@@ -236,6 +247,13 @@ public class UserService {
 
         Role requesterRole = requester.getRole();
 
+        if (farmId == null) {
+            if (requesterRole != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Farm context is required to list users by role");
+            }
+            return convertToDtosWithPrimaryFarm(userRepository.findByRole(role));
+        }
+
         if (requesterRole != Role.SUPER_ADMIN) {
             boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
             if (!hasMembership) {
@@ -252,7 +270,7 @@ public class UserService {
                 .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
                 .map(UserFarmMembership::getUser)
                 .distinct()
-                .map(this::convertToDto)
+                .map(user -> convertToDto(user, farmId))
                 .collect(Collectors.toList());
     }
 
@@ -271,6 +289,23 @@ public class UserService {
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
 
         Role requesterRole = requester.getRole();
+
+        if (farmId == null) {
+            if (requesterRole != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Farm context is required to search users");
+            }
+
+            org.springframework.data.domain.Page<User> page =
+                    userRepository.findByEmailContainingIgnoreCaseOrFirstNameContainingIgnoreCaseOrLastNameContainingIgnoreCase(
+                            query,
+                            query,
+                            query,
+                            pageable
+                    );
+
+            List<UserDto> content = convertToDtosWithPrimaryFarm(page.getContent());
+            return new PageImpl<>(content, pageable, page.getTotalElements());
+        }
 
         // SUPER_ADMIN can search any farm
         if (requesterRole != Role.SUPER_ADMIN) {
@@ -300,6 +335,15 @@ public class UserService {
 
         Role requesterRole = requester.getRole();
 
+        if (farmId == null) {
+            if (requesterRole != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Farm context is required to view user stats");
+            }
+            return userRepository.findAll().stream()
+                    .distinct()
+                    .count();
+        }
+
         if (requesterRole != Role.SUPER_ADMIN) {
             boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
             if (!hasMembership) {
@@ -326,6 +370,16 @@ public class UserService {
 
         Role requesterRole = requester.getRole();
 
+        if (farmId == null) {
+            if (requesterRole != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Farm context is required to view active-user stats");
+            }
+            return userRepository.findAll().stream()
+                    .filter(User::isActive)
+                    .distinct()
+                    .count();
+        }
+
         if (requesterRole != Role.SUPER_ADMIN) {
             boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
             if (!hasMembership) {
@@ -350,8 +404,13 @@ public class UserService {
      * Farm memberships can be fetched separately when needed.
      */
     public UserDto convertToDto(User user) {
+        return convertToDto(user, resolvePrimaryFarmId(user.getId()));
+    }
+
+    public UserDto convertToDto(User user, UUID farmId) {
         return UserDto.builder()
                 .id(user.getId())
+                .farmId(farmId)
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
@@ -371,5 +430,40 @@ public class UserService {
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
+    }
+
+    private List<UserDto> convertToDtosWithPrimaryFarm(List<User> users) {
+        if (users.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> userIds = users.stream()
+                .map(User::getId)
+                .toList();
+
+        Map<UUID, UUID> primaryFarmIdsByUserId = membershipRepository.findByUser_IdInAndIsActiveTrue(userIds).stream()
+                .filter(membership -> membership.getFarm() != null && membership.getUser() != null)
+                .collect(Collectors.toMap(
+                        membership -> membership.getUser().getId(),
+                        membership -> membership.getFarm().getId(),
+                        (existing, ignored) -> existing,
+                        LinkedHashMap::new
+                ));
+
+        return users.stream()
+                .map(user -> convertToDto(user, primaryFarmIdsByUserId.get(user.getId())))
+                .collect(Collectors.toList());
+    }
+
+    private UUID resolvePrimaryFarmId(UUID userId) {
+        if (userId == null) {
+            return null;
+        }
+
+        return membershipRepository.findByUser_Id(userId).stream()
+                .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                .map(membership -> membership.getFarm().getId())
+                .findFirst()
+                .orElse(null);
     }
 }
