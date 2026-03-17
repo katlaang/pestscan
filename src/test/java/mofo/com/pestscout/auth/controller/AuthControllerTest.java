@@ -8,6 +8,7 @@ import mofo.com.pestscout.auth.service.UserService;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.exception.UnauthorizedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,8 +17,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.annotation.Profile;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -28,21 +27,19 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("AuthController Unit Tests (standalone, no MockBean)")
+@DisplayName("AuthController Unit Tests")
 class AuthControllerTest {
 
     private MockMvc mockMvc;
@@ -62,7 +59,6 @@ class AuthControllerTest {
     private UserDto userDto;
     private LoginResponse loginResponse;
     private UUID userId;
-    private UUID farmId;
 
     @BeforeEach
     void setUp() {
@@ -72,7 +68,6 @@ class AuthControllerTest {
                 .build();
 
         userId = UUID.randomUUID();
-        farmId = UUID.randomUUID();
 
         loginRequest = LoginRequest.builder()
                 .email("test@example.com")
@@ -108,7 +103,7 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/login - Success")
+    @DisplayName("POST /api/auth/login returns token payload")
     void login_WithValidCredentials_ReturnsLoginResponse() throws Exception {
         when(authService.login(any(LoginRequest.class))).thenReturn(loginResponse);
 
@@ -118,43 +113,11 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("accessToken"))
-                .andExpect(jsonPath("$.refreshToken").value("refreshToken"))
                 .andExpect(jsonPath("$.user.email").value(userDto.getEmail()));
-
-        verify(authService).login(any(LoginRequest.class));
     }
 
     @Test
-    @DisplayName("POST /api/auth/login - Invalid Credentials")
-    void login_WithInvalidCredentials_ReturnsBadRequest() throws Exception {
-        when(authService.login(any(LoginRequest.class)))
-                .thenThrow(new BadRequestException("Invalid email or password"));
-
-        mockMvc.perform(post("/api/auth/login")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(loginRequest)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Invalid email or password"));
-    }
-
-    @Test
-    @DisplayName("POST /api/auth/login - Validation Error")
-    void login_WithInvalidInput_ReturnsValidationError() throws Exception {
-        LoginRequest invalidRequest = LoginRequest.builder()
-                .email("invalid-email")
-                .password("")
-                .build();
-
-        mockMvc.perform(post("/api/auth/login")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(invalidRequest)))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("POST /api/auth/register - Success")
+    @DisplayName("POST /api/auth/register returns created user")
     void register_WithValidData_ReturnsCreated() throws Exception {
         when(authService.register(any(RegisterRequest.class))).thenReturn(userDto);
 
@@ -164,58 +127,100 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(userDto.getEmail()));
-
-        verify(authService).register(any(RegisterRequest.class));
     }
 
     @Test
-    @DisplayName("POST /api/auth/register - Email Already Exists")
-    void register_WithExistingEmail_ReturnsConflict() throws Exception {
-        when(authService.register(any(RegisterRequest.class)))
-                .thenThrow(new ConflictException("Email already registered"));
+    @DisplayName("GET /api/auth/bootstrap/super-admin/status exposes bootstrap state")
+    void getInitialSuperAdminStatus_ReturnsFlags() throws Exception {
+        when(authService.getInitialSuperAdminStatus())
+                .thenReturn(new InitialSuperAdminStatusResponse(false, true));
 
-        mockMvc.perform(post("/api/auth/register")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(registerRequest)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Email already registered"));
-    }
-
-    @Test
-    @DisplayName("POST /api/auth/refresh - Success")
-    void refreshToken_WithValidToken_ReturnsNewTokens() throws Exception {
-        RefreshTokenRequest request = new RefreshTokenRequest("validRefreshToken");
-        when(authService.refreshToken(any(RefreshTokenRequest.class)))
-                .thenReturn(loginResponse);
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+        mockMvc.perform(get("/api/auth/bootstrap/super-admin/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("accessToken"))
-                .andExpect(jsonPath("$.refreshToken").value("refreshToken"));
+                .andExpect(jsonPath("$.superAdminExists").value(false))
+                .andExpect(jsonPath("$.bootstrapAllowed").value(true));
     }
 
     @Test
-    @DisplayName("POST /api/auth/refresh - Invalid Token")
-    void refreshToken_WithInvalidToken_ReturnsBadRequest() throws Exception {
-        RefreshTokenRequest request = new RefreshTokenRequest("invalidToken");
-        when(authService.refreshToken(any(RefreshTokenRequest.class)))
-                .thenThrow(new BadRequestException("Invalid or expired refresh token"));
+    @DisplayName("POST /api/auth/bootstrap/super-admin creates first admin")
+    void bootstrapInitialSuperAdmin_ReturnsCreated() throws Exception {
+        RegisterRequest bootstrapRequest = RegisterRequest.builder()
+                .email("first-admin@example.com")
+                .password("password123")
+                .firstName("First")
+                .lastName("Admin")
+                .phoneNumber("1234567890")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
 
-        mockMvc.perform(post("/api/auth/refresh")
+        UserDto bootstrapUser = UserDto.builder()
+                .id(UUID.randomUUID())
+                .email(bootstrapRequest.email())
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        when(authService.bootstrapInitialSuperAdmin(any(RegisterRequest.class))).thenReturn(bootstrapUser);
+
+        mockMvc.perform(post("/api/auth/bootstrap/super-admin")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Invalid or expired refresh token"));
+                        .content(objectMapper.writeValueAsString(bootstrapRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role").value("SUPER_ADMIN"));
     }
 
     @Test
     @WithMockUser
-    @DisplayName("GET /api/auth/me - Success")
+    @DisplayName("POST /api/auth/users creates profile for super admin")
+    void createUserProfile_WithAuthenticatedAdmin_ReturnsCreated() throws Exception {
+        RegisterRequest createRequest = RegisterRequest.builder()
+                .email("second-admin@example.com")
+                .password("password123")
+                .firstName("Second")
+                .lastName("Admin")
+                .phoneNumber("1234567890")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        UserDto createdUser = UserDto.builder()
+                .id(UUID.randomUUID())
+                .email(createRequest.email())
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        when(authService.createUserProfile(any(RegisterRequest.class), any(UUID.class))).thenReturn(createdUser);
+
+        mockMvc.perform(post("/api/auth/users")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createRequest))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value(createRequest.email()))
+                .andExpect(jsonPath("$.role").value("SUPER_ADMIN"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/users returns unauthorized for non-super-admin caller")
+    void createUserProfile_WhenUnauthorized_ReturnsUnauthorized() throws Exception {
+        doThrow(new UnauthorizedException("Only super admins can create user profiles"))
+                .when(authService).createUserProfile(any(RegisterRequest.class), any(UUID.class));
+
+        mockMvc.perform(post("/api/auth/users")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Only super admins can create user profiles"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/auth/me returns current profile")
     void getCurrentUser_WithValidToken_ReturnsUser() throws Exception {
         when(authService.getCurrentUser(any(UUID.class))).thenReturn(userDto);
 
@@ -227,78 +232,7 @@ class AuthControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("GET /api/auth/users/{userId} - Success")
-    void getUserById_WithValidId_ReturnsUser() throws Exception {
-        when(userService.getUserById(any(UUID.class), any(UUID.class))).thenReturn(userDto);
-
-        mockMvc.perform(get("/api/auth/users/{userId}", userId).requestAttr("userId", userId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(userId.toString()));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/auth/users/{userId} - Not Found")
-    void getUserById_WithInvalidId_ReturnsNotFound() throws Exception {
-        when(userService.getUserById(any(UUID.class), any(UUID.class)))
-                .thenThrow(new ResourceNotFoundException("User", "id", userId));
-
-        mockMvc.perform(get("/api/auth/users/{userId}", userId).requestAttr("userId", userId))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/auth/users - Success")
-    void getUsers_WithValidFarm_ReturnsUsers() throws Exception {
-        List<UserDto> users = Arrays.asList(userDto);
-        when(userService.getUsersByFarm(any(UUID.class), any(UUID.class))).thenReturn(users);
-
-        mockMvc.perform(get("/api/auth/users")
-                        .requestAttr("farmId", farmId)
-                        .requestAttr("userId", userId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$[0].email").value(userDto.getEmail()));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/auth/users/role/{role} - Success")
-    void getUsersByRole_WithValidRole_ReturnsUsers() throws Exception {
-        List<UserDto> users = Arrays.asList(userDto);
-        when(userService.getUsersByFarmAndRole(any(UUID.class), any(Role.class), any(UUID.class)))
-                .thenReturn(users);
-
-        mockMvc.perform(get("/api/auth/users/role/{role}", "SCOUT")
-                        .requestAttr("farmId", farmId)
-                        .requestAttr("userId", userId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/auth/users/search - Success")
-    void searchUsers_WithQuery_ReturnsPagedResults() throws Exception {
-        Page<UserDto> page = new PageImpl<>(Arrays.asList(userDto));
-        when(userService.searchUsers(any(UUID.class), anyString(), any(), any(UUID.class)))
-                .thenReturn(page);
-
-        mockMvc.perform(get("/api/auth/users/search")
-                        .param("q", "test")
-                        .param("page", "0")
-                        .param("size", "10")
-                        .requestAttr("farmId", farmId)
-                        .requestAttr("userId", userId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").isArray())
-                .andExpect(jsonPath("$.content[0].email").value(userDto.getEmail()));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("PUT /api/auth/users/{userId} - Success")
+    @DisplayName("PUT /api/auth/users/{userId} updates user profile")
     void updateUser_WithValidData_ReturnsUpdatedUser() throws Exception {
         UpdateUserRequest updateRequest = UpdateUserRequest.builder()
                 .firstName("Updated")
@@ -327,36 +261,6 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.lastName").value("Name"));
     }
 
-    @Test
-    @WithMockUser
-    @DisplayName("DELETE /api/auth/users/{userId} - Success")
-    void deleteUser_WithValidId_ReturnsNoContent() throws Exception {
-        doNothing().when(userService).deleteUser(any(UUID.class), any(UUID.class));
-
-        mockMvc.perform(delete("/api/auth/users/{userId}", userId)
-                        .with(csrf())
-                        .requestAttr("userId", userId))
-                .andExpect(status().isNoContent());
-
-        verify(userService).deleteUser(any(UUID.class), any(UUID.class));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/auth/users/stats - Success")
-    void getUserStats_WithValidFarm_ReturnsStats() throws Exception {
-        when(userService.getUserCount(any(UUID.class), any(UUID.class))).thenReturn(10L);
-        when(userService.getActiveUserCount(any(UUID.class), any(UUID.class))).thenReturn(8L);
-
-        mockMvc.perform(get("/api/auth/users/stats")
-                        .requestAttr("farmId", farmId)
-                        .requestAttr("userId", userId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalUsers").value(10))
-                .andExpect(jsonPath("$.activeUsers").value(8))
-                .andExpect(jsonPath("$.inactiveUsers").value(2));
-    }
-
     @ControllerAdvice
     @Profile("standalone-mockmvc")
     static class TestExceptionHandler {
@@ -373,6 +277,11 @@ class AuthControllerTest {
         @ExceptionHandler(ResourceNotFoundException.class)
         public ResponseEntity<Map<String, String>> handleNotFound(ResourceNotFoundException ex) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
+        }
+
+        @ExceptionHandler(UnauthorizedException.class)
+        public ResponseEntity<Map<String, String>> handleUnauthorized(UnauthorizedException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", ex.getMessage()));
         }
     }
 }

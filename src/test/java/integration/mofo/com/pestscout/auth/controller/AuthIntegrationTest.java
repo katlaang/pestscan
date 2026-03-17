@@ -78,11 +78,12 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void registerSuperAdminReceivesZeroedCustomerNumber() throws Exception {
-        String uniqueEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
+    void bootstrapInitialSuperAdminIsOneTimeOnly() throws Exception {
+        String firstEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
+        String secondEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
 
-        RegisterRequest registerRequest = RegisterRequest.builder()
-                .email(uniqueEmail)
+        RegisterRequest firstRequest = RegisterRequest.builder()
+                .email(firstEmail)
                 .password("password123")
                 .firstName("Integration")
                 .lastName("Admin")
@@ -91,13 +92,81 @@ class AuthIntegrationTest {
                 .role(Role.SUPER_ADMIN)
                 .build();
 
-        mockMvc.perform(post("/api/auth/register")
+        RegisterRequest secondRequest = RegisterRequest.builder()
+                .email(secondEmail)
+                .password("password123")
+                .firstName("Another")
+                .lastName("Admin")
+                .phoneNumber("555-0201")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/api/auth/bootstrap/super-admin")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(registerRequest)))
+                        .content(objectMapper.writeValueAsString(firstRequest)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.email").value(uniqueEmail))
+                .andExpect(jsonPath("$.email").value(firstEmail))
                 .andExpect(jsonPath("$.role").value(Role.SUPER_ADMIN.name()))
-                .andExpect(jsonPath("$.customerNumber").value("00000000"));
+                .andExpect(jsonPath("$.customerNumber").value(org.hamcrest.Matchers.startsWith("KE")));
+
+        mockMvc.perform(post("/api/auth/bootstrap/super-admin")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(secondRequest)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Initial super admin has already been created"));
+    }
+
+    @Test
+    void bootstrapedSuperAdminCanCreateAnotherSuperAdmin() throws Exception {
+        String firstEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
+        String secondEmail = "superadmin+" + UUID.randomUUID() + "@example.com";
+
+        RegisterRequest firstRequest = RegisterRequest.builder()
+                .email(firstEmail)
+                .password("password123")
+                .firstName("Integration")
+                .lastName("Admin")
+                .phoneNumber("555-0200")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/api/auth/bootstrap/super-admin")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(firstRequest)))
+                .andExpect(status().isCreated());
+
+        LoginRequest loginRequest = new LoginRequest(firstEmail, "password123");
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        LoginResponse loginResponse = objectMapper.readValue(
+                loginResult.getResponse().getContentAsString(),
+                LoginResponse.class
+        );
+
+        RegisterRequest secondRequest = RegisterRequest.builder()
+                .email(secondEmail)
+                .password("password123")
+                .firstName("Second")
+                .lastName("Admin")
+                .phoneNumber("555-0201")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/api/auth/users")
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(secondRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value(secondEmail))
+                .andExpect(jsonPath("$.role").value(Role.SUPER_ADMIN.name()))
+                .andExpect(jsonPath("$.customerNumber").value(org.hamcrest.Matchers.startsWith("KE")));
     }
 
     @Test

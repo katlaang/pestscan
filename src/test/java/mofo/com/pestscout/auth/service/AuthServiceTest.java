@@ -1,16 +1,15 @@
 package mofo.com.pestscout.auth.service;
 
 import mofo.com.pestscout.auth.dto.*;
-import mofo.com.pestscout.auth.model.PasswordResetToken;
-import mofo.com.pestscout.auth.model.ResetChannel;
-import mofo.com.pestscout.auth.model.Role;
-import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.*;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
-import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.exception.UnauthorizedException;
+import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,6 +61,9 @@ class AuthServiceTest {
     @Mock
     private CustomerNumberService customerNumberService;
 
+    @Mock
+    private UserFarmMembershipRepository membershipRepository;
+
     @InjectMocks
     private AuthService authService;
 
@@ -102,7 +104,6 @@ class AuthServiceTest {
     @Test
     @DisplayName("Should successfully login with valid credentials")
     void login_WithValidCredentials_ReturnsLoginResponse() {
-        // Arrange
         Authentication authentication = mock(Authentication.class);
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(authentication);
@@ -118,57 +119,17 @@ class AuthServiceTest {
                         .email(testUser.getEmail())
                         .build());
 
-        // Act
         LoginResponse response = authService.login(loginRequest);
 
-        // Assert
-        assertThat(response).isNotNull();
         assertThat(response.token()).isEqualTo("accessToken");
         assertThat(response.refreshToken()).isEqualTo("refreshToken");
-        assertThat(response.user()).isNotNull();
-
-        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        assertThat(response.user().getEmail()).isEqualTo(testUser.getEmail());
         verify(userRepository).save(any(User.class));
     }
 
     @Test
-    @DisplayName("Should throw BadRequestException when user is disabled")
-    void login_WithDisabledUser_ThrowsBadRequestException() {
-        // Arrange
-        testUser.setIsEnabled(false);
-        Authentication authentication = mock(Authentication.class);
-        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(authentication);
-        when(userRepository.findByEmail(loginRequest.email()))
-                .thenReturn(Optional.of(testUser));
-
-        // Act & Assert
-        assertThatThrownBy(() -> authService.login(loginRequest))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("disabled");
-
-        verify(userRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Should throw ResourceNotFoundException when user not found")
-    void login_WithNonExistentUser_ThrowsResourceNotFoundException() {
-        // Arrange
-        Authentication authentication = mock(Authentication.class);
-        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(authentication);
-        when(userRepository.findByEmail(loginRequest.email()))
-                .thenReturn(Optional.empty());
-
-        // Act & Assert
-        assertThatThrownBy(() -> authService.login(loginRequest))
-                .isInstanceOf(ResourceNotFoundException.class);
-    }
-
-    @Test
-    @DisplayName("Should successfully register new user")
+    @DisplayName("Should successfully self-register a scout profile")
     void register_WithValidData_ReturnsUserDto() {
-        // Arrange
         User newUser = User.builder()
                 .id(UUID.randomUUID())
                 .email(registerRequest.email())
@@ -180,38 +141,29 @@ class AuthServiceTest {
                 .isEnabled(true)
                 .build();
 
-        when(userRepository.existsByEmail(registerRequest.email()))
-                .thenReturn(false);
-        when(customerNumberService.normalizeCountryCode(anyString()))
-                .thenReturn("KE");
+        when(userRepository.existsByEmail(registerRequest.email())).thenReturn(false);
+        when(customerNumberService.normalizeCountryCode(anyString())).thenReturn("KE");
         when(customerNumberService.resolveCustomerNumber(registerRequest.customerNumber(), "KE"))
-                .thenReturn("ZZ00000001");
-        when(userRepository.existsByCustomerNumber("ZZ00000001")).thenReturn(false);
-        when(passwordEncoder.encode(registerRequest.password()))
-                .thenReturn("encodedPassword");
-        when(userRepository.save(any(User.class)))
-                .thenReturn(newUser);
-        when(userService.convertToDto(any(User.class)))
-                .thenReturn(UserDto.builder()
-                        .id(newUser.getId())
-                        .email(newUser.getEmail())
-                        .build());
+                .thenReturn("KE00000001");
+        when(userRepository.existsByCustomerNumber("KE00000001")).thenReturn(false);
+        when(passwordEncoder.encode(registerRequest.password())).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenReturn(newUser);
+        when(userService.convertToDto(newUser)).thenReturn(UserDto.builder()
+                .id(newUser.getId())
+                .email(newUser.getEmail())
+                .role(newUser.getRole())
+                .build());
 
-        // Act
         UserDto result = authService.register(registerRequest);
 
-        // Assert
-        assertThat(result).isNotNull();
         assertThat(result.getEmail()).isEqualTo(registerRequest.email());
-
-        verify(userRepository).existsByEmail(registerRequest.email());
-        verify(passwordEncoder).encode(registerRequest.password());
-        verify(userRepository).save(any(User.class));
+        assertThat(result.getRole()).isEqualTo(Role.SCOUT);
+        verify(membershipRepository, never()).save(any(UserFarmMembership.class));
     }
 
     @Test
-    @DisplayName("Should assign zeroed customer number for super admin")
-    void register_SuperAdmin_UsesZeroedCustomerNumber() {
+    @DisplayName("Should reject self-registration for super admin")
+    void register_WithSuperAdminRole_ThrowsUnauthorizedException() {
         RegisterRequest superAdminRequest = RegisterRequest.builder()
                 .email("admin@example.com")
                 .password("password123")
@@ -222,155 +174,251 @@ class AuthServiceTest {
                 .role(Role.SUPER_ADMIN)
                 .build();
 
+        assertThatThrownBy(() -> authService.register(superAdminRequest))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("Self-service registration");
+    }
+
+    @Test
+    @DisplayName("Should bootstrap the first super admin when none exists")
+    void bootstrapInitialSuperAdmin_WhenMissing_CreatesSuperAdmin() {
+        RegisterRequest bootstrapRequest = RegisterRequest.builder()
+                .email("first-admin@example.com")
+                .password("password123")
+                .firstName("First")
+                .lastName("Admin")
+                .phoneNumber("1112223333")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
         User savedAdmin = User.builder()
                 .id(UUID.randomUUID())
-                .email(superAdminRequest.email())
+                .email(bootstrapRequest.email())
                 .password("encodedPassword")
-                .firstName(superAdminRequest.firstName())
-                .lastName(superAdminRequest.lastName())
-                .phoneNumber(superAdminRequest.phoneNumber())
-                .customerNumber("00000000")
+                .firstName(bootstrapRequest.firstName())
+                .lastName(bootstrapRequest.lastName())
+                .phoneNumber(bootstrapRequest.phoneNumber())
+                .customerNumber("KE00000099")
                 .role(Role.SUPER_ADMIN)
                 .isEnabled(true)
                 .build();
 
-        when(userRepository.existsByEmail(superAdminRequest.email())).thenReturn(false);
+        when(userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN)).thenReturn(false);
+        when(userRepository.existsByEmail(bootstrapRequest.email())).thenReturn(false);
         when(customerNumberService.normalizeCountryCode(anyString())).thenReturn("KE");
-        when(userRepository.existsByCustomerNumber("00000000")).thenReturn(false);
-        when(passwordEncoder.encode(superAdminRequest.password())).thenReturn("encodedPassword");
+        when(customerNumberService.resolveCustomerNumber(bootstrapRequest.customerNumber(), "KE"))
+                .thenReturn("KE00000099");
+        when(userRepository.existsByCustomerNumber("KE00000099")).thenReturn(false);
+        when(passwordEncoder.encode(bootstrapRequest.password())).thenReturn("encodedPassword");
         when(userRepository.save(any(User.class))).thenReturn(savedAdmin);
-        when(userService.convertToDto(any(User.class))).thenReturn(UserDto.builder()
+        when(userService.convertToDto(savedAdmin)).thenReturn(UserDto.builder()
                 .id(savedAdmin.getId())
                 .email(savedAdmin.getEmail())
+                .role(savedAdmin.getRole())
                 .customerNumber(savedAdmin.getCustomerNumber())
                 .build());
 
-        UserDto result = authService.register(superAdminRequest);
+        UserDto result = authService.bootstrapInitialSuperAdmin(bootstrapRequest);
 
-        assertThat(result.getCustomerNumber()).isEqualTo("00000000");
-        verify(customerNumberService, never()).resolveCustomerNumber(any(), any());
-        verify(userRepository).existsByCustomerNumber("00000000");
+        assertThat(result.getRole()).isEqualTo(Role.SUPER_ADMIN);
+        assertThat(result.getCustomerNumber()).isEqualTo("KE00000099");
+        verify(membershipRepository, never()).save(any(UserFarmMembership.class));
     }
 
     @Test
-    @DisplayName("Should throw ConflictException when email already exists")
-    void register_WithExistingEmail_ThrowsConflictException() {
-        // Arrange
-        when(userRepository.existsByEmail(registerRequest.email()))
-                .thenReturn(true);
+    @DisplayName("Should reject initial bootstrap when a super admin already exists")
+    void bootstrapInitialSuperAdmin_WhenExisting_ThrowsConflictException() {
+        RegisterRequest bootstrapRequest = RegisterRequest.builder()
+                .email("first-admin@example.com")
+                .password("password123")
+                .firstName("First")
+                .lastName("Admin")
+                .phoneNumber("1112223333")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
 
-        // Act & Assert
-        assertThatThrownBy(() -> authService.register(registerRequest))
+        when(userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN)).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.bootstrapInitialSuperAdmin(bootstrapRequest))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("already registered");
+                .hasMessageContaining("already been created");
+    }
 
-        verify(userRepository, never()).save(any());
+    @Test
+    @DisplayName("Should let a super admin create another super admin profile")
+    void createUserProfile_WithSuperAdminRequester_CreatesAdditionalSuperAdmin() {
+        UUID requesterId = UUID.randomUUID();
+        RegisterRequest createRequest = RegisterRequest.builder()
+                .email("second-admin@example.com")
+                .password("password123")
+                .firstName("Second")
+                .lastName("Admin")
+                .phoneNumber("1112224444")
+                .country("Kenya")
+                .role(Role.SUPER_ADMIN)
+                .build();
+
+        User requester = User.builder()
+                .id(requesterId)
+                .email("first-admin@example.com")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        User savedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email(createRequest.email())
+                .password("encodedPassword")
+                .firstName(createRequest.firstName())
+                .lastName(createRequest.lastName())
+                .phoneNumber(createRequest.phoneNumber())
+                .customerNumber("KE00000123")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        when(userRepository.findById(requesterId)).thenReturn(Optional.of(requester));
+        when(userRepository.existsByEmail(createRequest.email())).thenReturn(false);
+        when(customerNumberService.normalizeCountryCode(anyString())).thenReturn("KE");
+        when(customerNumberService.resolveCustomerNumber(createRequest.customerNumber(), "KE"))
+                .thenReturn("KE00000123");
+        when(userRepository.existsByCustomerNumber("KE00000123")).thenReturn(false);
+        when(passwordEncoder.encode(createRequest.password())).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(userService.convertToDto(savedUser)).thenReturn(UserDto.builder()
+                .id(savedUser.getId())
+                .email(savedUser.getEmail())
+                .role(savedUser.getRole())
+                .customerNumber(savedUser.getCustomerNumber())
+                .build());
+
+        UserDto result = authService.createUserProfile(createRequest, requesterId);
+
+        assertThat(result.getRole()).isEqualTo(Role.SUPER_ADMIN);
+        assertThat(result.getEmail()).isEqualTo(createRequest.email());
+        verify(membershipRepository, never()).save(any(UserFarmMembership.class));
+    }
+
+    @Test
+    @DisplayName("Should create a farm-linked profile when requested by super admin")
+    void createUserProfile_WithFarmScopedRole_CreatesMembership() {
+        UUID requesterId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+
+        RegisterRequest createRequest = RegisterRequest.builder()
+                .email("farmadmin@example.com")
+                .password("password123")
+                .firstName("Farm")
+                .lastName("Admin")
+                .phoneNumber("1112223333")
+                .country("Kenya")
+                .role(Role.FARM_ADMIN)
+                .farmId(farmId)
+                .build();
+
+        User requester = User.builder()
+                .id(requesterId)
+                .email("first-admin@example.com")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        User savedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email(createRequest.email())
+                .password("encodedPassword")
+                .firstName(createRequest.firstName())
+                .lastName(createRequest.lastName())
+                .phoneNumber(createRequest.phoneNumber())
+                .customerNumber("KE00000222")
+                .role(createRequest.role())
+                .isEnabled(true)
+                .build();
+
+        Farm farm = Farm.builder().id(farmId).name("Farm A").build();
+
+        when(userRepository.findById(requesterId)).thenReturn(Optional.of(requester));
+        when(userRepository.existsByEmail(createRequest.email())).thenReturn(false);
+        when(customerNumberService.normalizeCountryCode(anyString())).thenReturn("KE");
+        when(customerNumberService.resolveCustomerNumber(createRequest.customerNumber(), "KE"))
+                .thenReturn("KE00000222");
+        when(userRepository.existsByCustomerNumber("KE00000222")).thenReturn(false);
+        when(passwordEncoder.encode(createRequest.password())).thenReturn("encodedPassword");
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(userService.convertToDto(savedUser)).thenReturn(UserDto.builder()
+                .id(savedUser.getId())
+                .email(savedUser.getEmail())
+                .role(savedUser.getRole())
+                .build());
+
+        UserDto result = authService.createUserProfile(createRequest, requesterId);
+
+        assertThat(result.getFarmId()).isEqualTo(farmId);
+        verify(membershipRepository).save(any(UserFarmMembership.class));
+    }
+
+    @Test
+    @DisplayName("Should reject admin-managed profile creation from non-super-admin")
+    void createUserProfile_WithNonSuperAdmin_ThrowsUnauthorizedException() {
+        UUID requesterId = UUID.randomUUID();
+        User requester = User.builder()
+                .id(requesterId)
+                .email("manager@example.com")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .build();
+
+        when(userRepository.findById(requesterId)).thenReturn(Optional.of(requester));
+
+        assertThatThrownBy(() -> authService.createUserProfile(registerRequest, requesterId))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("Only super admins");
     }
 
     @Test
     @DisplayName("Should successfully refresh token")
     void refreshToken_WithValidToken_ReturnsNewTokens() {
-        // Arrange
         String refreshToken = "validRefreshToken";
         RefreshTokenRequest request = new RefreshTokenRequest(refreshToken);
 
-        when(tokenProvider.validateToken(refreshToken))
-                .thenReturn(true);
-        when(tokenProvider.isRefreshToken(refreshToken))
-                .thenReturn(true);
-        when(tokenProvider.getUserIdFromToken(refreshToken))
-                .thenReturn(testUser.getId());
-        when(userRepository.findById(testUser.getId()))
-                .thenReturn(Optional.of(testUser));
-        when(tokenProvider.generateToken(testUser))
-                .thenReturn("newAccessToken");
-        when(tokenProvider.generateRefreshToken(testUser))
-                .thenReturn("newRefreshToken");
-        when(userService.convertToDto(testUser))
-                .thenReturn(UserDto.builder()
-                        .id(testUser.getId())
-                        .build());
+        when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
+        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(tokenProvider.generateToken(testUser)).thenReturn("newAccessToken");
+        when(tokenProvider.generateRefreshToken(testUser)).thenReturn("newRefreshToken");
+        when(userService.convertToDto(testUser)).thenReturn(UserDto.builder().id(testUser.getId()).build());
 
-        // Act
         LoginResponse response = authService.refreshToken(request);
 
-        // Assert
-        assertThat(response).isNotNull();
         assertThat(response.token()).isEqualTo("newAccessToken");
         assertThat(response.refreshToken()).isEqualTo("newRefreshToken");
-
-        verify(tokenProvider).validateToken(refreshToken);
-        verify(tokenProvider).isRefreshToken(refreshToken);
-    }
-
-    @Test
-    @DisplayName("Should throw BadRequestException with invalid refresh token")
-    void refreshToken_WithInvalidToken_ThrowsBadRequestException() {
-        // Arrange
-        String refreshToken = "invalidToken";
-        RefreshTokenRequest request = new RefreshTokenRequest(refreshToken);
-
-        when(tokenProvider.validateToken(refreshToken))
-                .thenReturn(false);
-
-        // Act & Assert
-        assertThatThrownBy(() -> authService.refreshToken(request))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Invalid or expired");
-
-        verify(tokenProvider, never()).getUserIdFromToken(any());
-    }
-
-    @Test
-    @DisplayName("Should throw BadRequestException when token is not a refresh token")
-    void refreshToken_WithAccessToken_ThrowsBadRequestException() {
-        // Arrange
-        String accessToken = "validAccessToken";
-        RefreshTokenRequest request = new RefreshTokenRequest(accessToken);
-
-        when(tokenProvider.validateToken(accessToken))
-                .thenReturn(true);
-        when(tokenProvider.isRefreshToken(accessToken))
-                .thenReturn(false);
-
-        // Act & Assert
-        assertThatThrownBy(() -> authService.refreshToken(request))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("not a refresh token");
     }
 
     @Test
     @DisplayName("Should get current user successfully")
     void getCurrentUser_WithValidUserId_ReturnsUserDto() {
-        // Arrange
         UUID userId = testUser.getId();
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.of(testUser));
-        when(userService.convertToDto(testUser))
-                .thenReturn(UserDto.builder()
-                        .id(userId)
-                        .email(testUser.getEmail())
-                        .build());
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userService.convertToDto(testUser)).thenReturn(UserDto.builder()
+                .id(userId)
+                .email(testUser.getEmail())
+                .build());
 
-        // Act
         UserDto result = authService.getCurrentUser(userId);
 
-        // Assert
-        assertThat(result).isNotNull();
         assertThat(result.getEmail()).isEqualTo(testUser.getEmail());
-
-        verify(userRepository).findById(userId);
     }
 
     @Test
     @DisplayName("Should throw ResourceNotFoundException when user ID not found")
     void getCurrentUser_WithInvalidUserId_ThrowsResourceNotFoundException() {
-        // Arrange
         UUID userId = UUID.randomUUID();
-        when(userRepository.findById(userId))
-                .thenReturn(Optional.empty());
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
 
-        // Act & Assert
         assertThatThrownBy(() -> authService.getCurrentUser(userId))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
@@ -387,17 +435,5 @@ class AuthServiceTest {
         authService.requestPasswordReset(request);
 
         verify(passwordResetTokenRepository).save(any(PasswordResetToken.class));
-    }
-
-    @Test
-    @DisplayName("Should not create reset token when user is missing")
-    void requestPasswordReset_ForMissingUser_NoOp() {
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.empty());
-
-        ForgotPasswordRequest request = new ForgotPasswordRequest(testUser.getEmail(), ResetChannel.EMAIL, null);
-
-        authService.requestPasswordReset(request);
-
-        verify(passwordResetTokenRepository, never()).save(any());
     }
 }

@@ -100,6 +100,15 @@ public class AuthService {
     }
 
     /**
+     * Create the very first super admin profile before any other super admin exists.
+     */
+    @Transactional
+    public UserDto bootstrapInitialSuperAdmin(RegisterRequest request) {
+        validateInitialSuperAdminBootstrap(request);
+        return createUser(request);
+    }
+
+    /**
      * Create a user profile on behalf of someone else. Reserved for the existing super admin.
      */
     @Transactional
@@ -115,22 +124,10 @@ public class AuthService {
         return createUser(request);
     }
 
-    /**
-     * Create the first super admin during startup bootstrap when the system has none.
-     */
-    @Transactional
-    public UserDto bootstrapSuperAdmin(RegisterRequest request) {
-        if (request.role() != Role.SUPER_ADMIN) {
-            throw new BadRequestException("Bootstrap account must use the SUPER_ADMIN role");
-        }
-        if (request.farmId() != null) {
-            throw new BadRequestException("Super admin profiles cannot be scoped to a farm");
-        }
-        if (userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN)) {
-            throw new ConflictException("Super admin profile already exists");
-        }
-
-        return createUser(request);
+    @Transactional(readOnly = true)
+    public InitialSuperAdminStatusResponse getInitialSuperAdminStatus() {
+        boolean exists = userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN);
+        return new InitialSuperAdminStatusResponse(exists, !exists);
     }
 
     /**
@@ -363,14 +360,29 @@ public class AuthService {
         if (request.role() == Role.FARM_ADMIN || request.role() == Role.SUPER_ADMIN || request.role() == Role.EDGE_SYNC) {
             throw new UnauthorizedException("Self-service registration is only available for scout and manager profiles");
         }
+        validateSuperAdminFarmScope(request);
     }
 
     private void validateSuperAdminManagedRegistration(RegisterRequest request) {
-        if (request.role() == Role.SUPER_ADMIN) {
-            throw new BadRequestException("SUPER_ADMIN is bootstrapped separately at startup");
-        }
         if (request.role() == Role.EDGE_SYNC) {
             throw new BadRequestException("EDGE_SYNC accounts must be provisioned through sync configuration");
+        }
+        validateSuperAdminFarmScope(request);
+    }
+
+    private void validateInitialSuperAdminBootstrap(RegisterRequest request) {
+        if (request.role() != Role.SUPER_ADMIN) {
+            throw new BadRequestException("Initial bootstrap must create a SUPER_ADMIN profile");
+        }
+        if (userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN)) {
+            throw new ConflictException("Initial super admin has already been created");
+        }
+        validateSuperAdminFarmScope(request);
+    }
+
+    private void validateSuperAdminFarmScope(RegisterRequest request) {
+        if (request.role() == Role.SUPER_ADMIN && request.farmId() != null) {
+            throw new BadRequestException("Super admin profiles cannot be scoped to a farm");
         }
     }
 
@@ -405,17 +417,8 @@ public class AuthService {
     }
 
     private String resolveCustomerNumber(RegisterRequest request, String normalizedCountry) {
-        String customerNumber;
-        if (request.role() == Role.SUPER_ADMIN) {
-            customerNumber = "00000000";
-            if (userRepository.existsByCustomerNumber(customerNumber)) {
-                throw new ConflictException("Customer number already registered");
-            }
-            return customerNumber;
-        }
-
         String countryCode = resolveCountryCode(normalizedCountry, request.farmId());
-        customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
+        String customerNumber = customerNumberService.resolveCustomerNumber(request.customerNumber(), countryCode);
 
         if (userRepository.existsByCustomerNumber(customerNumber)) {
             throw new ConflictException("Customer number already registered");

@@ -121,6 +121,26 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.CREATED).body(user);
     }
 
+    @GetMapping("/bootstrap/super-admin/status")
+    @Operation(
+            summary = "Get initial super admin bootstrap status",
+            description = "Indicates whether the one-time public super admin bootstrap endpoint is still available."
+    )
+    public ResponseEntity<InitialSuperAdminStatusResponse> getInitialSuperAdminStatus() {
+        return ResponseEntity.ok(authService.getInitialSuperAdminStatus());
+    }
+
+    @PostMapping("/bootstrap/super-admin")
+    @Operation(
+            summary = "Create initial super admin",
+            description = "Create the first super admin. This endpoint works only when no super admin exists yet."
+    )
+    public ResponseEntity<UserDto> bootstrapInitialSuperAdmin(@Valid @RequestBody RegisterRequest request) {
+        LOGGER.info("Initial super admin bootstrap request for email: {}", request.email());
+        UserDto user = authService.bootstrapInitialSuperAdmin(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
+
     /**
      * Create a new user profile as the active super admin.
      */
@@ -128,7 +148,7 @@ public class AuthController {
     @SecurityRequirement(name = "bearerAuth")
     @Operation(
             summary = "Create user profile",
-            description = "Create a new user profile as a super admin. Supports scout, manager, and farm admin roles."
+            description = "Create a new user profile as a super admin. Supports scout, manager, farm admin, and additional super admin roles."
     )
     public ResponseEntity<UserDto> createUserProfile(
             @Valid @RequestBody RegisterRequest request,
