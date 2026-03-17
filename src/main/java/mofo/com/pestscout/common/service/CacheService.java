@@ -33,6 +33,7 @@ import java.util.UUID;
 public class CacheService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheService.class);
+    private static final String REDIS_CACHE_MANAGER_CLASS_NAME = "org.springframework.data.redis.cache.RedisCacheManager";
 
     private final CacheManager cacheManager;
     private final RuntimeMode runtimeMode;
@@ -48,7 +49,7 @@ public class CacheService {
             return;
         }
 
-        if (!(cacheManager instanceof org.springframework.data.redis.cache.RedisCacheManager)) {
+        if (!isRedisCacheManager(cacheManager)) {
             LOGGER.info("CacheManager is not Redis, skipping startup eviction");
             return;
         }
@@ -57,6 +58,17 @@ public class CacheService {
         clearCache(RedisCacheConfig.CACHE_FARMS_LIST);
         clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
         clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
+    }
+
+    private boolean isRedisCacheManager(CacheManager cacheManager) {
+        Class<?> current = cacheManager.getClass();
+        while (current != null) {
+            if (REDIS_CACHE_MANAGER_CLASS_NAME.equals(current.getName())) {
+                return true;
+            }
+            current = current.getSuperclass();
+        }
+        return false;
     }
 
 

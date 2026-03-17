@@ -74,4 +74,14 @@ class CacheServiceTest {
         assertThat(stats.totalCaches()).isEqualTo(2);
         assertThat(stats.cacheNames()).containsExactlyInAnyOrder("analytics", "heatmap");
     }
+
+    @Test
+    void clearUserScopedCachesOnStartupSkipsWhenCacheManagerIsNotRedis() {
+        cacheService.clearUserScopedCachesOnStartup();
+
+        verify(cacheManager, never()).getCache("farms-list");
+        verify(cacheManager, never()).getCache("sessions-list");
+        verify(cacheManager, never()).getCache("session-detail");
+        verifyNoInteractions(cache);
+    }
 }
