@@ -26,7 +26,7 @@ public class ScoutingSessionController {
     private final ScoutingSessionService sessionService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<ScoutingSessionDetailDto> createSession(@Valid @RequestBody CreateScoutingSessionRequest request) {
         LOGGER.info("POST /api/scouting/sessions — creating session");
         ScoutingSessionDetailDto session = sessionService.createSession(request);
@@ -42,14 +42,30 @@ public class ScoutingSessionController {
     }
 
     @PostMapping("/{sessionId}/start")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> startSession(@PathVariable UUID sessionId) {
         LOGGER.info("POST /api/scouting/sessions/{}/start — starting session", sessionId);
         return ResponseEntity.ok(sessionService.startSession(sessionId));
     }
 
+    @PostMapping("/{sessionId}/remote-start-request")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ScoutingSessionDetailDto> requestRemoteStart(@PathVariable UUID sessionId,
+                                                                       @Valid @RequestBody RemoteStartSessionRequest request) {
+        LOGGER.info("POST /api/scouting/sessions/{}/remote-start-request â€” requesting scout consent for remote start", sessionId);
+        return ResponseEntity.ok(sessionService.requestRemoteStart(sessionId, request));
+    }
+
+    @PostMapping("/{sessionId}/accept-remote-start")
+    @PreAuthorize("hasRole('SCOUT')")
+    public ResponseEntity<ScoutingSessionDetailDto> acceptRemoteStart(@PathVariable UUID sessionId,
+                                                                      @Valid @RequestBody AcceptRemoteStartRequest request) {
+        LOGGER.info("POST /api/scouting/sessions/{}/accept-remote-start â€” accepting remote start request", sessionId);
+        return ResponseEntity.ok(sessionService.acceptRemoteStart(sessionId, request));
+    }
+
     @PostMapping("/{sessionId}/submit")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> submitSession(@PathVariable UUID sessionId,
                                                                   @Valid @RequestBody SubmitSessionRequest request) {
         LOGGER.info("POST /api/scouting/sessions/{}/submit — submitting session for approval", sessionId);
@@ -57,7 +73,7 @@ public class ScoutingSessionController {
     }
 
     @PostMapping("/{sessionId}/complete")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> completeSession(@PathVariable UUID sessionId,
                                                                    @Valid @RequestBody CompleteSessionRequest request) {
         LOGGER.info("POST /api/scouting/sessions/{}/complete — completing session", sessionId);
@@ -73,7 +89,7 @@ public class ScoutingSessionController {
     }
 
     @PostMapping("/{sessionId}/observations")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingObservationDto> upsertObservation(@PathVariable UUID sessionId,
                                                                     @Valid @RequestBody UpsertObservationRequest request) {
         LOGGER.info("POST /api/scouting/sessions/{}/observations — upserting observation", sessionId);
@@ -82,7 +98,7 @@ public class ScoutingSessionController {
     }
 
     @PostMapping("/{sessionId}/observations/bulk")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<List<ScoutingObservationDto>> bulkUpsertObservations(@PathVariable UUID sessionId,
                                                                                @Valid @RequestBody BulkUpsertObservationsRequest request) {
         LOGGER.info("POST /api/scouting/sessions/{}/observations/bulk — bulk upsert {} rows", sessionId, request.observations().size());
@@ -91,7 +107,7 @@ public class ScoutingSessionController {
     }
 
     @DeleteMapping("/{sessionId}/observations/{observationId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteObservation(@PathVariable UUID sessionId,
                                   @PathVariable UUID observationId) {

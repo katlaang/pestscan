@@ -140,6 +140,8 @@ app:
   auth:
     idle-timeout-minutes: 5
     activity-write-throttle-seconds: 30
+    password-valid-days: 90
+    password-history-count: 6
     temporary-password-valid-days: 5
     invitation-expiry-cron: "0 0 * * * *"
     public-reset-url: ${APP_AUTH_PUBLIC_RESET_URL:http://localhost:3000/reset-password}

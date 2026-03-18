@@ -102,6 +102,9 @@ Important rules:
   password
 - temporary passwords are valid for 5 days and the backend also queues an account-setup email with a password-reset
   token
+- all non-temporary passwords expire after 90 days
+- a new password cannot reuse any of the previous six passwords
+- a new password cannot contain the user's first or last name
 - invited users are expected to reset their own password through `POST /api/auth/reset-password`
 - if the user does not reset that password within the 5-day window, the profile is soft-deleted and marked for
   reactivation
@@ -130,7 +133,7 @@ Operational farm user. This role can:
 
 Field data-collection user. This role can:
 
-- start, submit, and edit assigned sessions
+- start, submit, complete, and edit assigned sessions
 - create or update observations
 - work with offline-friendly sync data
 
@@ -1156,6 +1159,13 @@ Typical flow:
 3. assign a scout
 4. save the session as `DRAFT` or `NEW`
 
+Managers and farm admins prepare sessions, but they do not start them. Moving a session to `IN_PROGRESS` directly is
+reserved for the assigned scout.
+
+If the assigned scout cannot start the session, a `SUPER_ADMIN` may request a remote start. That request does not move
+the session to `IN_PROGRESS`; instead it creates a pending consent prompt that the assigned scout must accept before the
+session actually starts. The scout may also ignore that prompt and start the session normally.
+
 At creation time the backend validates:
 
 - farm admin/manager access
@@ -1170,6 +1180,17 @@ Typical flow:
 2. upsert single observations or bulk upload them
 3. attach or confirm photos
 4. submit session
+
+The normal path is that the assigned scout starts the session themselves. Remote-start support is an exception path:
+
+- super admin sends a remote-start request
+- scout receives a consent banner
+- scout explicitly accepts the remote-start request or ignores it and starts normally
+- backend transitions the session to `IN_PROGRESS`
+
+Non-scout roles do not operate live scouting work. They can prepare sessions before work starts and reopen completed
+sessions afterward, but the assigned scout is the only role that records observations, manages scouting photos, submits,
+or completes the session.
 
 The system supports:
 
@@ -1263,6 +1284,9 @@ Admin-created user lifecycle:
 - the user may sign in with the temporary password during that 5-day window, but the frontend should prompt for an
   immediate password change because the profile is still in onboarding state
 - once the user completes `POST /api/auth/reset-password`, the onboarding flags are cleared
+- reset completion accepts `password` or the compatibility alias `newPassword`
+- email resets default to `verificationChannel=EMAIL` when the client omits that field
+- the reset token may be supplied in the JSON body or as `POST /api/auth/reset-password?token=<token>`
 - if the 5-day window elapses first, the backend soft-deletes the profile, disables access, invalidates open reset
   tokens, and requires a `SUPER_ADMIN` reactivation
 

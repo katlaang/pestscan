@@ -11,6 +11,7 @@ import mofo.com.pestscout.auth.service.AuthService;
 import mofo.com.pestscout.auth.service.UserService;
 import mofo.com.pestscout.common.dto.ErrorResponse;
 import mofo.com.pestscout.common.dto.PagedResponse;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -224,9 +225,17 @@ public class AuthController {
     )
     public ResponseEntity<Void> resetPassword(
             @Valid @RequestBody ResetPasswordRequest request,
+            @RequestParam(value = "token", required = false) String token,
             @RequestAttribute(value = "userId", required = false) UUID requestingUserId) {
-        LOGGER.info("Reset password attempt via {} by user {}", request.verificationChannel(), requestingUserId);
-        authService.resetPassword(request, requestingUserId);
+        ResetPasswordRequest normalizedRequest = request.withResolvedToken(token);
+        if (normalizedRequest.token() == null || normalizedRequest.token().isBlank()) {
+            throw new BadRequestException("Reset token is required");
+        }
+
+        LOGGER.info("Reset password attempt via {} by user {}",
+                normalizedRequest.verificationChannel() == null ? "AUTO" : normalizedRequest.verificationChannel(),
+                requestingUserId);
+        authService.resetPassword(normalizedRequest, requestingUserId);
         return ResponseEntity.noContent().build();
     }
 

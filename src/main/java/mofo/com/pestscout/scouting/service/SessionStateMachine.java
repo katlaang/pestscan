@@ -25,23 +25,28 @@ public final class SessionStateMachine {
     private static boolean isTransitionAllowed(SessionStatus from, SessionStatus to, Role role) {
         return switch (to) {
             case NEW -> ADMIN_ROLES.contains(role) && from == SessionStatus.DRAFT;
-            case IN_PROGRESS -> EnumSet.of(SessionStatus.NEW, SessionStatus.DRAFT, SessionStatus.REOPENED).contains(from);
-            case SUBMITTED -> EnumSet.of(SessionStatus.NEW, SessionStatus.DRAFT, SessionStatus.IN_PROGRESS, SessionStatus.REOPENED).contains(from);
+            case IN_PROGRESS -> canStart(from, role);
+            case SUBMITTED -> role == Role.SCOUT
+                    && EnumSet.of(SessionStatus.NEW, SessionStatus.DRAFT, SessionStatus.IN_PROGRESS, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
             case COMPLETED -> canComplete(from, role);
             case REOPENED -> ADMIN_ROLES.contains(role)
-                    && EnumSet.of(SessionStatus.SUBMITTED, SessionStatus.COMPLETED, SessionStatus.INCOMPLETE).contains(from);
+                    && from == SessionStatus.COMPLETED;
             case INCOMPLETE -> from == SessionStatus.IN_PROGRESS;
             default -> false;
         };
     }
 
-    private static boolean canComplete(SessionStatus from, Role role) {
-        if (ADMIN_ROLES.contains(role)) {
-            return EnumSet.of(SessionStatus.SUBMITTED, SessionStatus.REOPENED).contains(from);
+    private static boolean canStart(SessionStatus from, Role role) {
+        if (role != Role.SCOUT) {
+            return false;
         }
 
+        return EnumSet.of(SessionStatus.NEW, SessionStatus.DRAFT, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
+    }
+
+    private static boolean canComplete(SessionStatus from, Role role) {
         if (role == Role.SCOUT) {
-            return EnumSet.of(SessionStatus.IN_PROGRESS, SessionStatus.SUBMITTED, SessionStatus.REOPENED).contains(from);
+            return EnumSet.of(SessionStatus.IN_PROGRESS, SessionStatus.SUBMITTED, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
         }
 
         return false;

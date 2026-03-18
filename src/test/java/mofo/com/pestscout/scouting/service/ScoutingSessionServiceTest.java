@@ -7,6 +7,7 @@ import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
+import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
@@ -95,6 +96,7 @@ class ScoutingSessionServiceTest {
     private Farm testFarm;
     private User manager;
     private User scout;
+    private User superAdmin;
     private Greenhouse greenhouse;
     private FieldBlock fieldBlock;
     private ScoutingSession testSession;
@@ -117,6 +119,15 @@ class ScoutingSessionServiceTest {
                 .firstName("Scout")
                 .lastName("User")
                 .role(Role.SCOUT)
+                .isEnabled(true)
+                .build();
+
+        superAdmin = User.builder()
+                .id(UUID.randomUUID())
+                .email("admin@example.com")
+                .firstName("System")
+                .lastName("Admin")
+                .role(Role.SUPER_ADMIN)
                 .isEnabled(true)
                 .build();
 
@@ -193,6 +204,9 @@ class ScoutingSessionServiceTest {
                 null,
                 null
         );
+
+        lenient().when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        lenient().when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
     }
 
     @Test
@@ -443,6 +457,10 @@ class ScoutingSessionServiceTest {
     @DisplayName("Should start session successfully")
     void startSession_WithDraftSession_StartsSession() {
         // Arrange
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
         when(sessionRepository.findByFarmIdAndScoutIdAndStatus(
@@ -465,10 +483,44 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should reject manager from starting a session")
+    void startSession_WithManagerRole_ThrowsForbiddenException() {
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.startSession(testSession.getId()))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("assigned scout can start");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should reject super admin from starting a session directly")
+    void startSession_WithSuperAdminRole_ThrowsForbiddenException() {
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.startSession(testSession.getId()))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("assigned scout can start");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should throw BadRequestException when starting completed session")
     void startSession_WithCompletedSession_ThrowsBadRequestException() {
         // Arrange
         testSession.setStatus(SessionStatus.COMPLETED);
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
 
@@ -481,15 +533,126 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should request remote start consent for assigned scout")
+    void requestRemoteStart_WithSuperAdmin_CreatesPendingConsent() {
+        testSession.setVersion(2L);
+        RemoteStartSessionRequest request = new RemoteStartSessionRequest(
+                2L,
+                "Scout requested assistance",
+                null,
+                null,
+                null,
+                "System Admin"
+        );
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+        when(currentUserService.getCurrentUser())
+                .thenReturn(superAdmin);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.requestRemoteStart(testSession.getId(), request);
+
+        assertThat(result.remoteStartConsentRequired()).isTrue();
+        assertThat(result.remoteStartRequestedByName()).isEqualTo("System Admin");
+        verify(sessionRepository).save(argThat(session ->
+                session.isRemoteStartPending()
+                        && session.getRemoteStartRequestedAt() != null
+                        && "System Admin".equals(session.getRemoteStartRequestedByName())
+                        && session.getStatus() == SessionStatus.DRAFT
+        ));
+    }
+
+    @Test
+    @DisplayName("Should allow assigned scout to accept remote start and begin session")
+    void acceptRemoteStart_WithAssignedScout_StartsSession() {
+        testSession.setVersion(2L);
+        testSession.requestRemoteStart(superAdmin.getId(), "System Admin");
+        AcceptRemoteStartRequest request = new AcceptRemoteStartRequest(
+                2L,
+                "Accepted remote accessed session start",
+                null,
+                null,
+                null,
+                "Scout User"
+        );
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionRepository.findByFarmIdAndScoutIdAndStatus(
+                testFarm.getId(),
+                scout.getId(),
+                SessionStatus.IN_PROGRESS
+        )).thenReturn(List.of());
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.acceptRemoteStart(testSession.getId(), request);
+
+        assertThat(result.status()).isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(result.remoteStartConsentRequired()).isFalse();
+        verify(sessionRepository).save(argThat(session ->
+                session.getStatus() == SessionStatus.IN_PROGRESS
+                        && session.getStartedAt() != null
+                        && !session.isRemoteStartPending()
+        ));
+    }
+
+    @Test
+    @DisplayName("Should reject manager changing session status to in progress via update")
+    void updateSession_WithManagerChangingStatusToInProgress_ThrowsBadRequestException() {
+        UpdateScoutingSessionRequest updateRequest = new UpdateScoutingSessionRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                SessionStatus.IN_PROGRESS,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.updateSession(testSession.getId(), updateRequest))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Invalid session transition");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should complete session with acknowledgment")
     void completeSession_WithAcknowledgment_CompletesSession() {
         // Arrange
         testSession.setStatus(SessionStatus.SUBMITTED);
         testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Manager User");
+        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Scout User");
 
         when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.MANAGER);
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
         when(sessionRepository.save(any(ScoutingSession.class)))
@@ -541,13 +704,36 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should reject manager from completing a session")
+    void completeSession_WithManagerRole_ThrowsForbiddenException() {
+        testSession.setStatus(SessionStatus.SUBMITTED);
+        testSession.setVersion(1L);
+        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Manager User");
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.completeSession(testSession.getId(), request))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("assigned scout can complete");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should throw BadRequestException when completing without acknowledgment")
     void completeSession_WithoutAcknowledgment_ThrowsBadRequestException() {
         // Arrange
         testSession.setStatus(SessionStatus.SUBMITTED);
         testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, false, null, null, null, null, "Manager User");
+        CompleteSessionRequest request = new CompleteSessionRequest(1L, false, null, null, null, null, "Scout User");
 
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
 
@@ -606,7 +792,7 @@ class ScoutingSessionServiceTest {
                 new ReopenSessionRequest("Reopen for edits", null, null, null, "Manager User")
         ))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("submitted or completed");
+                .hasMessageContaining("Only completed sessions");
 
         verify(sessionRepository, never()).save(any());
     }
@@ -659,6 +845,50 @@ class ScoutingSessionServiceTest {
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.count()).isEqualTo(5);
+        verify(observationRepository).save(any(ScoutingObservation.class));
+    }
+
+    @Test
+    @DisplayName("Should allow scout to edit an incomplete session")
+    void upsertObservation_WithIncompleteSession_CreatesObservation() {
+        testSession.setStatus(SessionStatus.INCOMPLETE);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.THRIPS,
+                1,
+                "Bay-1",
+                1,
+                "Bench-1",
+                1,
+                2,
+                "Incomplete session edit",
+                null,
+                1L
+        );
+
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
+                .thenReturn(Optional.of(target));
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(Optional.empty());
+        when(observationRepository.save(any(ScoutingObservation.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.count()).isEqualTo(2);
         verify(observationRepository).save(any(ScoutingObservation.class));
     }
 
@@ -761,8 +991,8 @@ class ScoutingSessionServiceTest {
                 testSession.getId(),
                 request
         ))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("cannot be edited");
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("cannot be edited by scout");
 
         verify(observationRepository, never()).save(any());
     }
@@ -1111,6 +1341,61 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should allow scout to view a draft when remote start consent is pending")
+    void getSession_WithPendingRemoteStartDraft_AllowsAssignedScout() {
+        testSession.setStatus(SessionStatus.DRAFT);
+        testSession.requestRemoteStart(superAdmin.getId(), "System Admin");
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.getSession(testSession.getId());
+
+        assertThat(result).isNotNull();
+        assertThat(result.remoteStartConsentRequired()).isTrue();
+        assertThat(result.remoteStartRequestedByName()).isEqualTo("System Admin");
+    }
+
+    @Test
+    @DisplayName("Should hide in-progress session details from super admin")
+    void getSession_WithInProgressSessionAndSuperAdmin_ThrowsForbiddenException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.getSession(testSession.getId()))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("only visible to the assigned scout");
+    }
+
+    @Test
+    @DisplayName("Should allow manager to view in-progress session details on their farm")
+    void getSession_WithInProgressSessionAndManager_ReturnsSession() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(manager.getId());
+        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
+                .thenReturn(true);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.getSession(testSession.getId());
+
+        assertThat(result).isNotNull();
+        assertThat(result.id()).isEqualTo(testSession.getId());
+    }
+
+    @Test
     @DisplayName("Should list sessions for farm")
     void listSessions_WithValidFarm_ReturnsSessions() {
         // Arrange
@@ -1128,5 +1413,70 @@ class ScoutingSessionServiceTest {
         assertThat(result).isNotEmpty();
         assertThat(result).hasSize(1);
         verify(sessionRepository).findByFarmId(testFarm.getId());
+    }
+
+    @Test
+    @DisplayName("Should hide live sessions from super admin list")
+    void listSessions_WithSuperAdmin_FiltersOutLiveSessions() {
+        ScoutingSession inProgressSession = ScoutingSession.builder()
+                .id(UUID.randomUUID())
+                .farm(testFarm)
+                .manager(manager)
+                .scout(scout)
+                .sessionDate(LocalDate.now())
+                .weekNumber(2)
+                .cropType("Tomato")
+                .cropVariety("Roma")
+                .status(SessionStatus.IN_PROGRESS)
+                .observations(new ArrayList<>())
+                .targets(new ArrayList<>())
+                .recommendations(new EnumMap<>(RecommendationType.class))
+                .build();
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(sessionRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(testSession, inProgressSession));
+
+        List<ScoutingSessionDetailDto> result = scoutingSessionService.listSessions(testFarm.getId());
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().id()).isEqualTo(testSession.getId());
+    }
+
+    @Test
+    @DisplayName("Should allow manager to view live sessions on their farm")
+    void listSessions_WithManager_ReturnsLiveSessions() {
+        ScoutingSession inProgressSession = ScoutingSession.builder()
+                .id(UUID.randomUUID())
+                .farm(testFarm)
+                .manager(manager)
+                .scout(scout)
+                .sessionDate(LocalDate.now())
+                .weekNumber(2)
+                .cropType("Tomato")
+                .cropVariety("Roma")
+                .status(SessionStatus.IN_PROGRESS)
+                .observations(new ArrayList<>())
+                .targets(new ArrayList<>())
+                .recommendations(new EnumMap<>(RecommendationType.class))
+                .build();
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(manager.getId());
+        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
+                .thenReturn(true);
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(sessionRepository.findByFarmId(testFarm.getId()))
+                .thenReturn(List.of(testSession, inProgressSession));
+
+        List<ScoutingSessionDetailDto> result = scoutingSessionService.listSessions(testFarm.getId());
+
+        assertThat(result).hasSize(2);
     }
 }

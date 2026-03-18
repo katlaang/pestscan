@@ -31,9 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -246,6 +245,24 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("reactivated@example.com"))
                 .andExpect(jsonPath("$.passwordChangeRequired").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password accepts compatibility payload")
+    void resetPassword_WithCompatibilityPayload_ReturnsNoContent() throws Exception {
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .with(csrf())
+                        .queryParam("token", "reset-token-123")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("newPassword", "newPassword123"))))
+                .andExpect(status().isNoContent());
+
+        verify(authService).resetPassword(
+                argThat(request -> "reset-token-123".equals(request.token())
+                        && "newPassword123".equals(request.password())
+                        && request.verificationChannel() == null),
+                isNull()
+        );
     }
 
     @Test

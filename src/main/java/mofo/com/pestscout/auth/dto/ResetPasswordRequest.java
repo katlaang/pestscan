@@ -1,8 +1,8 @@
 package mofo.com.pestscout.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Size;
 import mofo.com.pestscout.auth.model.ResetChannel;
@@ -13,14 +13,15 @@ import java.time.LocalDate;
  * Request to complete a password reset with contextual safety checks.
  */
 public record ResetPasswordRequest(
-        @NotBlank(message = "Reset token is required")
+        @JsonAlias({"resetToken"})
         String token,
 
+        @JsonAlias({"newPassword"})
         @NotBlank(message = "New password is required")
         @Size(min = 8, max = 255, message = "Password must be between 8 and 255 characters")
         String password,
 
-        @NotNull(message = "Verification channel is required")
+        @JsonAlias({"channel"})
         ResetChannel verificationChannel,
 
         /**
@@ -67,4 +68,45 @@ public record ResetPasswordRequest(
         @Size(max = 255, message = "Customer number cannot exceed 255 characters")
         String customerNumber
 ) {
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    public String resolvedToken(String fallbackToken) {
+        return hasText(token) ? token.trim() : trimToNull(fallbackToken);
+    }
+
+    public ResetChannel resolvedVerificationChannel(ResetChannel fallbackChannel) {
+        if (verificationChannel != null) {
+            return verificationChannel;
+        }
+        if (fallbackChannel != null) {
+            return fallbackChannel;
+        }
+        return ResetChannel.EMAIL;
+    }
+
+    public ResetPasswordRequest withResolvedToken(String fallbackToken) {
+        return new ResetPasswordRequest(
+                resolvedToken(fallbackToken),
+                password,
+                verificationChannel,
+                firstName,
+                lastName,
+                email,
+                callerName,
+                callbackNumber,
+                verificationNotes,
+                lastLoginDate,
+                customerNumber
+        );
+    }
 }

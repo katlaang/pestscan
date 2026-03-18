@@ -37,7 +37,7 @@ public class ScoutingPhotoService {
         ScoutingSession session = sessionRepository.findById(request.sessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", request.sessionId()));
 
-        farmAccessService.requireViewAccess(session.getFarm());
+        enforceAssignedScout(session);
 
         ScoutingObservation observation = null;
         if (request.observationId() != null) {
@@ -78,10 +78,9 @@ public class ScoutingPhotoService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingPhoto", "localPhotoId", request.localPhotoId()));
 
         enforceSameSession(request.sessionId(), photo);
-        farmAccessService.requireViewAccess(photo.getSession().getFarm());
+        enforceAssignedScout(photo.getSession());
 
-        if (photo.getSession().getStatus() == SessionStatus.COMPLETED
-                && currentUserService.getCurrentUser().getRole() == Role.SCOUT) {
+        if (photo.getSession().getStatus() == SessionStatus.COMPLETED) {
             throw new ForbiddenException("Scouts cannot confirm photo uploads for completed sessions.");
         }
 
@@ -91,6 +90,16 @@ public class ScoutingPhotoService {
         ScoutingPhoto saved = photoRepository.save(photo);
         log.info("Confirmed upload for photo {} (session {})", saved.getId(), saved.getSession().getId());
         return toDto(saved);
+    }
+
+    private void enforceAssignedScout(ScoutingSession session) {
+        if (farmAccessService.getCurrentUserRole() != Role.SCOUT) {
+            throw new ForbiddenException("Only the assigned scout can manage scouting photos.");
+        }
+
+        if (session.getScout() == null || !session.getScout().getId().equals(currentUserService.getCurrentUserId())) {
+            throw new ForbiddenException("You are not assigned to this scouting session.");
+        }
     }
 
     private void enforceSameSession(ScoutingSession session, ScoutingPhoto photo) {

@@ -23,7 +23,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -47,7 +46,10 @@ class UserServiceTest {
     private UserFarmMembershipRepository membershipRepository;
 
     @Mock
-    private PasswordEncoder passwordEncoder;
+    private CustomerNumberService customerNumberService;
+
+    @Mock
+    private PasswordPolicyService passwordPolicyService;
 
     @Mock
     private CacheService cacheService;
@@ -66,6 +68,13 @@ class UserServiceTest {
         superAdmin = buildUser(UUID.randomUUID(), Role.SUPER_ADMIN);
         farmAdmin = buildUser(UUID.randomUUID(), Role.FARM_ADMIN);
         scout = buildUser(UUID.randomUUID(), Role.SCOUT);
+
+        lenient().doAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            String rawPassword = invocation.getArgument(1);
+            user.applyPassword("encoded:" + rawPassword, LocalDateTime.now().plusDays(90));
+            return null;
+        }).when(passwordPolicyService).validateAndApplyPassword(any(User.class), any(String.class));
     }
 
     // Helpers
@@ -338,8 +347,6 @@ class UserServiceTest {
                 .thenReturn(Optional.of(target));
         when(userRepository.existsByEmail("new@example.com"))
                 .thenReturn(false);
-        when(passwordEncoder.encode("secret"))
-                .thenReturn("encoded-secret");
         when(userRepository.save(any(User.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -362,7 +369,7 @@ class UserServiceTest {
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
-        assertThat(userCaptor.getValue().getPassword()).isEqualTo("encoded-secret");
+        assertThat(userCaptor.getValue().getPassword()).isEqualTo("encoded:secret");
 
         verify(cacheService).evictUserCache(targetId);
     }
@@ -402,14 +409,12 @@ class UserServiceTest {
                 .thenReturn(Optional.of(superAdmin));
         when(userRepository.findById(scout.getId()))
                 .thenReturn(Optional.of(scout));
-        when(passwordEncoder.encode(request.getPassword()))
-                .thenReturn("encodedPassword");
         when(userRepository.save(any(User.class)))
                 .thenReturn(scout);
 
         userService.updateUser(scout.getId(), request, superAdmin.getId());
 
-        verify(passwordEncoder).encode(request.getPassword());
+        assertThat(scout.getPassword()).isEqualTo("encoded:newPassword123");
         verify(userRepository).save(any(User.class));
     }
 

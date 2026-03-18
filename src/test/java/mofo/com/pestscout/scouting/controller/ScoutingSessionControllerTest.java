@@ -102,6 +102,9 @@ class ScoutingSessionControllerTest {
                 null,
                 null,
                 null,
+                false,
+                null,
+                null,
                 LocalDateTime.now(),
                 false,
                 null,
@@ -177,6 +180,9 @@ class ScoutingSessionControllerTest {
                 null,
                 null,
                 null,
+                false,
+                null,
+                null,
                 LocalDateTime.now(),
                 false,
                 null,
@@ -192,6 +198,100 @@ class ScoutingSessionControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.farmId").value(farmId.toString()));
+    }
+
+    @Test
+    void requestsRemoteStart() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        RemoteStartSessionRequest request = new RemoteStartSessionRequest(1L, "Scout needs help", null, null, null, "System Admin");
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                sessionId,
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 5),
+                10,
+                SessionStatus.DRAFT,
+                SyncStatus.SYNCED,
+                null,
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                null,
+                null,
+                null,
+                true,
+                LocalDateTime.now(),
+                "System Admin",
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.requestRemoteStart(sessionId, request)).thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions/{sessionId}/remote-start-request", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.remoteStartConsentRequired").value(true))
+                .andExpect(jsonPath("$.remoteStartRequestedByName").value("System Admin"));
+    }
+
+    @Test
+    void acceptsRemoteStart() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        AcceptRemoteStartRequest request = new AcceptRemoteStartRequest(1L, "Accepted remote accessed session start", null, null, null, "Scout User");
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                sessionId,
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 5),
+                10,
+                SessionStatus.IN_PROGRESS,
+                SyncStatus.SYNCED,
+                null,
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                LocalDateTime.now(),
+                null,
+                null,
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.acceptRemoteStart(sessionId, request)).thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions/{sessionId}/accept-remote-start", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.remoteStartConsentRequired").value(false));
     }
 
     @Test

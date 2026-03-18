@@ -37,6 +37,7 @@ CREATE TABLE users
     role            VARCHAR(50)              NOT NULL,
     is_enabled      BOOLEAN                  NOT NULL DEFAULT TRUE,
     password_change_required      BOOLEAN NOT NULL DEFAULT FALSE,
+    password_expires_at TIMESTAMP WITH TIME ZONE,
     temporary_password_expires_at TIMESTAMP WITH TIME ZONE,
     reactivation_required         BOOLEAN NOT NULL DEFAULT FALSE,
     last_login      TIMESTAMP WITH TIME ZONE,
@@ -61,6 +62,28 @@ CREATE INDEX idx_users_last_activity_at ON users (last_activity_at);
 CREATE TRIGGER trg_users_updated
     BEFORE UPDATE
     ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE user_password_history
+(
+    id                   UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    version              BIGINT                   NOT NULL DEFAULT 0,
+    user_id              UUID                     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    password_hash        VARCHAR(255)             NOT NULL,
+    password_fingerprint VARCHAR(64),
+    created_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted              BOOLEAN                  NOT NULL DEFAULT FALSE,
+    deleted_at           TIMESTAMP WITH TIME ZONE,
+    sync_status          VARCHAR(32)              NOT NULL DEFAULT 'SYNCED'
+);
+
+CREATE INDEX idx_user_password_history_user_created_at
+    ON user_password_history (user_id, created_at DESC);
+
+CREATE TRIGGER trg_user_password_history_updated
+    BEFORE UPDATE
+    ON user_password_history
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================

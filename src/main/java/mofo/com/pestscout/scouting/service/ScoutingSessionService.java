@@ -197,26 +197,61 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         Role role = farmAccessService.getCurrentUserRole();
-        if (role == Role.SCOUT) {
-            enforceScoutOwnsSession(session);
-        } else {
-            farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        if (role != Role.SCOUT) {
+            throw new ForbiddenException("Only the assigned scout can start a scouting session directly.");
         }
 
-        if (isLockedForScout(session)) {
-            throw new BadRequestException("Cannot start a session that has already been submitted or completed.");
+        enforceScoutOwnsSession(session);
+        return startSessionInternal(session, null, null, null, null, null);
+    }
+
+    @Transactional
+    public ScoutingSessionDetailDto requestRemoteStart(UUID sessionId, RemoteStartSessionRequest request) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role != Role.SUPER_ADMIN) {
+            throw new ForbiddenException("Only a super admin can request a remote session start.");
         }
 
-        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.IN_PROGRESS, role);
-        session.markStarted();
+        if (session.getScout() == null) {
+            throw new BadRequestException("Remote start requires an assigned scout.");
+        }
+
+        assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
+        validateSessionCanBeStartedByScout(session);
+
+        User actor = currentUserService.getCurrentUser();
+        session.requestRemoteStart(actor.getId(), resolveActorName(request.actorName(), actor));
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
-        markOtherInProgressSessionsIncomplete(session);
-
         ScoutingSession saved = sessionRepository.save(session);
-        sessionAuditService.record(saved, SessionAuditAction.SESSION_STARTED, null, null, null, null, null);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_REMOTE_START_REQUESTED, request.comment(),
+                request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
+    }
+
+    @Transactional
+    public ScoutingSessionDetailDto acceptRemoteStart(UUID sessionId, AcceptRemoteStartRequest request) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        Role role = farmAccessService.getCurrentUserRole();
+        if (role != Role.SCOUT) {
+            throw new ForbiddenException("Only the assigned scout can accept a remote session start.");
+        }
+
+        enforceScoutOwnsSession(session);
+        assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
+
+        if (!session.isRemoteStartPending()) {
+            throw new BadRequestException("There is no pending remote start request for this session.");
+        }
+
+        return startSessionInternal(session, request.comment(), request.deviceId(), request.deviceType(),
+                request.location(), request.actorName());
     }
 
     /**
@@ -228,11 +263,11 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         Role role = farmAccessService.getCurrentUserRole();
-        if (role == Role.SCOUT) {
-            enforceScoutOwnsSession(session);
-        } else {
-            farmAccessService.requireViewAccess(session.getFarm());
+        if (role != Role.SCOUT) {
+            throw new ForbiddenException("Only the assigned scout can submit a scouting session.");
         }
+
+        enforceScoutOwnsSession(session);
 
         if (isLockedForScout(session)) {
             throw new BadRequestException("Session has already been submitted or completed.");
@@ -264,24 +299,21 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         Role role = farmAccessService.getCurrentUserRole();
-        if (role == Role.SCOUT) {
-            enforceScoutOwnsSession(session);
-        } else {
-            farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+        if (role != Role.SCOUT) {
+            throw new ForbiddenException("Only the assigned scout can complete a scouting session.");
         }
+
+        enforceScoutOwnsSession(session);
 
         if (session.getStatus() == SessionStatus.COMPLETED) {
             throw new BadRequestException("Session is already completed.");
         }
 
-        if (role == Role.SCOUT) {
-            if (session.getStatus() != SessionStatus.IN_PROGRESS
-                    && session.getStatus() != SessionStatus.SUBMITTED
-                    && session.getStatus() != SessionStatus.REOPENED) {
-                throw new BadRequestException("Scout can only complete an in-progress, submitted, or reopened session.");
-            }
-        } else if (session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.REOPENED) {
-            throw new BadRequestException("Session must be submitted before approval.");
+        if (session.getStatus() != SessionStatus.IN_PROGRESS
+                && session.getStatus() != SessionStatus.SUBMITTED
+                && session.getStatus() != SessionStatus.REOPENED
+                && session.getStatus() != SessionStatus.INCOMPLETE) {
+            throw new BadRequestException("Scout can only complete an in-progress, submitted, reopened, or incomplete session.");
         }
 
         assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
@@ -313,8 +345,8 @@ public class ScoutingSessionService {
 
         farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
 
-        if (session.getStatus() != SessionStatus.COMPLETED && session.getStatus() != SessionStatus.SUBMITTED && session.getStatus() != SessionStatus.INCOMPLETE) {
-            throw new BadRequestException("Only submitted or completed sessions can be reopened.");
+        if (session.getStatus() != SessionStatus.COMPLETED) {
+            throw new BadRequestException("Only completed sessions can be reopened.");
         }
 
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.REOPENED, farmAccessService.getCurrentUserRole());
@@ -341,6 +373,7 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
 
+        requireScoutRole("Only the assigned scout can record scouting observations.");
         enforceScoutOwnsSession(session);
         ensureScoutCanEdit(session);
         return upsertObservationInternal(session, request);
@@ -355,6 +388,7 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
+        requireScoutRole("Only the assigned scout can record scouting observations.");
         enforceScoutOwnsSession(session);
         ensureScoutCanEdit(session);
         ensureSessionEditableForObservations(session);
@@ -445,6 +479,7 @@ public class ScoutingSessionService {
                 .findByIdAndSessionId(observationId, sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
 
+        requireScoutRole("Only the assigned scout can record scouting observations.");
         enforceScoutOwnsSession(observation.getSession());
         ensureScoutCanEdit(observation.getSession());
         ensureSessionEditableForObservations(observation.getSession());
@@ -506,7 +541,7 @@ public class ScoutingSessionService {
             UUID currentUserId = currentUserService.getCurrentUserId();
             return sessionRepository.findByFarmId(farmId).stream()
                     .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
-                    .filter(session -> session.getStatus() != SessionStatus.DRAFT)
+                    .filter(this::isVisibleToScout)
                     .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
                     .map(this::mapToDetailDto)
                     .collect(Collectors.toList());
@@ -515,6 +550,7 @@ public class ScoutingSessionService {
         requireSessionViewerAccess(farm);
 
         return sessionRepository.findByFarmId(farmId).stream()
+                .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
                 .map(this::mapToDetailDto)
                 .collect(Collectors.toList());
@@ -582,6 +618,7 @@ public class ScoutingSessionService {
         List<ScoutingSessionDetailDto> sessionDtos = touchedSessionIds.isEmpty()
                 ? List.of()
                 : sessionRepository.findAllById(touchedSessionIds).stream()
+                .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
                 .map(session -> mapToDetailDto(session, includeDeleted))
                 .toList();
 
@@ -657,8 +694,7 @@ public class ScoutingSessionService {
     private void ensureSessionEditableForObservations(ScoutingSession session) {
         if (session.getStatus() == SessionStatus.COMPLETED
                 || session.getStatus() == SessionStatus.CANCELLED
-                || session.getStatus() == SessionStatus.SUBMITTED
-                || session.getStatus() == SessionStatus.INCOMPLETE) {
+                || session.getStatus() == SessionStatus.SUBMITTED) {
             throw new BadRequestException("Locked sessions cannot be edited.");
         }
     }
@@ -666,8 +702,34 @@ public class ScoutingSessionService {
     private boolean isLockedForScout(ScoutingSession session) {
         return session.getStatus() == SessionStatus.SUBMITTED
                 || session.getStatus() == SessionStatus.COMPLETED
-                || session.getStatus() == SessionStatus.INCOMPLETE
                 || session.getStatus() == SessionStatus.CANCELLED;
+    }
+
+    private ScoutingSessionDetailDto startSessionInternal(ScoutingSession session,
+                                                          String comment,
+                                                          String deviceId,
+                                                          String deviceType,
+                                                          String location,
+                                                          String actorName) {
+        validateSessionCanBeStartedByScout(session);
+
+        session.markStarted();
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+
+        markOtherInProgressSessionsIncomplete(session);
+
+        ScoutingSession saved = sessionRepository.save(session);
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_STARTED, comment, deviceId, deviceType, location, actorName);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), session.getId());
+        return mapToDetailDto(saved);
+    }
+
+    private void validateSessionCanBeStartedByScout(ScoutingSession session) {
+        if (isLockedForScout(session)) {
+            throw new BadRequestException("Cannot start a session that has already been submitted or completed.");
+        }
+
+        SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.IN_PROGRESS, Role.SCOUT);
     }
 
     private void ensureScoutCanEdit(ScoutingSession session) {
@@ -698,6 +760,38 @@ public class ScoutingSessionService {
                             "New session started while another was open", null, null, null, null);
                     sessionRepository.save(other);
                 });
+    }
+
+    private boolean isVisibleToScout(ScoutingSession session) {
+        return session.getStatus() != SessionStatus.DRAFT || session.isRemoteStartPending();
+    }
+
+    private boolean isVisibleToSuperAdmin(ScoutingSession session) {
+        return EnumSet.of(
+                SessionStatus.DRAFT,
+                SessionStatus.NEW,
+                SessionStatus.COMPLETED,
+                SessionStatus.INCOMPLETE,
+                SessionStatus.REOPENED
+        ).contains(session.getStatus());
+    }
+
+    private void requireScoutRole(String message) {
+        if (farmAccessService.getCurrentUserRole() != Role.SCOUT) {
+            throw new ForbiddenException(message);
+        }
+    }
+
+    private String resolveActorName(String actorNameOverride, User actor) {
+        if (actorNameOverride != null && !actorNameOverride.isBlank()) {
+            return actorNameOverride;
+        }
+
+        String fullName = String.join(" ",
+                Optional.ofNullable(actor.getFirstName()).orElse(""),
+                Optional.ofNullable(actor.getLastName()).orElse("")).trim();
+
+        return fullName.isBlank() ? actor.getEmail() : fullName;
     }
 
     private void assertNotStale(Long requestedVersion, Long currentVersion, String entityName) {
@@ -824,7 +918,7 @@ public class ScoutingSessionService {
     private void enforceSessionVisibility(ScoutingSession session) {
         Role role = farmAccessService.getCurrentUserRole();
         if (role == Role.SCOUT) {
-            if (session.getStatus() == SessionStatus.DRAFT) {
+            if (!isVisibleToScout(session)) {
                 throw new ForbiddenException("Draft sessions are only visible to managers and admins.");
             }
             enforceScoutOwnsSession(session);
@@ -832,6 +926,9 @@ public class ScoutingSessionService {
         }
 
         requireSessionViewerAccess(session.getFarm());
+        if (role == Role.SUPER_ADMIN && !isVisibleToSuperAdmin(session)) {
+            throw new ForbiddenException("Active scouting sessions are only visible to the assigned scout.");
+        }
     }
 
     private void requireSessionViewerAccess(Farm farm) {
@@ -941,6 +1038,9 @@ public class ScoutingSessionService {
                 session.getStartedAt(),
                 session.getSubmittedAt(),
                 session.getCompletedAt(),
+                session.isRemoteStartPending(),
+                session.getRemoteStartRequestedAt(),
+                session.getRemoteStartRequestedByName(),
                 session.getUpdatedAt(),
                 session.isConfirmationAcknowledged(),
                 session.getReopenComment(),

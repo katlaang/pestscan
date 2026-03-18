@@ -18,7 +18,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,7 +34,6 @@ import java.util.UUID;
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
@@ -45,6 +43,7 @@ public class AuthService {
     private final UserFarmMembershipRepository membershipRepository;
     private final UserOnboardingService userOnboardingService;
     private final UserSessionService userSessionService;
+    private final PasswordPolicyService passwordPolicyService;
 
     /**
      * Authenticate user and generate JWT tokens
@@ -147,10 +146,11 @@ public class AuthService {
 
         targetUser.restore();
         targetUser.setIsEnabled(true);
-        targetUser.setPassword(passwordEncoder.encode(request.temporaryPassword()));
+        passwordPolicyService.validateAndApplyPassword(targetUser, request.temporaryPassword());
         targetUser.beginTemporaryPasswordWindow(userOnboardingService.calculateTemporaryPasswordExpiry());
 
         User savedUser = userRepository.save(targetUser);
+        passwordPolicyService.recordPassword(savedUser, request.temporaryPassword());
         userOnboardingService.issueSetupInvitation(savedUser, true);
 
         log.info("User profile reactivated: {} by {}", savedUser.getEmail(), requester.getEmail());
@@ -195,6 +195,8 @@ public class AuthService {
         if (!user.isActive()) {
             throw new BadRequestException("User account is disabled");
         }
+
+        passwordPolicyService.assertPasswordIsCurrent(user);
 
         // Generate new tokens
         String newAccessToken = tokenProvider.generateToken(user);
@@ -268,7 +270,7 @@ public class AuthService {
             throw new BadRequestException("User account is disabled");
         }
 
-        ResetChannel channel = request.verificationChannel();
+        ResetChannel channel = request.resolvedVerificationChannel(resetToken.getVerificationChannel());
         resetToken.setVerificationChannel(channel);
 
         if (channel == ResetChannel.PHONE_CALL) {
@@ -277,9 +279,10 @@ public class AuthService {
             resetToken.setVerificationNotes(request.verificationNotes());
         }
 
-        user.setPassword(passwordEncoder.encode(request.password()));
+        passwordPolicyService.validateAndApplyPassword(user, request.password());
         user.completePasswordReset();
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
+        passwordPolicyService.recordPassword(savedUser, request.password());
 
         resetToken.setUsedAt(LocalDateTime.now());
         passwordResetTokenRepository.save(resetToken);
@@ -449,7 +452,6 @@ public class AuthService {
 
         User user = User.builder()
                 .email(request.email())
-                .password(passwordEncoder.encode(request.password()))
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .phoneNumber(request.phoneNumber())
@@ -462,6 +464,7 @@ public class AuthService {
                 .reactivationRequired(false)
                 .build();
 
+        passwordPolicyService.validateAndApplyPassword(user, request.password());
         User savedUser = userRepository.save(user);
         attachFarmMembership(savedUser, request);
 
@@ -470,6 +473,8 @@ public class AuthService {
             savedUser = userRepository.save(savedUser);
             userOnboardingService.issueSetupInvitation(savedUser, false);
         }
+
+        passwordPolicyService.recordPassword(savedUser, request.password());
 
         log.info("New user profile created: {} ({})", savedUser.getEmail(), savedUser.getRole());
 
@@ -516,6 +521,8 @@ public class AuthService {
         if (!user.isActive()) {
             throw new BadRequestException("User account is disabled");
         }
+
+        passwordPolicyService.assertPasswordIsCurrent(user);
     }
 
     private void expirePendingInvitationIfNeeded(User user) {

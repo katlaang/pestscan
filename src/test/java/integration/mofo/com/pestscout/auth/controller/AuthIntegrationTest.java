@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -250,5 +251,50 @@ class AuthIntegrationTest {
 
         assertThat(passwordResetTokenRepository.findAll())
                 .anyMatch(token -> token.getUser().getEmail().equals(uniqueEmail));
+    }
+
+    @Test
+    void resetPasswordAcceptsCompatibilityPayloadAndUpdatesPassword() throws Exception {
+        String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password("password123")
+                .firstName("Integration")
+                .lastName("Tester")
+                .phoneNumber("555-0100")
+                .country("Kenya")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated());
+
+        ForgotPasswordRequest forgotPasswordRequest = new ForgotPasswordRequest(uniqueEmail, null, null);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forgotPasswordRequest)))
+                .andExpect(status().isAccepted());
+
+        String resetToken = passwordResetTokenRepository.findAll().stream()
+                .filter(token -> token.getUser().getEmail().equals(uniqueEmail))
+                .map(token -> token.getToken())
+                .findFirst()
+                .orElseThrow();
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .queryParam("token", resetToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("newPassword", "NewSecurePass123!"))))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, "NewSecurePass123!"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.email").value(uniqueEmail));
     }
 }

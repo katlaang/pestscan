@@ -32,6 +32,8 @@ public class UserDto {
     private Boolean deleted;
     private Boolean passwordChangeRequired;
     private Boolean reactivationRequired;
+    private Boolean passwordExpired;
+    private LocalDateTime passwordExpiresAt;
     private LocalDateTime temporaryPasswordExpiresAt;
     private LocalDateTime deletedAt;
     private LocalDateTime lastLogin;

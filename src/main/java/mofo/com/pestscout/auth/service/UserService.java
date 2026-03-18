@@ -18,7 +18,6 @@ import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,7 +45,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final CustomerNumberService customerNumberService;
     private final UserFarmMembershipRepository membershipRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicyService passwordPolicyService;
     private final CacheService cacheService;
 
     /**
@@ -185,11 +184,6 @@ public class UserService {
             targetUser.setEmail(request.getEmail());
         }
 
-        // Password update
-        if (request.getPassword() != null) {
-            targetUser.setPassword(passwordEncoder.encode(request.getPassword()));
-        }
-
         // Basic fields
         if (request.getFirstName() != null) {
             targetUser.setFirstName(request.getFirstName());
@@ -207,7 +201,14 @@ public class UserService {
             targetUser.setIsEnabled(request.getIsEnabled());
         }
 
+        if (request.getPassword() != null) {
+            passwordPolicyService.validateAndApplyPassword(targetUser, request.getPassword());
+        }
+
         User updated = userRepository.save(targetUser);
+        if (request.getPassword() != null) {
+            passwordPolicyService.recordPassword(updated, request.getPassword());
+        }
         log.info("User updated successfully: {}", updated.getEmail());
 
         cacheService.evictUserCache(userId);
@@ -423,6 +424,8 @@ public class UserService {
                 .deleted(user.isDeleted())
                 .passwordChangeRequired(user.getPasswordChangeRequired())
                 .reactivationRequired(user.getReactivationRequired())
+                .passwordExpired(user.isPasswordExpired())
+                .passwordExpiresAt(user.getPasswordExpiresAt())
                 .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
                 .deletedAt(user.getDeletedAt())
                 .lastLogin(user.getLastLogin())

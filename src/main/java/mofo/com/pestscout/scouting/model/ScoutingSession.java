@@ -105,6 +105,15 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "remote_start_requested_at")
+    private LocalDateTime remoteStartRequestedAt;
+
+    @Column(name = "remote_start_requested_by_user_id")
+    private java.util.UUID remoteStartRequestedByUserId;
+
+    @Column(name = "remote_start_requested_by_name", length = 255)
+    private String remoteStartRequestedByName;
+
     @Column(name = "reopen_comment", length = 2000)
     private String reopenComment;
 
@@ -149,6 +158,7 @@ public class ScoutingSession extends BaseEntity {
         if (startedAt == null) {
             startedAt = LocalDateTime.now();
         }
+        clearRemoteStartRequest();
         status = SessionStatus.IN_PROGRESS;
     }
 
@@ -161,12 +171,14 @@ public class ScoutingSession extends BaseEntity {
         this.submittedAt = LocalDateTime.now();
         this.confirmationAcknowledged = acknowledged;
         this.reopenComment = null;
+        clearRemoteStartRequest();
     }
 
     public void markCompleted(boolean acknowledged) {
         this.status = SessionStatus.COMPLETED;
         this.completedAt = LocalDateTime.now();
         this.confirmationAcknowledged = acknowledged;
+        clearRemoteStartRequest();
     }
 
     public void markReopened(String comment) {
@@ -174,10 +186,28 @@ public class ScoutingSession extends BaseEntity {
         this.reopenComment = comment;
         this.confirmationAcknowledged = false;
         this.completedAt = null;
+        clearRemoteStartRequest();
     }
 
     public void markIncomplete() {
         this.status = SessionStatus.INCOMPLETE;
+        clearRemoteStartRequest();
+    }
+
+    public void requestRemoteStart(java.util.UUID requestedByUserId, String requestedByName) {
+        this.remoteStartRequestedAt = LocalDateTime.now();
+        this.remoteStartRequestedByUserId = requestedByUserId;
+        this.remoteStartRequestedByName = requestedByName;
+    }
+
+    public boolean isRemoteStartPending() {
+        return remoteStartRequestedAt != null;
+    }
+
+    public void clearRemoteStartRequest() {
+        this.remoteStartRequestedAt = null;
+        this.remoteStartRequestedByUserId = null;
+        this.remoteStartRequestedByName = null;
     }
 
 

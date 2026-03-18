@@ -46,6 +46,9 @@ public record ScoutingSessionDetailDto(
         LocalDateTime startedAt,
         LocalDateTime submittedAt,
         LocalDateTime completedAt,
+        boolean remoteStartConsentRequired,
+        LocalDateTime remoteStartRequestedAt,
+        String remoteStartRequestedByName,
         LocalDateTime updatedAt,
         boolean confirmationAcknowledged,
 

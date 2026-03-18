@@ -10,7 +10,10 @@ import mofo.com.pestscout.scouting.service.ScoutingPhotoService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/scouting/photos")
@@ -21,14 +24,14 @@ public class ScoutingPhotoController {
     private final ScoutingPhotoService photoService;
 
     @PostMapping("/register")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingPhotoDto> register(@Valid @RequestBody PhotoMetadataRequest request) {
         log.info("POST /api/scouting/photos/register — registering photo metadata for session {}", request.sessionId());
         return ResponseEntity.status(HttpStatus.CREATED).body(photoService.registerMetadata(request));
     }
 
     @PostMapping("/confirm")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingPhotoDto> confirmUpload(@Valid @RequestBody PhotoUploadConfirmationRequest request) {
         log.info("POST /api/scouting/photos/confirm — confirming upload for session {}", request.sessionId());
         return ResponseEntity.ok(photoService.confirmUpload(request));

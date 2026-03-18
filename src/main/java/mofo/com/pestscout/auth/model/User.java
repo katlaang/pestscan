@@ -56,6 +56,9 @@ public class User extends BaseEntity {
     @Column(name = "password_change_required", nullable = false)
     private Boolean passwordChangeRequired = false;
 
+    @Column(name = "password_expires_at")
+    private LocalDateTime passwordExpiresAt;
+
     @Column(name = "temporary_password_expires_at")
     private LocalDateTime temporaryPasswordExpiresAt;
 
@@ -85,6 +88,11 @@ public class User extends BaseEntity {
                 && LocalDateTime.now().isAfter(temporaryPasswordExpiresAt);
     }
 
+    @Transient
+    public boolean isPasswordExpired() {
+        return passwordExpiresAt != null && LocalDateTime.now().isAfter(passwordExpiresAt);
+    }
+
     /**
      * Update last login timestamp
      */
@@ -94,6 +102,11 @@ public class User extends BaseEntity {
 
     public void recordActivity() {
         this.lastActivityAt = LocalDateTime.now();
+    }
+
+    public void applyPassword(String encodedPassword, LocalDateTime expiresAt) {
+        this.password = Objects.requireNonNull(encodedPassword, "encodedPassword");
+        this.passwordExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
     }
 
     public void beginTemporaryPasswordWindow(LocalDateTime expiresAt) {
