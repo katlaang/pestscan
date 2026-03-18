@@ -34,6 +34,9 @@ public class UserDto {
     private Boolean reactivationRequired;
     private Boolean passwordExpired;
     private LocalDateTime passwordExpiresAt;
+    private Boolean passwordExpiryWarningRequired;
+    private Long passwordExpiryWarningDaysRemaining;
+    private String passwordExpiryWarningMessage;
     private LocalDateTime temporaryPasswordExpiresAt;
     private LocalDateTime deletedAt;
     private LocalDateTime lastLogin;

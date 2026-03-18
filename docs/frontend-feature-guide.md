@@ -6,13 +6,18 @@ This document distills what the PestScout backend expects from the web/mobile cl
 - Endpoints: `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`, `GET /api/auth/me`.
 - Store both **access** and **refresh** tokens; attach the access token as `Authorization: Bearer <token>` on every API call.
 - After login/refresh, hydrate the current user (`/api/auth/me`) to know the caller's role (super admin, farm admin/manager, scout) and gate UI accordingly.
-- The authenticated user payload includes `passwordExpiresAt` and `passwordExpired`; use those fields to warn the user
-  before expiry and to force a reset flow when login or refresh is rejected.
+- The authenticated user payload includes `passwordExpiresAt`, `passwordExpired`, `passwordExpiryWarningRequired`,
+  `passwordExpiryWarningDaysRemaining`, and `passwordExpiryWarningMessage`.
+- Show `passwordExpiryWarningMessage` immediately after login when it is present.
+- Treat `passwordChangeRequired=true` as a forced password-change state for both temporary-password users and users
+  whose
+  90-day password has expired.
 
 ## Password reset flow
 
 - Request a reset with `POST /api/auth/forgot-password` using `{ "email": "user@example.com" }`.
 - Complete a reset with `POST /api/auth/reset-password`.
+- Voluntary password changes use `POST /api/auth/change-password` with the authenticated user's current password.
 - Preferred reset payload:
 
 ```json
@@ -28,6 +33,22 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - `resetToken` is accepted as an alias for `token`.
   - `verificationChannel` may be omitted for normal email resets and will default to `EMAIL`.
   - The token may be sent as `POST /api/auth/reset-password?token=<reset-token>` when the body omits it.
+  - When the caller is already authenticated and is being forced to replace a temporary or expired password, the same
+    endpoint accepts the password payload without any reset token.
+- Temporary-password logins are limited to a 5-minute password-change session. While that flag is active, non-auth
+  endpoints are rejected by the backend until the password is changed.
+- Expired-password logins follow the same restricted 5-minute password-change session. The user can log in, but only
+  auth/reset endpoints are available until the password is changed.
+- After a successful forced password change, the current JWT session is invalidated immediately. The user must log in
+  again with the new password.
+- Authenticated voluntary change payload:
+
+```json
+{
+  "currentPassword": "<current-password>",
+  "newPassword": "<new-password>"
+}
+```
 - Phone-assisted resets still require `verificationChannel: "PHONE_CALL"` and the extra verification fields already
   defined by the API.
 - Password policy enforced by the backend:
@@ -35,10 +56,37 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - A new password cannot match the previous six passwords.
   - A new password cannot contain the user's first or last name.
 - Frontend expectations:
-  - Parse the `token` from the reset page URL and include it in the API request.
+  - Parse the `token` from the reset page URL and include it in the API request for email-link resets.
+  - For authenticated forced-change screens, post the new password only and show a success message such as
+    `Password updated. It is valid for 90 days.`
+  - After that success message, send the user back to the login screen; the old temporary-password session will no
+    longer be accepted by the backend.
   - Keep confirm-password validation client-side; the backend only validates the final password value.
+  - For user-initiated password updates before expiry, call `POST /api/auth/change-password`.
   - When the backend returns `400`, show `message` and the first item in `details` instead of a generic
     `Request validation failed` banner.
+
+## User profile & user management
+
+- Endpoints already exposed by the backend:
+  - `GET /api/auth/me`
+  - `GET /api/auth/users/{userId}`
+  - `PUT /api/auth/users/{userId}`
+  - `GET /api/auth/users?farmId={farmId}`
+  - `GET /api/auth/users/role/{role}?farmId={farmId}`
+- Frontend rules:
+  - `SCOUT` should only have a self-profile screen.
+  - `FARM_ADMIN` and `MANAGER` can view users attached to their own farm.
+  - On the self-profile screen, render first name, last name, email, role, and farm as read-only.
+  - Only `phoneNumber` should be editable for non-super-admin users on their own profile.
+  - Non-super-admin users can change their own password from the authenticated password-change flow.
+  - Super admin can see the global users directory and edit all user fields.
+  - For any scouting-session scout picker, use `GET /api/auth/users/role/SCOUT?farmId={farmId}`.
+  - Do not populate the scouting-session assignee picker from `GET /api/auth/users`, because that returns all farm
+    users.
+- Current backend gap:
+  - The backend currently does not fully enforce the "phone-only for self, full edit for super admin only" rule yet.
+    Build the frontend to this rule, but the server still needs a follow-up lock-down if you want it guaranteed.
 
 ## Farm management & licensing
 - **List/view farms**: `GET /api/farms` and `GET /api/farms/{farmId}`. Scout role receives licensing fields as `null`; managers/admins get full data including license status flags.
@@ -66,7 +114,11 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - Preserve the backend error text to keep behavior consistent when the server rejects overage or archived farms.
 
 ## Scouting session lifecycle
-- **Create**: `POST /api/scouting/sessions` (admins/managers). Scout is assigned from the farm; client should not pass a scout ID.
+
+- **Create**: `POST /api/scouting/sessions` (admins/managers).
+  - If the UI allows explicit assignment, the assignee picker must contain `SCOUT` users only.
+  - Use `GET /api/auth/users/role/SCOUT?farmId={farmId}` for that picker.
+  - The backend rejects non-scout assignees and scouts from a different farm.
 - **Update metadata**: `PUT /api/scouting/sessions/{sessionId}` (admins/managers). Status must not be `COMPLETED` unless reopened.
 - **Status transitions**:
   - `POST /{id}/start` is only for the assigned scout.
@@ -101,12 +153,17 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - Keep the banner visible until the scout accepts, starts normally, or sync returns
     `remoteStartConsentRequired: false`.
 - Role-based visibility:
-  - `SCOUT` sees assigned sessions and can still edit `INCOMPLETE` sessions.
+  - `SCOUT` sees assigned sessions only.
+  - `SCOUT` should not see `DRAFT`.
+  - `SCOUT` can see assigned sessions in `NEW`, `IN_PROGRESS`, `SUBMITTED`, `REOPENED`, `INCOMPLETE`, and `COMPLETED`.
+  - `SCOUT` is the only role that should see data-entry actions for observations, photos, submit, and complete.
   - `SUPER_ADMIN` must first select a farm on the dashboard before loading sessions for that farm.
   - `SUPER_ADMIN` should only surface the per-farm planning and post-work states: `DRAFT`, `NEW`, `COMPLETED`,
     `INCOMPLETE`, and `REOPENED`.
-  - `FARM_ADMIN` and `MANAGER` can view all sessions created on their farm, including `IN_PROGRESS`, `SUBMITTED`, and
-    `REOPENED`.
+  - `FARM_ADMIN` and `MANAGER` can view sessions and farm data for their own farms only.
+  - `FARM_ADMIN` and `MANAGER` must not get cross-farm analytics, sessions, or farm values.
+  - `FARM_ADMIN` and `MANAGER` can see `IN_PROGRESS` in the list, but the row should be greyed out and not openable.
+  - `FARM_ADMIN` and `MANAGER` can create new scouting sessions but cannot start them.
 - Reopen UX:
   - Reopen is for admin roles after a session is completed.
   - Show the reopen actor in the audit trail UI by reading `GET /api/scouting/sessions/{id}/audits` and highlighting the
@@ -124,3 +181,114 @@ This document distills what the PestScout backend expects from the web/mobile cl
 - Role-aware navigation: hide license edit controls from non–super admins; hide pricing/billing panels from scouts.
 - Provide inline validation mirroring backend rules (required tags when include flags are false; non-negative hectares/discounts; mutually exclusive greenhouse/field block IDs).
 - Keep Swagger UI (`/swagger-ui.html`) available in dev to explore the full schemas as you build forms and clients.
+
+## Copy Canvas
+
+```md
+Frontend canvas
+
+1. Authentication and password changes
+
+- After `POST /api/auth/login`, call `GET /api/auth/me`.
+- If `passwordExpiryWarningRequired === true`, show this popup immediately after login:
+  `Your password is nearing expiry. Please change your password in the next ${passwordExpiryWarningDaysRemaining} days`
+- If `passwordChangeRequired === true`, open the reset/change-password screen immediately.
+- For forced password change, call `POST /api/auth/reset-password` with only the new password when the user is already
+  authenticated.
+- For voluntary password change before expiry, call `POST /api/auth/change-password`.
+- After password change succeeds, show:
+  `Password updated. It is valid for 90 days.`
+- After that success message, redirect to the login page and require the user to sign in again with email + new
+  password.
+
+2. Session assignment
+
+- In create/edit session screens, the scout picker must show scouts only.
+- Fetch picker options from:
+  `GET /api/auth/users/role/SCOUT?farmId={farmId}`
+- Do not use:
+  `GET /api/auth/users`
+- Label the field as `Assigned Scout`.
+- Do not render managers, farm admins, or super admins in the assignment dropdown.
+
+3. Session visibility by role
+
+- `SCOUT`
+  - Show assigned sessions only.
+  - Hide `DRAFT`.
+  - Show assigned sessions in `NEW`, `IN_PROGRESS`, `SUBMITTED`, `REOPENED`, `INCOMPLETE`, and `COMPLETED`.
+  - Show all data-entry controls only to scout:
+    - start
+    - accept remote start
+    - observations
+    - scouting photos
+    - submit
+    - complete
+- `SUPER_ADMIN`
+  - Require farm selection first on the dashboard.
+  - After farm selection, load sessions for that farm only.
+  - Show only: `DRAFT`, `NEW`, `COMPLETED`, `INCOMPLETE`, `REOPENED`.
+  - Show `Request Remote Start`.
+  - Show `Reopen Session`.
+- `FARM_ADMIN` and `MANAGER`
+  - Load sessions and analytics for their own farms only.
+  - Do not show cross-farm selectors or cross-farm totals.
+  - Do not show scout data-entry controls.
+  - Show `IN_PROGRESS` as a greyed-out row/card.
+  - Do not allow opening `IN_PROGRESS`.
+  - Allow create/view/reopen actions for the other visible session states.
+  - Do not allow `Start Session`.
+
+4. Remote start
+
+- If `remoteStartConsentRequired === true` for the assigned scout, flash a banner on the scout session screen.
+- Banner text must be exactly:
+  `remoted accessed session start`
+- Show an `Accept` button that calls:
+  `POST /api/scouting/sessions/{id}/accept-remote-start`
+- Keep the normal scout `Start Session` button visible as well.
+- If the scout ignores the remote-start request and starts normally, call:
+  `POST /api/scouting/sessions/{id}/start`
+
+5. Completion warning
+
+- Before calling `POST /api/scouting/sessions/{id}/complete`, show a blocking modal:
+  `Are you sure you want to complete this scouting session? You will not be able to edit it afterward.`
+- Only call complete after the scout confirms.
+
+6. Reopen audit trail
+
+- After reopen, load:
+  `GET /api/scouting/sessions/{id}/audits`
+- Highlight `SESSION_REOPENED`.
+- Show:
+  - actor name
+  - actor role
+  - timestamp
+  - comment
+
+7. Profile screens
+
+- Scout profile:
+  - Show first name as read-only.
+  - Show last name as read-only.
+  - Show email as read-only.
+  - Show role as read-only.
+  - Show farm as read-only.
+  - Allow editing `phoneNumber` only.
+- Farm admin and manager:
+  - Show own profile.
+  - Allow change password.
+  - Show users attached to their own farm.
+  - Do not show users from other farms.
+- Super admin user management:
+  - Show all users.
+  - Allow edit of all fields.
+
+8. Analytics and farm scoping
+
+- `SUPER_ADMIN` can view dashboards across farms, but must choose the farm context before loading farm-specific
+  sessions.
+- `FARM_ADMIN` and `MANAGER` can only view analytics, sessions, and related farm values for their own farms.
+- `SCOUT` should not get analytics dashboards.
+```

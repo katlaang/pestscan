@@ -103,9 +103,18 @@ Important rules:
 - temporary passwords are valid for 5 days and the backend also queues an account-setup email with a password-reset
   token
 - all non-temporary passwords expire after 90 days
+- starting 15 days before expiry, the backend surfaces a warning message and remaining-day count in the authenticated
+  user payload
 - a new password cannot reuse any of the previous six passwords
 - a new password cannot contain the user's first or last name
 - invited users are expected to reset their own password through `POST /api/auth/reset-password`
+- if the invited user is already signed in with a temporary password, the same endpoint accepts the new password
+  without a reset token and clears the onboarding state
+- temporary-password logins are limited to a 5-minute password-change session; while that window is active, the backend
+  rejects non-auth endpoints until the password is changed
+- users may also change their password before expiry through `POST /api/auth/change-password`
+- expired-password logins are allowed, but only as a restricted 5-minute password-change session until the user updates
+  the password
 - if the user does not reset that password within the 5-day window, the profile is soft-deleted and marked for
   reactivation
 - only a logged-in `SUPER_ADMIN` may restore that profile through `POST /api/auth/users/{userId}/reactivate`
@@ -1287,6 +1296,10 @@ Admin-created user lifecycle:
 - reset completion accepts `password` or the compatibility alias `newPassword`
 - email resets default to `verificationChannel=EMAIL` when the client omits that field
 - the reset token may be supplied in the JSON body or as `POST /api/auth/reset-password?token=<token>`
+- authenticated users who are being forced to replace a temporary or expired password may omit the token entirely
+- authenticated users who know their current password may change it proactively through `POST /api/auth/change-password`
+- after a successful forced password change, the current JWT session is invalidated and the user must log in again with
+  the new password
 - if the 5-day window elapses first, the backend soft-deletes the profile, disables access, invalidates open reset
   tokens, and requires a `SUPER_ADMIN` reactivation
 

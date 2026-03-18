@@ -46,27 +46,39 @@ public class JwtTokenProvider {
      * Generate JWT access token for a user.
      */
     public String generateToken(User user) {
+        return generateToken(user, jwtExpiration);
+    }
+
+    public String generateToken(User user, long expirationMillis) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("email", user.getEmail());
         claims.put("role", user.getRole().name());
         claims.put("firstName", user.getFirstName());
         claims.put("lastName", user.getLastName());
 
-        return createToken(claims, user.getId().toString(), jwtExpiration);
+        return createToken(claims, user.getId().toString(), expirationMillis);
     }
 
     /**
      * Generate refresh token for a user.
      */
     public String generateRefreshToken(User user) {
+        return generateRefreshToken(user, refreshExpiration);
+    }
+
+    public String generateRefreshToken(User user, long expirationMillis) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", "refresh");
 
-        return createToken(claims, user.getId().toString(), refreshExpiration);
+        return createToken(claims, user.getId().toString(), expirationMillis);
     }
 
     public long getAccessTokenExpirationMillis() {
         return jwtExpiration;
+    }
+
+    public long getRefreshTokenExpirationMillis() {
+        return refreshExpiration;
     }
 
     /**
@@ -116,6 +128,10 @@ public class JwtTokenProvider {
 
     public Date getExpirationDateFromToken(String token) {
         return getClaimsFromToken(token).getExpiration();
+    }
+
+    public Date getIssuedAtFromToken(String token) {
+        return getClaimsFromToken(token).getIssuedAt();
     }
 
     private boolean isTokenExpired(String token) {

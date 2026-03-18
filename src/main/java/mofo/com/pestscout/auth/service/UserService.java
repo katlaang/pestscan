@@ -409,6 +409,7 @@ public class UserService {
     }
 
     public UserDto convertToDto(User user, UUID farmId) {
+        Long passwordExpiryWarningDaysRemaining = passwordPolicyService.getPasswordExpiryWarningDaysRemaining(user);
         return UserDto.builder()
                 .id(user.getId())
                 .farmId(farmId)
@@ -422,10 +423,13 @@ public class UserService {
                 .isEnabled(user.getIsEnabled())
                 .active(user.isActive())
                 .deleted(user.isDeleted())
-                .passwordChangeRequired(user.getPasswordChangeRequired())
+                .passwordChangeRequired(user.requiresPasswordChange())
                 .reactivationRequired(user.getReactivationRequired())
                 .passwordExpired(user.isPasswordExpired())
                 .passwordExpiresAt(user.getPasswordExpiresAt())
+                .passwordExpiryWarningRequired(passwordExpiryWarningDaysRemaining != null)
+                .passwordExpiryWarningDaysRemaining(passwordExpiryWarningDaysRemaining)
+                .passwordExpiryWarningMessage(passwordPolicyService.getPasswordExpiryWarningMessage(user))
                 .temporaryPasswordExpiresAt(user.getTemporaryPasswordExpiresAt())
                 .deletedAt(user.getDeletedAt())
                 .lastLogin(user.getLastLogin())

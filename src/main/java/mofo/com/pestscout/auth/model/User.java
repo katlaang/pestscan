@@ -72,6 +72,9 @@ public class User extends BaseEntity {
     @Column(name = "last_activity_at")
     private LocalDateTime lastActivityAt;
 
+    @Column(name = "session_valid_after")
+    private LocalDateTime sessionValidAfter;
+
 
     /**
      * Check if user is active
@@ -91,6 +94,11 @@ public class User extends BaseEntity {
     @Transient
     public boolean isPasswordExpired() {
         return passwordExpiresAt != null && LocalDateTime.now().isAfter(passwordExpiresAt);
+    }
+
+    @Transient
+    public boolean requiresPasswordChange() {
+        return Boolean.TRUE.equals(passwordChangeRequired) || isPasswordExpired();
     }
 
     /**
@@ -122,6 +130,10 @@ public class User extends BaseEntity {
         this.temporaryPasswordExpiresAt = null;
         this.reactivationRequired = false;
         this.isEnabled = true;
+    }
+
+    public void invalidateSessions() {
+        this.sessionValidAfter = LocalDateTime.now();
     }
 
     public void markTemporaryPasswordExpired() {

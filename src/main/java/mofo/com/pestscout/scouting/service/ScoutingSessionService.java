@@ -516,7 +516,7 @@ public class ScoutingSessionService {
                                                         boolean recordAudit) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
-        enforceSessionVisibility(session);
+        enforceSessionOpenAccess(session);
         if (recordAudit) {
             sessionAuditService.record(session, SessionAuditAction.SESSION_VIEWED, null, deviceId, deviceType, location, actorName);
         }
@@ -543,7 +543,7 @@ public class ScoutingSessionService {
                     .filter(session -> session.getScout() != null && currentUserId.equals(session.getScout().getId()))
                     .filter(this::isVisibleToScout)
                     .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
-                    .map(this::mapToDetailDto)
+                    .map(this::mapToViewerDetailDto)
                     .collect(Collectors.toList());
         }
 
@@ -552,7 +552,7 @@ public class ScoutingSessionService {
         return sessionRepository.findByFarmId(farmId).stream()
                 .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
-                .map(this::mapToDetailDto)
+                .map(this::mapToViewerDetailDto)
                 .collect(Collectors.toList());
     }
 
@@ -600,7 +600,7 @@ public class ScoutingSessionService {
             return new ScoutingSyncResponse(sessionDtos, observationDtos);
         }
 
-        farmAccessService.requireViewAccess(farm);
+        requireSessionViewerAccess(farm);
 
         List<ScoutingSession> updatedSessions = sessionRepository.findByFarmIdAndUpdatedAtAfter(farmId, since);
         List<UUID> farmSessionIds = sessionRepository.findByFarmId(farmId).stream()
@@ -619,11 +619,18 @@ public class ScoutingSessionService {
                 ? List.of()
                 : sessionRepository.findAllById(touchedSessionIds).stream()
                 .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
-                .map(session -> mapToDetailDto(session, includeDeleted))
+                .map(session -> mapToViewerDetailDto(session, includeDeleted))
                 .toList();
+
+        Set<UUID> restrictedSessionIds = changedObservations.stream()
+                .map(ScoutingObservation::getSession)
+                .filter(this::isRestrictedInProgressForFarmViewer)
+                .map(ScoutingSession::getId)
+                .collect(Collectors.toSet());
 
         List<ScoutingObservationDto> observationDtos = changedObservations.stream()
                 .filter(observation -> includeDeleted || !observation.isDeleted())
+                .filter(observation -> !restrictedSessionIds.contains(observation.getSession().getId()))
                 .map(observation -> mapToObservationDto(observation, includeDeleted))
                 .toList();
 
@@ -634,7 +641,7 @@ public class ScoutingSessionService {
     public List<ScoutingSessionAuditDto> listAuditTrail(UUID sessionId) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
-        enforceSessionVisibility(session);
+        enforceSessionOpenAccess(session);
 
         return auditEventRepository.findBySessionIdOrderByOccurredAtAsc(sessionId).stream()
                 .map(event -> new ScoutingSessionAuditDto(
@@ -776,6 +783,12 @@ public class ScoutingSessionService {
         ).contains(session.getStatus());
     }
 
+    private boolean isRestrictedInProgressForFarmViewer(ScoutingSession session) {
+        Role role = farmAccessService.getCurrentUserRole();
+        return (role == Role.FARM_ADMIN || role == Role.MANAGER)
+                && session.getStatus() == SessionStatus.IN_PROGRESS;
+    }
+
     private void requireScoutRole(String message) {
         if (farmAccessService.getCurrentUserRole() != Role.SCOUT) {
             throw new ForbiddenException(message);
@@ -877,16 +890,16 @@ public class ScoutingSessionService {
 
     private User resolveScout(CreateScoutingSessionRequest request, Farm farm) {
         if (request.scoutId() == null) {
-            return validateAssignedScout(farm.getScout(), "farm");
+            return validateAssignedScout(farm.getScout(), farm, "farm");
         }
 
         User scout = userRepository.findById(request.scoutId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
 
-        return validateAssignedScout(scout, "requested");
+        return validateAssignedScout(scout, farm, "requested");
     }
 
-    private User validateAssignedScout(User scout, String source) {
+    private User validateAssignedScout(User scout, Farm farm, String source) {
         if (scout == null) {
             return null;
         }
@@ -899,7 +912,21 @@ public class ScoutingSessionService {
             throw new BadRequestException("The " + source + " assigned scout is inactive or deleted.");
         }
 
+        if (!belongsToFarm(scout, farm)) {
+            throw new BadRequestException("The " + source + " assigned scout must belong to the same farm as the session.");
+        }
+
         return scout;
+    }
+
+    private boolean belongsToFarm(User scout, Farm farm) {
+        if (scout == null || scout.getId() == null || farm == null || farm.getId() == null) {
+            return false;
+        }
+
+        return membershipRepository.findByUser_IdAndFarmId(scout.getId(), farm.getId())
+                .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                .isPresent();
     }
 
     private void enforceScoutOwnsSession(ScoutingSession session) {
@@ -928,6 +955,13 @@ public class ScoutingSessionService {
         requireSessionViewerAccess(session.getFarm());
         if (role == Role.SUPER_ADMIN && !isVisibleToSuperAdmin(session)) {
             throw new ForbiddenException("Active scouting sessions are only visible to the assigned scout.");
+        }
+    }
+
+    private void enforceSessionOpenAccess(ScoutingSession session) {
+        enforceSessionVisibility(session);
+        if (isRestrictedInProgressForFarmViewer(session)) {
+            throw new ForbiddenException("In-progress sessions are visible in the list but can only be opened by the assigned scout.");
         }
     }
 
@@ -969,6 +1003,53 @@ public class ScoutingSessionService {
      */
     private ScoutingSessionDetailDto mapToDetailDto(ScoutingSession session) {
         return mapToDetailDto(session, false);
+    }
+
+    private ScoutingSessionDetailDto mapToViewerDetailDto(ScoutingSession session) {
+        return mapToViewerDetailDto(session, false);
+    }
+
+    private ScoutingSessionDetailDto mapToViewerDetailDto(ScoutingSession session, boolean includeDeletedObservations) {
+        if (isRestrictedInProgressForFarmViewer(session)) {
+            return mapToRestrictedInProgressDto(session);
+        }
+        return mapToDetailDto(session, includeDeletedObservations);
+    }
+
+    private ScoutingSessionDetailDto mapToRestrictedInProgressDto(ScoutingSession session) {
+        UUID managerId = session.getManager() != null ? session.getManager().getId() : null;
+        UUID scoutId = session.getScout() != null ? session.getScout().getId() : null;
+
+        return new ScoutingSessionDetailDto(
+                session.getId(),
+                session.getVersion(),
+                session.getFarm().getId(),
+                session.getSessionDate(),
+                session.getWeekNumber(),
+                session.getStatus(),
+                session.getSyncStatus(),
+                managerId,
+                scoutId,
+                session.getCropType(),
+                session.getCropVariety(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                session.getUpdatedAt(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
     }
 
     private ScoutingSessionDetailDto mapToDetailDto(ScoutingSession session, boolean includeDeletedObservations) {

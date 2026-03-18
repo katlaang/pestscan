@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -30,6 +32,9 @@ public class PasswordPolicyService {
 
     @Value("${app.auth.password-history-count:6}")
     private int passwordHistoryCount = 6;
+
+    @Value("${app.auth.password-expiry-warning-days:15}")
+    private long passwordExpiryWarningDays = 15;
 
     public PasswordPolicyService(
             PasswordEncoder passwordEncoder,
@@ -69,6 +74,32 @@ public class PasswordPolicyService {
         if (user != null && user.isPasswordExpired()) {
             throw new BadRequestException("Password expired. Reset your password to continue.");
         }
+    }
+
+    public Long getPasswordExpiryWarningDaysRemaining(User user) {
+        if (user == null || user.getPasswordExpiresAt() == null || user.requiresPasswordChange()) {
+            return null;
+        }
+
+        long daysRemaining = ChronoUnit.DAYS.between(LocalDate.now(), user.getPasswordExpiresAt().toLocalDate());
+        if (daysRemaining < 0 || daysRemaining > passwordExpiryWarningDays) {
+            return null;
+        }
+
+        return daysRemaining;
+    }
+
+    public boolean isPasswordExpiryWarningRequired(User user) {
+        return getPasswordExpiryWarningDaysRemaining(user) != null;
+    }
+
+    public String getPasswordExpiryWarningMessage(User user) {
+        Long daysRemaining = getPasswordExpiryWarningDaysRemaining(user);
+        if (daysRemaining == null) {
+            return null;
+        }
+
+        return "Your password is nearing expiry. Please change your password in the next " + daysRemaining + " days";
     }
 
     private void ensurePasswordDoesNotContainName(User user, String rawPassword) {

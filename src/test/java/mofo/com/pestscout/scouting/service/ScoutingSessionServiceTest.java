@@ -3,6 +3,7 @@ package mofo.com.pestscout.scouting.service;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.UserFarmMembership;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.common.exception.BadRequestException;
@@ -207,6 +208,13 @@ class ScoutingSessionServiceTest {
 
         lenient().when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
         lenient().when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        lenient().when(membershipRepository.findByUser_IdAndFarmId(scout.getId(), testFarm.getId()))
+                .thenReturn(Optional.of(UserFarmMembership.builder()
+                        .user(scout)
+                        .farm(testFarm)
+                        .role(Role.SCOUT)
+                        .isActive(true)
+                        .build()));
     }
 
     @Test
@@ -367,6 +375,67 @@ class ScoutingSessionServiceTest {
         assertThatThrownBy(() -> scoutingSessionService.createSession(createRequest))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Farm");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should reject assigning a scout who does not belong to the session farm")
+    void createSession_WithScoutOutsideFarm_ThrowsBadRequestException() {
+        User outsideScout = User.builder()
+                .id(UUID.randomUUID())
+                .email("outside-scout@example.com")
+                .firstName("Outside")
+                .lastName("Scout")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .build();
+
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                outsideScout.getId(),
+                createRequest.targets(),
+                createRequest.sessionDate(),
+                createRequest.weekNumber(),
+                createRequest.crop(),
+                createRequest.variety(),
+                createRequest.temperatureCelsius(),
+                createRequest.relativeHumidityPercent(),
+                createRequest.observationTime(),
+                createRequest.weatherNotes(),
+                createRequest.notes(),
+                createRequest.defaultPhotoSourceType(),
+                createRequest.status(),
+                createRequest.deviceId(),
+                createRequest.deviceType(),
+                createRequest.location(),
+                createRequest.comment(),
+                createRequest.actorName()
+        );
+
+        when(farmRepository.findById(testFarm.getId()))
+                .thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(false);
+        when(currentUserService.getCurrentUser())
+                .thenReturn(manager);
+        when(userRepository.findById(outsideScout.getId()))
+                .thenReturn(Optional.of(outsideScout));
+        when(membershipRepository.findByUser_IdAndFarmId(outsideScout.getId(), testFarm.getId()))
+                .thenReturn(Optional.empty());
+        when(greenhouseRepository.findById(greenhouse.getId()))
+                .thenReturn(Optional.of(greenhouse));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+
+        assertThatThrownBy(() -> scoutingSessionService.createSession(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("same farm");
 
         verify(sessionRepository, never()).save(any());
     }
@@ -1254,7 +1323,6 @@ class ScoutingSessionServiceTest {
         assertThat(response.sessions()).hasSize(1);
         assertThat(response.observations()).hasSize(1);
         assertThat(response.observations().getFirst().deleted()).isFalse();
-        verify(farmAccessService).requireViewAccess(testFarm);
     }
 
     @Test
@@ -1376,8 +1444,8 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
-    @DisplayName("Should allow manager to view in-progress session details on their farm")
-    void getSession_WithInProgressSessionAndManager_ReturnsSession() {
+    @DisplayName("Should block manager from opening in-progress session details on their farm")
+    void getSession_WithInProgressSessionAndManager_ThrowsForbiddenException() {
         testSession.setStatus(SessionStatus.IN_PROGRESS);
 
         when(farmAccessService.getCurrentUserRole())
@@ -1389,10 +1457,28 @@ class ScoutingSessionServiceTest {
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
 
-        ScoutingSessionDetailDto result = scoutingSessionService.getSession(testSession.getId());
+        assertThatThrownBy(() -> scoutingSessionService.getSession(testSession.getId()))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("visible in the list");
+    }
 
-        assertThat(result).isNotNull();
-        assertThat(result.id()).isEqualTo(testSession.getId());
+    @Test
+    @DisplayName("Should block manager from viewing audit trail of in-progress session")
+    void listAuditTrail_WithInProgressSessionAndManager_ThrowsForbiddenException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.MANAGER);
+        when(currentUserService.getCurrentUserId())
+                .thenReturn(manager.getId());
+        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
+                .thenReturn(true);
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.listAuditTrail(testSession.getId()))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("visible in the list");
     }
 
     @Test
@@ -1447,8 +1533,8 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
-    @DisplayName("Should allow manager to view live sessions on their farm")
-    void listSessions_WithManager_ReturnsLiveSessions() {
+    @DisplayName("Should keep in-progress sessions visible but redacted for manager list")
+    void listSessions_WithManager_RedactsInProgressSessions() {
         ScoutingSession inProgressSession = ScoutingSession.builder()
                 .id(UUID.randomUUID())
                 .farm(testFarm)
@@ -1458,6 +1544,7 @@ class ScoutingSessionServiceTest {
                 .weekNumber(2)
                 .cropType("Tomato")
                 .cropVariety("Roma")
+                .notes("Scout only notes")
                 .status(SessionStatus.IN_PROGRESS)
                 .observations(new ArrayList<>())
                 .targets(new ArrayList<>())
@@ -1478,5 +1565,50 @@ class ScoutingSessionServiceTest {
         List<ScoutingSessionDetailDto> result = scoutingSessionService.listSessions(testFarm.getId());
 
         assertThat(result).hasSize(2);
+        ScoutingSessionDetailDto redacted = result.stream()
+                .filter(session -> session.id().equals(inProgressSession.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(redacted.status()).isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(redacted.notes()).isNull();
+        assertThat(redacted.sections()).isEmpty();
+        assertThat(redacted.recommendations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should redact in-progress session sync payloads for manager")
+    void syncChanges_WithManagerAndInProgressSession_RedactsSessionAndObservations() {
+        LocalDateTime since = LocalDateTime.now().minusDays(1);
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setUpdatedAt(LocalDateTime.now());
+
+        ScoutingObservation changedObs = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
+                .speciesCode(SpeciesCode.WHITEFLIES)
+                .bayIndex(0)
+                .benchIndex(0)
+                .spotIndex(0)
+                .count(2)
+                .build();
+        changedObs.setUpdatedAt(LocalDateTime.now());
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
+        when(currentUserService.getCurrentUserId()).thenReturn(manager.getId());
+        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId())).thenReturn(true);
+        when(sessionRepository.findByFarmIdAndUpdatedAtAfter(testFarm.getId(), since)).thenReturn(List.of(testSession));
+        when(sessionRepository.findByFarmId(testFarm.getId())).thenReturn(List.of(testSession));
+        when(observationRepository.findBySessionIdInAndUpdatedAtAfter(anyList(), eq(since))).thenReturn(List.of(changedObs));
+        when(sessionRepository.findAllById(anyIterable())).thenReturn(List.of(testSession));
+
+        ScoutingSyncResponse response = scoutingSessionService.syncChanges(testFarm.getId(), since, false);
+
+        assertThat(response.sessions()).hasSize(1);
+        assertThat(response.sessions().getFirst().status()).isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(response.sessions().getFirst().sections()).isEmpty();
+        assertThat(response.sessions().getFirst().notes()).isNull();
+        assertThat(response.observations()).isEmpty();
     }
 }

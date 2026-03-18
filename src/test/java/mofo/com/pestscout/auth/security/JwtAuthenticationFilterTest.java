@@ -21,6 +21,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -195,6 +198,113 @@ class JwtAuthenticationFilterTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "SESSION_EXPIRED");
         verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Your session has expired. Please log in again.");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_skipsAuthenticationWhenTokenRevoked() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("revoked@example.com").password("pass").authorities("ROLE_MANAGER").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("revoked@example.com")
+                .sessionValidAfter(LocalDateTime.now())
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("revoked@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(UUID.randomUUID());
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("MANAGER");
+        when(tokenProvider.getIssuedAtFromToken(token))
+                .thenReturn(Date.from(LocalDateTime.now().minusMinutes(1).atZone(ZoneId.systemDefault()).toInstant()));
+        when(userDetailsService.loadUserByUsername("revoked@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "SESSION_INVALID");
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Your session is no longer valid. Please log in again.");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_skipsAuthenticationWhenPasswordChangeRequiredForProtectedEndpoint() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("temp@example.com").password("pass").authorities("ROLE_SCOUT").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("temp@example.com")
+                .passwordChangeRequired(true)
+                .lastLogin(LocalDateTime.now())
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getRequestURI()).thenReturn("/api/farms");
+        when(request.getMethod()).thenReturn("GET");
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("temp@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(farmId);
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("SCOUT");
+        when(userDetailsService.loadUserByUsername("temp@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+        when(userSessionService.isIdleExpired(domainUser)).thenReturn(false);
+        when(userSessionService.isPasswordChangeSessionExpired(domainUser)).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "PASSWORD_CHANGE_REQUIRED");
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Change your password to continue.");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_skipsAuthenticationWhenTemporaryPasswordSessionExpired() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("temp@example.com").password("pass").authorities("ROLE_SCOUT").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("temp@example.com")
+                .passwordChangeRequired(true)
+                .lastLogin(LocalDateTime.now().minusMinutes(6))
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("temp@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(UUID.randomUUID());
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("SCOUT");
+        when(userDetailsService.loadUserByUsername("temp@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+        when(userSessionService.isIdleExpired(domainUser)).thenReturn(false);
+        when(userSessionService.isPasswordChangeSessionExpired(domainUser)).thenReturn(true);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "PASSWORD_CHANGE_SESSION_EXPIRED");
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Temporary password session expired. Please log in again.");
         verify(filterChain).doFilter(request, response);
     }
 }

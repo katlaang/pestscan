@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,8 +31,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -123,11 +123,12 @@ class AuthServiceTest {
                 .thenReturn(authentication);
         when(userRepository.findByEmail(loginRequest.email()))
                 .thenReturn(Optional.of(testUser));
-        when(tokenProvider.generateToken(testUser))
+        when(tokenProvider.generateToken(eq(testUser), anyLong()))
                 .thenReturn("accessToken");
-        when(tokenProvider.generateRefreshToken(testUser))
+        when(tokenProvider.generateRefreshToken(eq(testUser), anyLong()))
                 .thenReturn("refreshToken");
         when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(600000L);
         when(userService.convertToDto(testUser))
                 .thenReturn(UserDto.builder()
                         .id(testUser.getId())
@@ -406,9 +407,11 @@ class AuthServiceTest {
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
         when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
         when(userSessionService.isIdleExpired(testUser)).thenReturn(false);
-        when(tokenProvider.generateToken(testUser)).thenReturn("newAccessToken");
-        when(tokenProvider.generateRefreshToken(testUser)).thenReturn("newRefreshToken");
+        when(userSessionService.isPasswordChangeSessionExpired(testUser)).thenReturn(false);
+        when(tokenProvider.generateToken(eq(testUser), anyLong())).thenReturn("newAccessToken");
+        when(tokenProvider.generateRefreshToken(eq(testUser), anyLong())).thenReturn("newRefreshToken");
         when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(600000L);
         when(userService.convertToDto(testUser)).thenReturn(UserDto.builder().id(testUser.getId()).build());
 
         LoginResponse response = authService.refreshToken(request);
@@ -435,8 +438,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("Should reject login when the password is expired")
-    void login_WithExpiredPassword_ThrowsBadRequestException() {
+    @DisplayName("Should allow login with expired password and issue a change-required session")
+    void login_WithExpiredPassword_ReturnsShortLivedResetSession() {
         User expiredUser = User.builder()
                 .id(UUID.randomUUID())
                 .email("expired-password@example.com")
@@ -449,15 +452,28 @@ class AuthServiceTest {
                 .passwordExpiresAt(LocalDateTime.now().minusMinutes(1))
                 .build();
 
+        Authentication authentication = mock(Authentication.class);
         when(userRepository.findByEmail(expiredUser.getEmail())).thenReturn(Optional.of(expiredUser));
-        doThrow(new BadRequestException("Password expired. Reset your password to continue."))
-                .when(passwordPolicyService).assertPasswordIsCurrent(expiredUser);
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(authentication);
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(3600000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(7200000L);
+        when(tokenProvider.generateToken(eq(expiredUser), anyLong())).thenReturn("expiredAccessToken");
+        when(tokenProvider.generateRefreshToken(eq(expiredUser), anyLong())).thenReturn("expiredRefreshToken");
+        when(userService.convertToDto(expiredUser)).thenReturn(UserDto.builder()
+                .id(expiredUser.getId())
+                .email(expiredUser.getEmail())
+                .passwordExpired(true)
+                .passwordChangeRequired(true)
+                .build());
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest(expiredUser.getEmail(), "password123")))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Password expired");
+        LoginResponse response = authService.login(new LoginRequest(expiredUser.getEmail(), "password123"));
 
-        verify(authenticationManager, never()).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        assertThat(response.token()).isEqualTo("expiredAccessToken");
+        assertThat(response.refreshToken()).isEqualTo("expiredRefreshToken");
+        assertThat(response.expiresIn()).isBetween(1L, 300000L);
+        assertThat(response.user().getPasswordExpired()).isTrue();
+        assertThat(response.user().getPasswordChangeRequired()).isTrue();
     }
 
     @Test
@@ -575,6 +591,259 @@ class AuthServiceTest {
         assertThat(invitedUser.getTemporaryPasswordExpiresAt()).isNull();
         assertThat(invitedUser.getReactivationRequired()).isFalse();
         verify(userRepository).save(invitedUser);
+    }
+
+    @Test
+    @DisplayName("Should allow authenticated temporary-password change without reset token")
+    void resetPassword_WithAuthenticatedUserAndNoToken_ClearsTemporaryPasswordFlags() {
+        User invitedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("invited@example.com")
+                .password("oldPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000555")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().plusDays(5))
+                .build();
+
+        PasswordResetToken staleToken = PasswordResetToken.builder()
+                .id(UUID.randomUUID())
+                .user(invitedUser)
+                .token("stale-token")
+                .expiresAt(LocalDateTime.now().plusDays(5))
+                .verificationChannel(ResetChannel.EMAIL)
+                .build();
+
+        ResetPasswordRequest request = new ResetPasswordRequest(
+                null,
+                "newPassword123",
+                null,
+                null,
+                null,
+                invitedUser.getEmail(),
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(userRepository.findById(invitedUser.getId())).thenReturn(Optional.of(invitedUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(passwordResetTokenRepository.findByUserAndUsedAtIsNull(invitedUser)).thenReturn(List.of(staleToken));
+
+        authService.resetPassword(request, invitedUser.getId());
+
+        assertThat(invitedUser.getPassword()).isEqualTo("encoded:newPassword123");
+        assertThat(invitedUser.getPasswordChangeRequired()).isFalse();
+        assertThat(invitedUser.getPasswordExpiresAt()).isNotNull();
+        assertThat(invitedUser.getTemporaryPasswordExpiresAt()).isNull();
+        assertThat(staleToken.getUsedAt()).isNotNull();
+        verify(passwordResetTokenRepository, never()).findByToken(anyString());
+        verify(userRepository).save(invitedUser);
+        assertThat(invitedUser.getSessionValidAfter()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Should change password for an authenticated user before expiry")
+    void changePassword_WithAuthenticatedUser_UpdatesPasswordAndInvalidatesSessions() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder()
+                .id(userId)
+                .email("user@example.com")
+                .password("oldEncodedPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000999")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .passwordExpiresAt(LocalDateTime.now().plusDays(30))
+                .build();
+        Authentication authentication = mock(Authentication.class);
+        ChangePasswordRequest request = new ChangePasswordRequest("currentPassword123", "NewSecurePass123!");
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(authentication);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.changePassword(request, userId);
+
+        assertThat(user.getPassword()).isEqualTo("encoded:NewSecurePass123!");
+        assertThat(user.getSessionValidAfter()).isNotNull();
+        verify(passwordPolicyService).recordPassword(user, "NewSecurePass123!");
+    }
+
+    @Test
+    @DisplayName("Should reject authenticated password change when current password is incorrect")
+    void changePassword_WithIncorrectCurrentPassword_ThrowsBadRequestException() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder()
+                .id(userId)
+                .email("user@example.com")
+                .password("oldEncodedPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000999")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .passwordExpiresAt(LocalDateTime.now().plusDays(30))
+                .build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenThrow(new org.springframework.security.authentication.BadCredentialsException("bad credentials"));
+
+        assertThatThrownBy(() -> authService.changePassword(new ChangePasswordRequest("wrongPassword", "NewSecurePass123!"), userId))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Current password is incorrect");
+
+        verify(userRepository, never()).save(user);
+    }
+
+    @Test
+    @DisplayName("Should require a token for authenticated users without a forced password change")
+    void resetPassword_WithoutTokenForRegularAuthenticatedUser_ThrowsBadRequestException() {
+        User activeUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("active@example.com")
+                .password("oldPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000888")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(false)
+                .build();
+
+        ResetPasswordRequest request = new ResetPasswordRequest(
+                null,
+                "newPassword123",
+                null,
+                null,
+                null,
+                activeUser.getEmail(),
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(userRepository.findById(activeUser.getId())).thenReturn(Optional.of(activeUser));
+
+        assertThatThrownBy(() -> authService.resetPassword(request, activeUser.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Reset token is required");
+
+        verify(passwordResetTokenRepository, never()).findByToken(anyString());
+        verify(userRepository, never()).save(activeUser);
+    }
+
+    @Test
+    @DisplayName("Should issue a 5-minute token window for temporary-password login")
+    void login_WithTemporaryPassword_ReturnsShortLivedTokens() {
+        Authentication authentication = mock(Authentication.class);
+        User invitedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("invited@example.com")
+                .password("encodedPassword")
+                .firstName("Invited")
+                .lastName("User")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000555")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().plusDays(5))
+                .build();
+
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(authentication);
+        when(userRepository.findByEmail(invitedUser.getEmail()))
+                .thenReturn(Optional.of(invitedUser));
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(3600000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(7200000L);
+        when(tokenProvider.generateToken(eq(invitedUser), anyLong())).thenReturn("shortAccessToken");
+        when(tokenProvider.generateRefreshToken(eq(invitedUser), anyLong())).thenReturn("shortRefreshToken");
+        when(userService.convertToDto(invitedUser)).thenReturn(UserDto.builder().id(invitedUser.getId()).build());
+
+        LoginResponse response = authService.login(new LoginRequest(invitedUser.getEmail(), "password123"));
+
+        ArgumentCaptor<Long> accessExpiryCaptor = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<Long> refreshExpiryCaptor = ArgumentCaptor.forClass(Long.class);
+
+        assertThat(response.token()).isEqualTo("shortAccessToken");
+        assertThat(response.refreshToken()).isEqualTo("shortRefreshToken");
+        assertThat(response.expiresIn()).isBetween(1L, 300000L);
+        verify(tokenProvider).generateToken(eq(invitedUser), accessExpiryCaptor.capture());
+        verify(tokenProvider).generateRefreshToken(eq(invitedUser), refreshExpiryCaptor.capture());
+        assertThat(accessExpiryCaptor.getValue()).isBetween(1L, 300000L);
+        assertThat(refreshExpiryCaptor.getValue()).isBetween(1L, 300000L);
+    }
+
+    @Test
+    @DisplayName("Should reject refresh when temporary-password session timed out")
+    void refreshToken_WhenTemporaryPasswordSessionExpired_ThrowsBadRequestException() {
+        String refreshToken = "validRefreshToken";
+        RefreshTokenRequest request = new RefreshTokenRequest(refreshToken);
+        User invitedUser = User.builder()
+                .id(UUID.randomUUID())
+                .email("invited@example.com")
+                .password("encodedPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000555")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().plusDays(5))
+                .lastLogin(LocalDateTime.now().minusMinutes(6))
+                .lastActivityAt(LocalDateTime.now())
+                .build();
+
+        when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(invitedUser.getId());
+        when(userRepository.findById(invitedUser.getId())).thenReturn(Optional.of(invitedUser));
+        when(userSessionService.isIdleExpired(invitedUser)).thenReturn(false);
+        when(userSessionService.isPasswordChangeSessionExpired(invitedUser)).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.refreshToken(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Temporary password session expired");
+    }
+
+    @Test
+    @DisplayName("Should reject refresh token issued before session invalidation cutoff")
+    void refreshToken_WhenRefreshTokenWasRevoked_ThrowsBadRequestException() {
+        String refreshToken = "validRefreshToken";
+        RefreshTokenRequest request = new RefreshTokenRequest(refreshToken);
+        User user = User.builder()
+                .id(UUID.randomUUID())
+                .email("user@example.com")
+                .password("encodedPassword")
+                .phoneNumber("1234567890")
+                .country("KE")
+                .customerNumber("KE00000123")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .sessionValidAfter(LocalDateTime.now())
+                .build();
+
+        when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(user.getId());
+        when(tokenProvider.getIssuedAtFromToken(refreshToken))
+                .thenReturn(java.util.Date.from(LocalDateTime.now().minusMinutes(1).atZone(java.time.ZoneId.systemDefault()).toInstant()));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.refreshToken(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Session is no longer valid");
     }
 
     @Test

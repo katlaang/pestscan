@@ -22,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.UUID;
 
 /**
@@ -76,15 +78,17 @@ public class AuthService {
             userRepository.save(user);
 
             // Generate tokens
-            String accessToken = tokenProvider.generateToken(user);
-            String refreshToken = tokenProvider.generateRefreshToken(user);
+            long accessTokenExpirationMillis = resolveAccessTokenExpirationMillis(user);
+            long refreshTokenExpirationMillis = resolveRefreshTokenExpirationMillis(user);
+            String accessToken = tokenProvider.generateToken(user, accessTokenExpirationMillis);
+            String refreshToken = tokenProvider.generateRefreshToken(user, refreshTokenExpirationMillis);
 
             log.info("User logged in successfully: {}", user.getEmail());
 
             return LoginResponse.builder()
                     .token(accessToken)
                     .refreshToken(refreshToken)
-                    .expiresIn(tokenProvider.getAccessTokenExpirationMillis())
+                    .expiresIn(accessTokenExpirationMillis)
                     .user(userService.convertToDto(user))
                     .build();
 
@@ -148,6 +152,7 @@ public class AuthService {
         targetUser.setIsEnabled(true);
         passwordPolicyService.validateAndApplyPassword(targetUser, request.temporaryPassword());
         targetUser.beginTemporaryPasswordWindow(userOnboardingService.calculateTemporaryPasswordExpiry());
+        targetUser.invalidateSessions();
 
         User savedUser = userRepository.save(targetUser);
         passwordPolicyService.recordPassword(savedUser, request.temporaryPassword());
@@ -187,8 +192,12 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
         expirePendingInvitationIfNeeded(user);
+        assertTokenIsCurrent(user, refreshToken);
         if (userSessionService.isIdleExpired(user)) {
             throw new BadRequestException("Session expired due to inactivity. Please log in again.");
+        }
+        if (userSessionService.isPasswordChangeSessionExpired(user)) {
+            throw new BadRequestException("Temporary password session expired. Please log in again.");
         }
 
         // Check if user is enabled
@@ -196,18 +205,22 @@ public class AuthService {
             throw new BadRequestException("User account is disabled");
         }
 
-        passwordPolicyService.assertPasswordIsCurrent(user);
+        if (!requiresCredentialChange(user)) {
+            passwordPolicyService.assertPasswordIsCurrent(user);
+        }
 
         // Generate new tokens
-        String newAccessToken = tokenProvider.generateToken(user);
-        String newRefreshToken = tokenProvider.generateRefreshToken(user);
+        long accessTokenExpirationMillis = resolveAccessTokenExpirationMillis(user);
+        long refreshTokenExpirationMillis = resolveRefreshTokenExpirationMillis(user);
+        String newAccessToken = tokenProvider.generateToken(user, accessTokenExpirationMillis);
+        String newRefreshToken = tokenProvider.generateRefreshToken(user, refreshTokenExpirationMillis);
 
         log.info("Tokens refreshed for user: {}", user.getEmail());
 
         return LoginResponse.builder()
                 .token(newAccessToken)
                 .refreshToken(newRefreshToken)
-                .expiresIn(tokenProvider.getAccessTokenExpirationMillis())
+                .expiresIn(accessTokenExpirationMillis)
                 .user(userService.convertToDto(user))
                 .build();
     }
@@ -252,6 +265,11 @@ public class AuthService {
      */
     @Transactional
     public void resetPassword(ResetPasswordRequest request, UUID actingUserId) {
+        if (request.token() == null || request.token().isBlank()) {
+            resetAuthenticatedUserPassword(request, actingUserId);
+            return;
+        }
+
         PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(request.token())
                 .orElseThrow(() -> new BadRequestException("Invalid or expired reset token"));
 
@@ -281,6 +299,7 @@ public class AuthService {
 
         passwordPolicyService.validateAndApplyPassword(user, request.password());
         user.completePasswordReset();
+        user.invalidateSessions();
         User savedUser = userRepository.save(user);
         passwordPolicyService.recordPassword(savedUser, request.password());
 
@@ -297,12 +316,101 @@ public class AuthService {
         log.info("Password reset completed for {} via {}", user.getEmail(), channel);
     }
 
+    private void resetAuthenticatedUserPassword(ResetPasswordRequest request, UUID actingUserId) {
+        if (actingUserId == null) {
+            throw new BadRequestException("Reset token is required");
+        }
+
+        User user = userRepository.findById(actingUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", actingUserId));
+
+        expirePendingInvitationIfNeeded(user);
+
+        if (!user.isActive()) {
+            throw new BadRequestException("User account is disabled");
+        }
+
+        if (!requiresCredentialChange(user)) {
+            throw new BadRequestException("Reset token is required");
+        }
+
+        passwordPolicyService.validateAndApplyPassword(user, request.password());
+        user.completePasswordReset();
+        user.invalidateSessions();
+        User savedUser = userRepository.save(user);
+        passwordPolicyService.recordPassword(savedUser, request.password());
+        invalidateExistingTokens(user);
+
+        log.info("Authenticated password change completed for {}", user.getEmail());
+    }
+
+    @Transactional
+    public void changePassword(ChangePasswordRequest request, UUID actingUserId) {
+        User user = userRepository.findById(actingUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", actingUserId));
+
+        expirePendingInvitationIfNeeded(user);
+
+        if (!user.isActive()) {
+            throw new BadRequestException("User account is disabled");
+        }
+
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(user.getEmail(), request.currentPassword())
+            );
+        } catch (AuthenticationException ex) {
+            throw new BadRequestException("Current password is incorrect");
+        }
+
+        passwordPolicyService.validateAndApplyPassword(user, request.newPassword());
+        user.completePasswordReset();
+        user.invalidateSessions();
+        User savedUser = userRepository.save(user);
+        passwordPolicyService.recordPassword(savedUser, request.newPassword());
+
+        log.info("Authenticated password change completed for {}", user.getEmail());
+    }
+
     private void invalidateExistingTokens(User user) {
         passwordResetTokenRepository.findByUserAndUsedAtIsNull(user)
                 .forEach(token -> {
                     token.setUsedAt(LocalDateTime.now());
                     passwordResetTokenRepository.save(token);
                 });
+    }
+
+    private void assertTokenIsCurrent(User user, String token) {
+        if (user == null || user.getSessionValidAfter() == null) {
+            return;
+        }
+
+        Date issuedAt = tokenProvider.getIssuedAtFromToken(token);
+        if (issuedAt == null) {
+            return;
+        }
+
+        LocalDateTime issuedAtDateTime = LocalDateTime.ofInstant(issuedAt.toInstant(), ZoneId.systemDefault());
+        if (issuedAtDateTime.isBefore(user.getSessionValidAfter())) {
+            throw new BadRequestException("Session is no longer valid. Please log in again.");
+        }
+    }
+
+    private long resolveAccessTokenExpirationMillis(User user) {
+        return resolveTokenExpirationMillis(user, tokenProvider.getAccessTokenExpirationMillis());
+    }
+
+    private long resolveRefreshTokenExpirationMillis(User user) {
+        return resolveTokenExpirationMillis(user, tokenProvider.getRefreshTokenExpirationMillis());
+    }
+
+    private long resolveTokenExpirationMillis(User user, long defaultExpirationMillis) {
+        if (user == null || !requiresCredentialChange(user)) {
+            return defaultExpirationMillis;
+        }
+
+        long remainingMillis = userSessionService.getRemainingPasswordChangeSessionMillis(user);
+        return remainingMillis == Long.MAX_VALUE ? defaultExpirationMillis : Math.max(1L, Math.min(defaultExpirationMillis, remainingMillis));
     }
 
     private void validatePhoneReset(ResetPasswordRequest request, User user, PasswordResetToken resetToken, UUID actingUserId) {
@@ -521,8 +629,6 @@ public class AuthService {
         if (!user.isActive()) {
             throw new BadRequestException("User account is disabled");
         }
-
-        passwordPolicyService.assertPasswordIsCurrent(user);
     }
 
     private void expirePendingInvitationIfNeeded(User user) {
@@ -534,5 +640,9 @@ public class AuthService {
         userRepository.save(user);
         userOnboardingService.invalidateActiveTokens(user);
         throw new BadRequestException("Temporary password has expired. Contact a super admin to reactivate your profile.");
+    }
+
+    private boolean requiresCredentialChange(User user) {
+        return user != null && user.requiresPasswordChange();
     }
 }

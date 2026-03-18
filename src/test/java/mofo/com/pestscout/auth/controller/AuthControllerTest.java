@@ -267,6 +267,59 @@ class AuthControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("POST /api/auth/reset-password allows authenticated forced password change without token")
+    void resetPassword_WithAuthenticatedUserAndNoToken_ReturnsNoContent() throws Exception {
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("newPassword", "newPassword123")))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isNoContent());
+
+        verify(authService).resetPassword(
+                argThat(request -> request.token() == null
+                        && "newPassword123".equals(request.password())
+                        && request.verificationChannel() == null),
+                eq(userId)
+        );
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password requires token when unauthenticated")
+    void resetPassword_WithoutTokenAndWithoutAuthenticatedUser_ReturnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("newPassword", "newPassword123"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Reset token is required"));
+
+        verify(authService, never()).resetPassword(any(ResetPasswordRequest.class), any(UUID.class));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/change-password forwards authenticated requests")
+    void changePassword_WithAuthenticatedUser_ReturnsNoContent() throws Exception {
+        mockMvc.perform(post("/api/auth/change-password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "currentPassword", "currentPassword123",
+                                "newPassword", "newPassword123"
+                        )))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isNoContent());
+
+        verify(authService).changePassword(
+                argThat(request -> "currentPassword123".equals(request.currentPassword())
+                        && "newPassword123".equals(request.newPassword())),
+                eq(userId)
+        );
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/auth/me returns current profile")
     void getCurrentUser_WithValidToken_ReturnsUser() throws Exception {
         when(authService.getCurrentUser(any(UUID.class))).thenReturn(userDto);

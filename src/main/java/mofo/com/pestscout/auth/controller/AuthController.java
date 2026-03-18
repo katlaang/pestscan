@@ -228,7 +228,7 @@ public class AuthController {
             @RequestParam(value = "token", required = false) String token,
             @RequestAttribute(value = "userId", required = false) UUID requestingUserId) {
         ResetPasswordRequest normalizedRequest = request.withResolvedToken(token);
-        if (normalizedRequest.token() == null || normalizedRequest.token().isBlank()) {
+        if ((normalizedRequest.token() == null || normalizedRequest.token().isBlank()) && requestingUserId == null) {
             throw new BadRequestException("Reset token is required");
         }
 
@@ -236,6 +236,20 @@ public class AuthController {
                 normalizedRequest.verificationChannel() == null ? "AUTO" : normalizedRequest.verificationChannel(),
                 requestingUserId);
         authService.resetPassword(normalizedRequest, requestingUserId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/change-password")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Change password",
+            description = "Change the authenticated user's password using the current password. This works for voluntary password updates and for authenticated expired-password sessions."
+    )
+    public ResponseEntity<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request,
+            @RequestAttribute("userId") UUID requestingUserId) {
+        LOGGER.info("Change password request by {}", requestingUserId);
+        authService.changePassword(request, requestingUserId);
         return ResponseEntity.noContent().build();
     }
 

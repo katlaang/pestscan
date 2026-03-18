@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import mofo.com.pestscout.PestscoutApplication;
 import mofo.com.pestscout.auth.dto.*;
 import mofo.com.pestscout.auth.model.Role;
+import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -296,5 +298,123 @@ class AuthIntegrationTest {
                         .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, "NewSecurePass123!"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.email").value(uniqueEmail));
+    }
+
+    @Test
+    void changePasswordAllowsAuthenticatedUsersToRotatePasswordsBeforeExpiry() throws Exception {
+        String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
+        String oldPassword = "password123";
+        String newPassword = "NewSecurePass123!";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password(oldPassword)
+                .firstName("Integration")
+                .lastName("Tester")
+                .phoneNumber("555-0100")
+                .country("Kenya")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated());
+
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, oldPassword))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        LoginResponse loginResponse = objectMapper.readValue(
+                loginResult.getResponse().getContentAsString(),
+                LoginResponse.class
+        );
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "currentPassword", oldPassword,
+                                "newPassword", newPassword
+                        ))))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, oldPassword))))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, newPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.email").value(uniqueEmail));
+    }
+
+    @Test
+    void expiredPasswordLoginReturnsRestrictedSessionUntilPasswordIsChanged() throws Exception {
+        String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
+        String oldPassword = "password123";
+        String newPassword = "NewSecurePass123!";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password(oldPassword)
+                .firstName("Integration")
+                .lastName("Tester")
+                .phoneNumber("555-0100")
+                .country("Kenya")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated());
+
+        User user = userRepository.findByEmail(uniqueEmail).orElseThrow();
+        user.setPasswordExpiresAt(java.time.LocalDateTime.now().minusDays(1));
+        userRepository.save(user);
+
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, oldPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.passwordExpired").value(true))
+                .andExpect(jsonPath("$.user.passwordChangeRequired").value(true))
+                .andReturn();
+
+        LoginResponse loginResponse = objectMapper.readValue(
+                loginResult.getResponse().getContentAsString(),
+                LoginResponse.class
+        );
+
+        mockMvc.perform(get("/api/farms")
+                        .header("Authorization", "Bearer " + loginResponse.token()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("PASSWORD_CHANGE_REQUIRED"));
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "currentPassword", oldPassword,
+                                "newPassword", newPassword
+                        ))))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/farms")
+                        .header("Authorization", "Bearer " + loginResponse.token()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("SESSION_INVALID"));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(uniqueEmail, newPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.email").value(uniqueEmail))
+                .andExpect(jsonPath("$.user.passwordExpired").value(false));
     }
 }

@@ -23,6 +23,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.UUID;
 
 /**
@@ -110,9 +113,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         return;
                     }
 
+                    if (isTokenRevoked(domainUser, jwt)) {
+                        LOGGER.debug("Ignoring JWT issued before session cutoff for user '{}'", email);
+                        markAuthenticationFailure(request, "SESSION_INVALID", "Your session is no longer valid. Please log in again.");
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
                     if (userSessionService.isIdleExpired(domainUser)) {
                         LOGGER.debug("Ignoring JWT for idle-expired user '{}'", email);
                         markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session expired due to inactivity. Please log in again.");
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
+                    if (userSessionService.isPasswordChangeSessionExpired(domainUser)) {
+                        LOGGER.debug("Ignoring JWT for expired temporary-password session '{}'", email);
+                        markAuthenticationFailure(request, "PASSWORD_CHANGE_SESSION_EXPIRED", "Temporary password session expired. Please log in again.");
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
+                    if (domainUser.requiresPasswordChange() && !isAllowedDuringPasswordChange(request)) {
+                        LOGGER.debug("Rejecting JWT access for user '{}' until password change completes", email);
+                        markAuthenticationFailure(request, "PASSWORD_CHANGE_REQUIRED", "Change your password to continue.");
                         SecurityContextHolder.clearContext();
                         filterChain.doFilter(request, response);
                         return;
@@ -185,6 +212,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean shouldRecordActivity(HttpServletRequest request) {
         return !"/api/auth/refresh".equals(request.getRequestURI());
+    }
+
+    private boolean isAllowedDuringPasswordChange(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
+        String requestUri = request.getRequestURI();
+        return "/api/auth/reset-password".equals(requestUri)
+                || "/api/auth/change-password".equals(requestUri)
+                || "/api/auth/me".equals(requestUri)
+                || "/api/auth/refresh".equals(requestUri);
+    }
+
+    private boolean isTokenRevoked(User user, String token) {
+        if (user.getSessionValidAfter() == null) {
+            return false;
+        }
+
+        Date issuedAt = tokenProvider.getIssuedAtFromToken(token);
+        if (issuedAt == null) {
+            return false;
+        }
+
+        LocalDateTime issuedAtDateTime = LocalDateTime.ofInstant(issuedAt.toInstant(), ZoneId.systemDefault());
+        return issuedAtDateTime.isBefore(user.getSessionValidAfter());
     }
 
     private void markAuthenticationFailure(HttpServletRequest request, String errorCode, String message) {
