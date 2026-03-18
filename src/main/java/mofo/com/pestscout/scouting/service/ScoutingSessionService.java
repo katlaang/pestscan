@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ScoutingSessionService {
 
+    private static final UUID UNASSIGNED_USER_ID = new UUID(0L, 0L);
+
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
     private final ScoutingSessionTargetRepository sessionTargetRepository;
@@ -109,6 +111,10 @@ public class ScoutingSessionService {
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
+        if (request.status() == SessionStatus.NEW && !isPlanningComplete(session)) {
+            throw new BadRequestException("A scouting session needs an assigned scout and at least one target before it can move to NEW.");
+        }
+        normalizePlanningStatus(session);
 
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Created scouting session {} for farm {}", saved.getId(), farm.getId());
@@ -139,6 +145,9 @@ public class ScoutingSessionService {
         if (request.weekNumber() != null) {
             session.setWeekNumber(request.weekNumber());
         }
+        if (request.scoutId() != null) {
+            session.setScout(resolveRequestedScout(request.scoutId(), session.getFarm()));
+        }
         if (request.crop() != null) {
             session.setCropType(request.crop());
         }
@@ -165,8 +174,14 @@ public class ScoutingSessionService {
         }
 
         if (request.status() != null && request.status() != session.getStatus()) {
-            SessionStateMachine.assertTransition(session.getStatus(), request.status(), farmAccessService.getCurrentUserRole());
-            session.setStatus(request.status());
+            if (request.status() == SessionStatus.DRAFT || request.status() == SessionStatus.NEW) {
+                if (session.getStatus() != SessionStatus.DRAFT && session.getStatus() != SessionStatus.NEW) {
+                    throw new BadRequestException("Only planning sessions can move between DRAFT and NEW during metadata edits.");
+                }
+            } else {
+                SessionStateMachine.assertTransition(session.getStatus(), request.status(), farmAccessService.getCurrentUserRole());
+                session.setStatus(request.status());
+            }
         }
 
         if (request.targets() != null && !request.targets().isEmpty()) {
@@ -178,6 +193,10 @@ public class ScoutingSessionService {
             resolvedTargets.forEach(target -> session.addTarget(buildTarget(target)));
         }
 
+        if (request.status() == SessionStatus.NEW && !isPlanningComplete(session)) {
+            throw new BadRequestException("A scouting session needs an assigned scout and at least one target before it can move to NEW.");
+        }
+        normalizePlanningStatus(session);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
         ScoutingSession saved = sessionRepository.save(session);
         log.info("Updated scouting session {}", saved.getId());
@@ -185,6 +204,21 @@ public class ScoutingSessionService {
                 request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
         return mapToDetailDto(saved);
+    }
+
+    @Transactional
+    public void deleteSession(UUID sessionId) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
+
+        if (session.getStatus() != SessionStatus.DRAFT && session.getStatus() != SessionStatus.NEW) {
+            throw new BadRequestException("Only draft or new scouting sessions can be deleted.");
+        }
+
+        sessionRepository.delete(session);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
     }
 
     /**
@@ -685,7 +719,7 @@ public class ScoutingSessionService {
     }
 
     /**
-     * Only sessions in DRAFT or IN_PROGRESS can have their metadata changed.
+     * Planning and reopened sessions can still have metadata changed.
      */
     private void ensureSessionEditableForMetadata(ScoutingSession session) {
         if (session.getStatus() == SessionStatus.COMPLETED
@@ -737,6 +771,21 @@ public class ScoutingSessionService {
         }
 
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.IN_PROGRESS, Role.SCOUT);
+    }
+
+    private void normalizePlanningStatus(ScoutingSession session) {
+        if (session.getStatus() != SessionStatus.DRAFT && session.getStatus() != SessionStatus.NEW) {
+            return;
+        }
+
+        session.setStatus(isPlanningComplete(session) ? SessionStatus.NEW : SessionStatus.DRAFT);
+    }
+
+    private boolean isPlanningComplete(ScoutingSession session) {
+        return session.getSessionDate() != null
+                && session.getScout() != null
+                && session.getTargets() != null
+                && !session.getTargets().isEmpty();
     }
 
     private void ensureScoutCanEdit(ScoutingSession session) {
@@ -878,11 +927,11 @@ public class ScoutingSessionService {
         List<ResolvedTarget> defaults = new ArrayList<>();
 
         greenhouseRepository.findByFarmId(farm.getId()).forEach(greenhouse ->
-                defaults.add(new ResolvedTarget(greenhouse, null, true, true, List.of(), List.of()))
+                defaults.add(new ResolvedTarget(greenhouse, null, true, true, List.of(), List.of(), null))
         );
 
         fieldBlockRepository.findByFarmId(farm.getId()).forEach(fieldBlock ->
-                defaults.add(new ResolvedTarget(null, fieldBlock, true, true, List.of(), List.of()))
+                defaults.add(new ResolvedTarget(null, fieldBlock, true, true, List.of(), List.of(), null))
         );
 
         return List.copyOf(defaults);
@@ -893,8 +942,16 @@ public class ScoutingSessionService {
             return validateAssignedScout(farm.getScout(), farm, "farm");
         }
 
-        User scout = userRepository.findById(request.scoutId())
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.scoutId()));
+        return resolveRequestedScout(request.scoutId(), farm);
+    }
+
+    private User resolveRequestedScout(UUID scoutId, Farm farm) {
+        if (UNASSIGNED_USER_ID.equals(scoutId)) {
+            return null;
+        }
+
+        User scout = userRepository.findById(scoutId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", scoutId));
 
         return validateAssignedScout(scout, farm, "requested");
     }
@@ -1086,7 +1143,8 @@ public class ScoutingSessionService {
                             target.getIncludeAllBenches(),
                             List.copyOf(target.getBayTags()),
                             List.copyOf(target.getBenchTags()),
-                            targetObservations
+                            targetObservations,
+                            target.getAreaHectares()
                     );
                 })
                 .toList();
@@ -1173,6 +1231,7 @@ public class ScoutingSessionService {
                 .includeAllBenches(target.includeAllBenches())
                 .bayTags(target.bayTags())
                 .benchTags(target.benchTags())
+                .areaHectares(target.areaHectares())
                 .build();
     }
 
@@ -1187,6 +1246,7 @@ public class ScoutingSessionService {
 
         List<String> bayTags = normalizeTags(targetRequest.bayTags());
         List<String> benchTags = normalizeTags(targetRequest.benchTags());
+        BigDecimal areaHectares = targetRequest.areaHectares();
 
         if (!includeAllBays && bayTags.isEmpty()) {
             throw new BadRequestException("Provide bayTags when includeAllBays is false.");
@@ -1194,8 +1254,11 @@ public class ScoutingSessionService {
         if (!includeAllBenches && benchTags.isEmpty()) {
             throw new BadRequestException("Provide benchTags when includeAllBenches is false.");
         }
+        if (areaHectares != null && areaHectares.signum() < 0) {
+            throw new BadRequestException("Target area cannot be negative.");
+        }
 
-        return new ResolvedTarget(greenhouse, fieldBlock, includeAllBays, includeAllBenches, bayTags, benchTags);
+        return new ResolvedTarget(greenhouse, fieldBlock, includeAllBays, includeAllBenches, bayTags, benchTags, areaHectares);
     }
 
     private BigDecimal calculateRequestedArea(List<ResolvedTarget> resolvedTargets) {
@@ -1205,6 +1268,10 @@ public class ScoutingSessionService {
     }
 
     private BigDecimal calculateTargetArea(ResolvedTarget target) {
+        if (target.areaHectares() != null) {
+            return target.areaHectares();
+        }
+
         int bayCount = target.greenhouse() != null
                 ? target.greenhouse().resolvedBayCount()
                 : target.fieldBlock().resolvedBayCount();
@@ -1269,7 +1336,8 @@ public class ScoutingSessionService {
             Boolean includeAllBays,
             Boolean includeAllBenches,
             List<String> bayTags,
-            List<String> benchTags
+            List<String> benchTags,
+            BigDecimal areaHectares
     ) {
     }
 

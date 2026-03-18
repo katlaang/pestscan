@@ -377,6 +377,7 @@ class HeatmapServiceTest {
 
         Greenhouse greenhouseWithDefaults = Greenhouse.builder()
                 .id(UUID.randomUUID())
+                .farm(testFarm)
                 .name("Default House")
                 .build();
 

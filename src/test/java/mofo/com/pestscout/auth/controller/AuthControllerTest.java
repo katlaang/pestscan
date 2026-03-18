@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,8 +36,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("AuthController Unit Tests")
@@ -99,21 +100,51 @@ class AuthControllerTest {
                 .refreshToken("refreshToken")
                 .expiresIn(86400000L)
                 .user(userDto)
+                .clientSessionId("client-session-1")
                 .build();
     }
 
     @Test
     @DisplayName("POST /api/auth/login returns token payload")
     void login_WithValidCredentials_ReturnsLoginResponse() throws Exception {
-        when(authService.login(any(LoginRequest.class))).thenReturn(loginResponse);
+        when(authService.login(any(LoginRequest.class), nullable(String.class))).thenReturn(loginResponse);
 
         mockMvc.perform(post("/api/auth/login")
                         .with(csrf())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, "client-session-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("accessToken"))
-                .andExpect(jsonPath("$.user.email").value(userDto.getEmail()));
+                .andExpect(jsonPath("$.user.email").value(userDto.getEmail()))
+                .andExpect(jsonPath("$.clientSessionId").value("client-session-1"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/session/claim returns token payload")
+    void claimSession_WithValidRefreshToken_ReturnsLoginResponse() throws Exception {
+        ClaimSessionRequest claimSessionRequest = new ClaimSessionRequest("refreshToken");
+        when(authService.claimSession(any(ClaimSessionRequest.class), eq("client-session-2"))).thenReturn(loginResponse);
+
+        mockMvc.perform(post("/api/auth/session/claim")
+                        .with(csrf())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, "client-session-2")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(claimSessionRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("accessToken"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/auth/session/events opens session event stream")
+    void streamSessionEvents_WithAuthenticatedUser_StartsAsyncStream() throws Exception {
+        when(authService.subscribeSessionEvents(userId, "client-session-1")).thenReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/auth/session/events")
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, "client-session-1")
+                        .requestAttr("userId", userId))
+                .andExpect(request().asyncStarted());
     }
 
     @Test

@@ -20,7 +20,8 @@ public record CreateFieldBlockRequest(
         Integer spotChecksPerBay,
         List<String> bayTags,
         Boolean active,
-        BigDecimal areaHectares
+        BigDecimal areaHectares,
+        String cropType
 ) {
 
     public CreateFieldBlockRequest(
@@ -30,6 +31,17 @@ public record CreateFieldBlockRequest(
             List<String> bayTags,
             Boolean active
     ) {
-        this(name, bayCount, spotChecksPerBay, bayTags, active, null);
+        this(name, bayCount, spotChecksPerBay, bayTags, active, null, null);
+    }
+
+    public CreateFieldBlockRequest(
+            String name,
+            Integer bayCount,
+            Integer spotChecksPerBay,
+            List<String> bayTags,
+            Boolean active,
+            BigDecimal areaHectares
+    ) {
+        this(name, bayCount, spotChecksPerBay, bayTags, active, areaHectares, null);
     }
 }

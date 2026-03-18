@@ -1,5 +1,6 @@
 package mofo.com.pestscout.analytics.dto;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,7 +14,8 @@ import java.util.UUID;
          Boolean includeAllBays,
          Boolean includeAllBenches,
          List<String> bayTags,
-         List<String> benchTags
+         List<String> benchTags,
+         BigDecimal areaHectares
  ) {
      public SessionTargetRequest {
          if (greenhouseId == null && fieldBlockId == null) {
@@ -23,4 +25,15 @@ import java.util.UUID;
              throw new IllegalArgumentException("Target cannot reference both greenhouse and field block");
          }
      }
+
+    public SessionTargetRequest(
+            UUID greenhouseId,
+            UUID fieldBlockId,
+            Boolean includeAllBays,
+            Boolean includeAllBenches,
+            List<String> bayTags,
+            List<String> benchTags
+    ) {
+        this(greenhouseId, fieldBlockId, includeAllBays, includeAllBenches, bayTags, benchTags, null);
+    }
  }

@@ -2,16 +2,15 @@ package mofo.com.pestscout.farm.service;
 
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.UserFarmMembership;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.service.CustomerNumberService;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
-import mofo.com.pestscout.farm.dto.CreateFarmRequest;
-import mofo.com.pestscout.farm.dto.CreateFieldBlockRequest;
-import mofo.com.pestscout.farm.dto.FarmResponse;
-import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
+import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
@@ -51,6 +50,9 @@ class FarmServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private UserFarmMembershipRepository membershipRepository;
 
     @Mock
     private CustomerNumberService customerNumberService;
@@ -431,6 +433,41 @@ class FarmServiceTest {
     }
 
     @Test
+    @DisplayName("Manager should see farms through active memberships")
+    void listFarms_AsManager_ReturnsMembershipFarms() {
+        User manager = User.builder()
+                .id(UUID.randomUUID())
+                .email("manager@example.com")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .build();
+        Farm membershipFarm = Farm.builder()
+                .id(UUID.randomUUID())
+                .name("Membership Farm")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .structureType(FarmStructureType.GREENHOUSE)
+                .licensedAreaHectares(new BigDecimal("3.00"))
+                .build();
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
+        when(currentUserService.getCurrentUserId()).thenReturn(manager.getId());
+        when(farmRepository.findByOwnerId(manager.getId())).thenReturn(List.of());
+        when(membershipRepository.findByUser_Id(manager.getId())).thenReturn(List.of(
+                UserFarmMembership.builder()
+                        .user(manager)
+                        .farm(membershipFarm)
+                        .role(Role.MANAGER)
+                        .isActive(true)
+                        .build()
+        ));
+
+        List<FarmResponse> response = farmService.listFarms();
+
+        assertThat(response).singleElement().satisfies(farm -> assertThat(farm.id()).isEqualTo(membershipFarm.getId()));
+    }
+
+    @Test
     @DisplayName("Scout should not list farms")
     void listFarms_AsScout_ThrowsForbiddenException() {
         // Arrange
@@ -666,6 +703,56 @@ class FarmServiceTest {
                         && farm.getFieldBlocks().size() == 1
                         && farm.getFieldBlocks().getFirst().getBayCount() == 9
                         && farm.getFieldBlocks().getFirst().getSpotChecksPerBay() == 4
+        ));
+    }
+
+    @Test
+    @DisplayName("Should generate bay and bench tags when farm structures omit them")
+    void createFarm_WithoutStructureTags_GeneratesDefaults() {
+        CreateFarmRequest request = new CreateFarmRequest(
+                "Tagged Farm",
+                "Generated layout tags",
+                "123 Farm Road",
+                "Farmville",
+                "Ontario",
+                "N1N 1N1",
+                "Canada",
+                farmOwner.getId(),
+                scout.getId(),
+                "John Doe",
+                "john@example.com",
+                "555-1234",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.STANDARD,
+                "billing@example.com",
+                new BigDecimal("15.00"),
+                100,
+                new BigDecimal("5.00"),
+                FarmStructureType.GREENHOUSE,
+                4,
+                3,
+                2,
+                List.of(new CreateGreenhouseRequest("House 1", null, 2, 3, 2, List.of(), List.of(), new BigDecimal("1.50"))),
+                List.of(new CreateFieldBlockRequest("Field 1", 2, 2, List.of(), true, new BigDecimal("2.00"))),
+                "America/Toronto",
+                LocalDate.now().plusYears(1),
+                true
+        );
+
+        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.createFarm(request);
+
+        assertThat(response.name()).isEqualTo("Tagged Farm");
+        verify(farmRepository).save(argThat(farm ->
+                farm.getGreenhouses().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
+                        && farm.getGreenhouses().getFirst().getBenchTags().equals(List.of("Bed-1", "Bed-2", "Bed-3"))
+                        && farm.getFieldBlocks().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
         ));
     }
 

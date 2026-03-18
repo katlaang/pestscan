@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.farm.model.Farm;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
 public class FarmAccessService {
 
     private final CurrentUserService currentUser;
+    private final UserFarmMembershipRepository membershipRepository;
 
     // ---------------------------------------------------------
     // BASIC ROLE CHECKS
@@ -53,7 +55,9 @@ public class FarmAccessService {
 
         if (user.getRole() == Role.SUPER_ADMIN) return;
 
-        if (farm.getOwner() != null && farm.getOwner().getId().equals(user.getId())) return;
+        if (isOwner(farm, user)) return;
+        if (hasActiveFarmMembership(user, farm, Role.FARM_ADMIN, Role.MANAGER, Role.SCOUT)) return;
+        if (farm.getScout() != null && farm.getScout().getId().equals(user.getId())) return;
 
         log.warn("User {} attempted to VIEW farm {} without permission",
                 user.getEmail(), farm.getId());
@@ -71,7 +75,7 @@ public class FarmAccessService {
 
         if (user.getRole() == Role.SUPER_ADMIN) return;
 
-        if (farm.getOwner() != null && farm.getOwner().getId().equals(user.getId())) {
+        if (isOwner(farm, user) || hasActiveFarmMembership(user, farm, Role.FARM_ADMIN, Role.MANAGER)) {
             return;
         }
 
@@ -92,6 +96,10 @@ public class FarmAccessService {
             return;
         }
 
+        if (hasActiveFarmMembership(user, farm, Role.SCOUT)) {
+            return;
+        }
+
         log.warn("User {} attempted SCOUT-ONLY action on farm {}", user.getEmail(), farm.getId());
         throw new ForbiddenException("Only the assigned scout can perform this action.");
     }
@@ -108,5 +116,26 @@ public class FarmAccessService {
 
     public User getCurrent() {
         return currentUser.getCurrentUser();
+    }
+
+    private boolean isOwner(Farm farm, User user) {
+        return farm.getOwner() != null && farm.getOwner().getId().equals(user.getId());
+    }
+
+    private boolean hasActiveFarmMembership(User user, Farm farm, Role... allowedRoles) {
+        return membershipRepository.findByUser_IdAndFarmId(user.getId(), farm.getId())
+                .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                .map(membership -> {
+                    if (allowedRoles == null || allowedRoles.length == 0) {
+                        return true;
+                    }
+                    for (Role allowedRole : allowedRoles) {
+                        if (membership.getRole() == allowedRole) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                .orElse(false);
     }
 }

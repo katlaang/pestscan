@@ -1,0 +1,450 @@
+Frontend Implementation Handoff
+Project: PestScan
+Date: 2026-03-18
+
+Scope
+- This document covers the frontend implementation needed for the backend changes already present in this repo.
+- The backend repo does NOT contain the UI code, so the items below must be implemented in the frontend client.
+
+Main UI Behaviors To Implement
+1. Replace the draft planner button label "Save and publish as new" with "Save".
+2. When a super admin, farm admin, or manager saves a draft session and the planning data is complete, close the form and return to the main sessions list view. if they start creating a session and navigate away, label it as a draft.
+3. When an admin role opens a draft session, load it in read-only mode first. Show an explicit "Edit" action. Only enter edit mode after that click.
+4. Show the Delete action only for roles SUPER_ADMIN, FARM_ADMIN, and MANAGER, and only when session status is DRAFT or NEW.
+5. Never show Delete for SCOUT.
+6. A scout should not see draft sessions in the session list. They should only see assigned actionable sessions such as NEW, IN_PROGRESS, SUBMITTED, etc.
+7. Farm managers and farm admins should load the same farm dashboard surfaces as before: dashboard, analytics, heatmap, alerts, farms, and sessions. The backend now allows active farm membership access.
+8. Heatmap and session grid rendering should be by Bay ID and Bed ID. In the API, bed selection is still named "benchTags" in a few payloads for backward compatibility. Treat those as Bed IDs in the UI.
+9. The superadmin has a larger dashboard where they can see everything across all farms and can click per farm and see the dashboard
+
+Role Rules
+- SUPER_ADMIN
+  - Can create farms, greenhouses, field blocks, and planning sessions.
+  - Can edit draft and new sessions.
+  - Can delete draft and new sessions.
+  - Can assign scout, crop, bays, beds, and hectares.
+- FARM_ADMIN
+  - Can view farm/dashboard/sessions for farms they own or belong to.
+  - Can edit draft and new sessions except the farm part of it.
+  - Can delete draft and new sessions.
+- MANAGER
+  - Can view farm/dashboard/sessions for farms they own or belong to.
+  - Can edit draft and new sessions.
+  - Can delete draft and new sessions.
+  - cannot start or complete a session that has not been completed by a scout
+  - can reopen a session
+- SCOUT
+  - Cannot create sessions.
+  - Cannot delete draft or new sessions.
+  - Can view assigned sessions except draft.
+  - Can open a NEW session and start entering scouting observations.
+
+Session Status Rules
+- DRAFT means planning is incomplete.
+- NEW means planning is complete and ready for the scout.
+- Only DRAFT and NEW can be deleted.
+- The farm details part of the session cannot be edited by anyone except the super admin.
+- IN_PROGRESS, SUBMITTED, REOPENED, COMPLETED, INCOMPLETE, and CANCELLED must not show Delete in the UI.
+- Backend planning completion rule:
+  - sessionDate must exist
+  - scoutId must exist
+  - at least one target must exist
+- When that rule is satisfied and the planner saves, the backend returns status NEW.
+- if a scout starts a session but doesn't click complete on it, it stays in progress in red.
+
+Frontend Flow: Session Planner
+1. Open draft detail with GET /api/scouting/sessions/{sessionId}
+2. Render the page read-only if:
+   - current role is SUPER_ADMIN, FARM_ADMIN, or MANAGER
+   - session.status == DRAFT
+3. Show an "Edit" button.
+4. On Edit click:
+   - switch form controls to editable
+   - enable Save
+5. On Save:
+   - call PUT /api/scouting/sessions/{sessionId}
+   - include version from the loaded detail DTO
+6. After success:
+   - inspect response.status
+   - if response.status == NEW, navigate back to the general sessions list view
+   - invalidate or refetch the sessions query for that farm
+   - optionally show a success toast
+   -for draft sessions, have draft in yellow and for in progress or incomplete have in orange, submitted or compled in green, and reopened should have red and green stripes
+
+Frontend Flow: Session List
+- Load with GET /api/scouting/sessions?farmId={farmId}
+- For SCOUT:
+  - filter out DRAFT rows if the backend payload still includes them in any edge case
+  - show NEW, IN_PROGRESS, SUBMITTED, REOPENED, COMPLETED, INCOMPLETE as needed by product rules
+- For SUPER_ADMIN, FARM_ADMIN, MANAGER:
+  - show DRAFT and NEW rows
+  - show Edit for DRAFT and NEW
+  - show Delete for DRAFT and NEW only
+- Delete action:
+  - confirm in a modal
+  - call DELETE /api/scouting/sessions/{sessionId}
+  - on 204 remove the row from the list or refetch
+
+Frontend Flow: Scout Data Entry
+1. Scout opens a NEW session from the list.
+2. Load detail with GET /api/scouting/sessions/{sessionId}
+3. Start with POST /api/scouting/sessions/{sessionId}/start
+4. Save observations with:
+   - POST /api/scouting/sessions/{sessionId}/observations
+   - POST /api/scouting/sessions/{sessionId}/observations/bulk
+5. Submit with POST /api/scouting/sessions/{sessionId}/submit
+6. Complete with POST /api/scouting/sessions/{sessionId}/complete
+
+Farm Setup UI Requirements
+
+Greenhouse farm creation
+- The UI must allow:
+  - create greenhouse
+  - enter greenhouse name
+  - add N bays
+  - name each bay
+  - for each bay enter number of beds
+  - optionally set areaHectares
+  - optionally set spotChecksPerBench
+- The backend now supports per-bay bed counts through the "bays" array.
+
+Field farm creation
+- The UI must allow:
+  - create field block
+  - enter field name
+  - enter cropType for that field
+  - optionally enter bayCount if you use rows/strips
+  - optionally enter bay tags
+  - optionally enter areaHectares
+
+Session target editing requirements
+- In session planning, allow the planner to:
+  - select greenhouse or field block targets
+  - set includeAllBays / includeAllBenches
+  - pick specific bay IDs when includeAllBays is false
+  - pick specific bed IDs when includeAllBenches is false
+  - override areaHectares per target using targets[].areaHectares
+- Crop at session level is editable through session.crop and session.variety.
+
+Heatmap Rendering Rules
+- Use the monthly or dashboard heatmap endpoints described below.
+- Render each section by its own section layout.
+- Use HeatmapSectionResponse.bayLayouts to render rows:
+  - bayIndex
+  - bayTag
+  - bedCount
+  - bedTags
+- Render section cells using:
+  - bayIndex
+  - benchIndex
+  - pestCount
+  - diseaseCount
+  - beneficialCount
+  - totalCount
+  - severityLevel
+  - colorHex
+- Harmful pressure color is already computed by backend using pests + diseases.
+- The current severity colors from backend are:
+  - ZERO: #2ecc71
+  - LOW: #f1c40f
+  - MODERATE: #e67e22
+  - HIGH: #e74c3c
+  - VERY_HIGH: #c0392b
+  - EMERGENCY: #7f0000
+- For the specific table styling you requested:
+  - pests and diseases: show green when count is zero
+  - beneficial insects: show green for every entered count
+  - if no value was entered, render blank instead of zero if product wants blank cells
+  - that blank-vs-zero display rule is frontend only
+
+Dashboard Loading For Farm Manager / Farm Admin
+- Use one of these:
+  - GET /api/analytics/dashboard?farmId={farmId}
+  - GET /api/analytics/dashboard/full?farmId={farmId}
+- Recommended:
+  - use /api/analytics/dashboard/full for the main farm dashboard screen because it includes summary, heatmap, alerts, recommendations, and other analytics in one call
+- The backend now allows farm membership access, so managers and farm admins should be able to load farms and dashboards as long as they belong to that farm.
+
+Recommended Endpoints
+
+Farm shell
+- GET /api/farms
+  - Use for farms list visible to the current admin/manager.
+- GET /api/farms/{farmId}
+  - Use for farm detail header and permissions context.
+- GET /api/farms/{farmId}/members
+  - Use for scout assignment dropdown and any people selectors.
+
+Farm creation and editing
+- POST /api/farms
+- PUT /api/farms/{farmId}
+
+Greenhouses
+- GET /api/farms/{farmId}/greenhouses
+- POST /api/farms/{farmId}/greenhouses
+- PUT /api/greenhouses/{greenhouseId}
+- DELETE /api/greenhouses/{greenhouseId}
+
+Field blocks
+- GET /api/farms/{farmId}/field-blocks
+- POST /api/farms/{farmId}/field-blocks
+- PUT /api/field-blocks/{fieldBlockId}
+- DELETE /api/field-blocks/{fieldBlockId}
+
+Scouting sessions
+- GET /api/scouting/sessions?farmId={farmId}
+- GET /api/scouting/sessions/{sessionId}
+- POST /api/scouting/sessions
+- PUT /api/scouting/sessions/{sessionId}
+- DELETE /api/scouting/sessions/{sessionId}
+- POST /api/scouting/sessions/{sessionId}/start
+- POST /api/scouting/sessions/{sessionId}/submit
+- POST /api/scouting/sessions/{sessionId}/complete
+- POST /api/scouting/sessions/{sessionId}/reopen
+- GET /api/scouting/sessions/{sessionId}/audits
+- GET /api/scouting/sessions/sync?farmId={farmId}&since={isoDateTime}&includeDeleted={true|false}
+
+Observations
+- POST /api/scouting/sessions/{sessionId}/observations
+- POST /api/scouting/sessions/{sessionId}/observations/bulk
+- DELETE /api/scouting/sessions/{sessionId}/observations/{observationId}
+
+Analytics and heatmaps
+- GET /api/analytics/dashboard?farmId={farmId}
+- GET /api/analytics/dashboard/full?farmId={farmId}
+- GET /api/analytics/heatmap/monthly?farmId={farmId}&year={year}&month={month}
+- GET /api/analytics/reports/monthly?farmId={farmId}&year={year}&month={month}
+
+Important Request Shapes
+
+Create farm example with greenhouse and field blocks
+POST /api/farms
+{
+  "name": "Farm A",
+  "description": "Demo farm",
+  "address": "123 Farm Road",
+  "city": "Town",
+  "province": "State",
+  "postalCode": "00000",
+  "country": "USA",
+  "ownerId": "OWNER_UUID",
+  "scoutId": "SCOUT_UUID",
+  "contactName": "Manager Name",
+  "contactEmail": "manager@example.com",
+  "contactPhone": "555-0000",
+  "subscriptionStatus": "ACTIVE",
+  "subscriptionTier": "STANDARD",
+  "billingEmail": "billing@example.com",
+  "licensedAreaHectares": 20.00,
+  "licensedUnitQuota": 100,
+  "quotaDiscountPercentage": 0,
+  "structureType": "GREENHOUSE",
+  "defaultBayCount": 4,
+  "defaultBenchesPerBay": 3,
+  "defaultSpotChecksPerBench": 2,
+  "greenhouses": [
+    {
+      "name": "Greenhouse 1",
+      "description": "Tomato house",
+      "spotChecksPerBench": 2,
+      "areaHectares": 1.50,
+      "bays": [
+        { "bayTag": "Bay 1", "bedCount": 4 },
+        { "bayTag": "Bay 2", "bedCount": 3 },
+        { "bayTag": "Bay 3", "bedCount": 4 }
+      ]
+    }
+  ],
+  "fieldBlocks": [
+    {
+      "name": "Field 1",
+      "bayCount": 3,
+      "spotChecksPerBay": 2,
+      "bayTags": ["Row 1", "Row 2", "Row 3"],
+      "active": true,
+      "areaHectares": 5.25,
+      "cropType": "Maize"
+    }
+  ],
+  "timezone": "America/Chicago",
+  "licenseExpiryDate": "2027-03-18",
+  "autoRenewEnabled": true
+}
+
+Create greenhouse example
+POST /api/farms/{farmId}/greenhouses
+{
+  "name": "Greenhouse 2",
+  "description": "Pepper house",
+  "spotChecksPerBench": 2,
+  "areaHectares": 1.20,
+  "bays": [
+    { "bayTag": "Bay A", "bedCount": 4 },
+    { "bayTag": "Bay B", "bedCount": 5 }
+  ]
+}
+
+Create field block example
+POST /api/farms/{farmId}/field-blocks
+{
+  "name": "North Field",
+  "bayCount": 4,
+  "spotChecksPerBay": 2,
+  "bayTags": ["Field 1", "Field 2", "Field 3", "Field 4"],
+  "active": true,
+  "areaHectares": 6.00,
+  "cropType": "Cabbage"
+}
+
+Create or update scouting session example
+POST /api/scouting/sessions
+or
+PUT /api/scouting/sessions/{sessionId}
+{
+  "farmId": "FARM_UUID",
+  "scoutId": "SCOUT_UUID",
+  "sessionDate": "2026-03-18",
+  "weekNumber": 12,
+  "crop": "Tomato",
+  "variety": "Cherry",
+  "temperatureCelsius": 23.5,
+  "relativeHumidityPercent": 65.0,
+  "observationTime": "10:30:00",
+  "weatherNotes": "Sunny",
+  "notes": "Planner notes",
+  "defaultPhotoSourceType": "SCOUT_HANDHELD",
+  "status": "DRAFT",
+  "targets": [
+    {
+      "greenhouseId": "GREENHOUSE_UUID",
+      "fieldBlockId": null,
+      "includeAllBays": false,
+      "includeAllBenches": false,
+      "bayTags": ["Bay A", "Bay B"],
+      "benchTags": ["Bed-1", "Bed-2", "Bed-3"],
+      "areaHectares": 0.75
+    }
+  ]
+}
+
+Notes for session save behavior
+- If the planner saves a draft before all required planning fields are filled, backend keeps it as DRAFT.
+- If the planner saves after sessionDate, scoutId, and at least one target exist, backend returns status NEW.
+- Frontend should not rely on local status calculation alone. Use the response payload from POST/PUT.
+
+Observation payload example
+POST /api/scouting/sessions/{sessionId}/observations
+{
+  "sessionId": "SESSION_UUID",
+  "sessionTargetId": "TARGET_UUID",
+  "speciesCode": "THRIPS",
+  "bayIndex": 1,
+  "bayTag": "Bay A",
+  "benchIndex": 2,
+  "benchTag": "Bed-2",
+  "spotIndex": 1,
+  "count": 4,
+  "notes": "Observed on lower leaves",
+  "clientRequestId": "UUID"
+}
+
+Response Fields Frontend Should Use
+
+GreenhouseDto
+- id
+- farmId
+- name
+- description
+- bayCount
+- benchesPerBay
+- spotChecksPerBench
+- bayTags
+- benchTags
+- areaHectares
+- bays[]
+  - position
+  - bayTag
+  - bedCount
+  - bedTags
+
+FieldBlockDto
+- id
+- farmId
+- name
+- bayCount
+- spotChecksPerBay
+- bayTags
+- areaHectares
+- cropType
+
+ScoutingSessionDetailDto
+- id
+- version
+- farmId
+- sessionDate
+- weekNumber
+- status
+- managerId
+- scoutId
+- crop
+- variety
+- weather fields
+- notes
+- sections[]
+  - targetId
+  - greenhouseId
+  - fieldBlockId
+  - includeAllBays
+  - includeAllBenches
+  - bayTags
+  - benchTags
+  - areaHectares
+  - observations[]
+
+HeatmapSectionResponse
+- targetId
+- greenhouseId
+- fieldBlockId
+- targetName
+- bayCount
+- benchesPerBay
+- cells[]
+- bayLayouts[]
+  - bayIndex
+  - bayTag
+  - bedCount
+  - bedTags
+
+Suggested Frontend Query Keys
+- farms
+- farm:{farmId}
+- farmMembers:{farmId}
+- greenhouses:{farmId}
+- fieldBlocks:{farmId}
+- sessions:{farmId}
+- session:{sessionId}
+- dashboard:{farmId}
+- dashboardFull:{farmId}
+- monthlyHeatmap:{farmId}:{year}:{month}
+- monthlyReport:{farmId}:{year}:{month}
+
+Suggested UI Guards
+- If role == SCOUT:
+  - hide farm creation/edit
+  - hide greenhouse and field block creation/edit
+  - hide session delete
+  - hide draft sessions
+- If role in [SUPER_ADMIN, FARM_ADMIN, MANAGER]:
+  - show sessions planner
+  - allow draft/new edit
+  - allow draft/new delete
+  - show dashboard entry points
+
+Implementation Note
+- The backend now supports the data and permissions for these flows.
+- The remaining work is in the client:
+  - labels
+  - routing after save
+  - read-only draft mode before Edit
+  - rendering beds instead of generic benches in the UI
+  - showing/hiding actions by role and status

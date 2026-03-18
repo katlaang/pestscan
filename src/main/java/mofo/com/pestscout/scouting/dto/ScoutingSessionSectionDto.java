@@ -1,5 +1,6 @@
 package mofo.com.pestscout.scouting.dto;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +17,19 @@ public record ScoutingSessionSectionDto(
         Boolean includeAllBenches,
         List<String> bayTags,
         List<String> benchTags,
-        List<ScoutingObservationDto> observations
+        List<ScoutingObservationDto> observations,
+        BigDecimal areaHectares
 ) {
+    public ScoutingSessionSectionDto(
+            UUID targetId,
+            UUID greenhouseId,
+            UUID fieldBlockId,
+            Boolean includeAllBays,
+            Boolean includeAllBenches,
+            List<String> bayTags,
+            List<String> benchTags,
+            List<ScoutingObservationDto> observations
+    ) {
+        this(targetId, greenhouseId, fieldBlockId, includeAllBays, includeAllBenches, bayTags, benchTags, observations, null);
+    }
 }

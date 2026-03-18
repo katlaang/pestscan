@@ -71,6 +71,9 @@ class AuthServiceTest {
     @Mock
     private PasswordPolicyService passwordPolicyService;
 
+    @Mock
+    private ClientSessionEventService clientSessionEventService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -123,6 +126,8 @@ class AuthServiceTest {
                 .thenReturn(authentication);
         when(userRepository.findByEmail(loginRequest.email()))
                 .thenReturn(Optional.of(testUser));
+        when(userRepository.findByEmailForUpdate(loginRequest.email()))
+                .thenReturn(Optional.of(testUser));
         when(tokenProvider.generateToken(eq(testUser), anyLong()))
                 .thenReturn("accessToken");
         when(tokenProvider.generateRefreshToken(eq(testUser), anyLong()))
@@ -140,7 +145,38 @@ class AuthServiceTest {
         assertThat(response.token()).isEqualTo("accessToken");
         assertThat(response.refreshToken()).isEqualTo("refreshToken");
         assertThat(response.user().getEmail()).isEqualTo(testUser.getEmail());
+        assertThat(response.clientSessionId()).isNotBlank();
         verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Should notify the replaced session when login takes over another tab or device")
+    void login_WithExistingDifferentClientSession_NotifiesReplacedSession() {
+        testUser.setActiveClientSessionId("old-session");
+
+        Authentication authentication = mock(Authentication.class);
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(authentication);
+        when(userRepository.findByEmail(loginRequest.email()))
+                .thenReturn(Optional.of(testUser));
+        when(userRepository.findByEmailForUpdate(loginRequest.email()))
+                .thenReturn(Optional.of(testUser));
+        when(tokenProvider.generateToken(eq(testUser), anyLong()))
+                .thenReturn("accessToken");
+        when(tokenProvider.generateRefreshToken(eq(testUser), anyLong()))
+                .thenReturn("refreshToken");
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(600000L);
+        when(userService.convertToDto(testUser))
+                .thenReturn(UserDto.builder()
+                        .id(testUser.getId())
+                        .email(testUser.getEmail())
+                        .build());
+
+        LoginResponse response = authService.login(loginRequest, "new-session");
+
+        assertThat(response.clientSessionId()).isEqualTo("new-session");
+        verify(clientSessionEventService).notifySessionReplacedAfterCommit(testUser.getId(), "old-session", "new-session");
     }
 
     @Test
@@ -405,7 +441,7 @@ class AuthServiceTest {
         when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
         when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
-        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(userRepository.findByIdForUpdate(testUser.getId())).thenReturn(Optional.of(testUser));
         when(userSessionService.isIdleExpired(testUser)).thenReturn(false);
         when(userSessionService.isPasswordChangeSessionExpired(testUser)).thenReturn(false);
         when(tokenProvider.generateToken(eq(testUser), anyLong())).thenReturn("newAccessToken");
@@ -421,6 +457,31 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("Should claim session and invalidate previous client")
+    void claimSession_WithValidRefreshToken_RotatesActiveClientSession() {
+        String refreshToken = "validRefreshToken";
+        ClaimSessionRequest request = new ClaimSessionRequest(refreshToken);
+        testUser.setActiveClientSessionId("old-tab");
+
+        when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
+        when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
+        when(userRepository.findByIdForUpdate(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(tokenProvider.generateToken(eq(testUser), anyLong())).thenReturn("claimedAccessToken");
+        when(tokenProvider.generateRefreshToken(eq(testUser), anyLong())).thenReturn("claimedRefreshToken");
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(600000L);
+        when(userService.convertToDto(testUser)).thenReturn(UserDto.builder().id(testUser.getId()).build());
+
+        LoginResponse response = authService.claimSession(request, "new-tab");
+
+        assertThat(response.token()).isEqualTo("claimedAccessToken");
+        assertThat(response.clientSessionId()).isEqualTo("new-tab");
+        assertThat(testUser.getActiveClientSessionId()).isEqualTo("new-tab");
+        verify(userRepository).save(testUser);
+    }
+
+    @Test
     @DisplayName("Should reject refresh token after 5-minute inactivity")
     void refreshToken_WhenIdleExpired_ThrowsBadRequestException() {
         String refreshToken = "validRefreshToken";
@@ -429,7 +490,7 @@ class AuthServiceTest {
         when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
         when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(testUser.getId());
-        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
+        when(userRepository.findByIdForUpdate(testUser.getId())).thenReturn(Optional.of(testUser));
         when(userSessionService.isIdleExpired(testUser)).thenReturn(true);
 
         assertThatThrownBy(() -> authService.refreshToken(request))
@@ -454,6 +515,7 @@ class AuthServiceTest {
 
         Authentication authentication = mock(Authentication.class);
         when(userRepository.findByEmail(expiredUser.getEmail())).thenReturn(Optional.of(expiredUser));
+        when(userRepository.findByEmailForUpdate(expiredUser.getEmail())).thenReturn(Optional.of(expiredUser));
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(authentication);
         when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(3600000L);
@@ -765,6 +827,8 @@ class AuthServiceTest {
                 .thenReturn(authentication);
         when(userRepository.findByEmail(invitedUser.getEmail()))
                 .thenReturn(Optional.of(invitedUser));
+        when(userRepository.findByEmailForUpdate(invitedUser.getEmail()))
+                .thenReturn(Optional.of(invitedUser));
         when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(3600000L);
         when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(7200000L);
         when(tokenProvider.generateToken(eq(invitedUser), anyLong())).thenReturn("shortAccessToken");
@@ -808,7 +872,7 @@ class AuthServiceTest {
         when(tokenProvider.validateToken(refreshToken)).thenReturn(true);
         when(tokenProvider.isRefreshToken(refreshToken)).thenReturn(true);
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(invitedUser.getId());
-        when(userRepository.findById(invitedUser.getId())).thenReturn(Optional.of(invitedUser));
+        when(userRepository.findByIdForUpdate(invitedUser.getId())).thenReturn(Optional.of(invitedUser));
         when(userSessionService.isIdleExpired(invitedUser)).thenReturn(false);
         when(userSessionService.isPasswordChangeSessionExpired(invitedUser)).thenReturn(true);
 
@@ -839,7 +903,7 @@ class AuthServiceTest {
         when(tokenProvider.getUserIdFromToken(refreshToken)).thenReturn(user.getId());
         when(tokenProvider.getIssuedAtFromToken(refreshToken))
                 .thenReturn(java.util.Date.from(LocalDateTime.now().minusMinutes(1).atZone(java.time.ZoneId.systemDefault()).toInstant()));
-        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> authService.refreshToken(request))
                 .isInstanceOf(BadRequestException.class)

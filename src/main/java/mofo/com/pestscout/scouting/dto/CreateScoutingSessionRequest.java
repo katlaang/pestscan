@@ -48,7 +48,7 @@ public record CreateScoutingSessionRequest(
         // Default capture source for photos in this session; photo registration may override it
         PhotoSourceType defaultPhotoSourceType,
 
-        // Optional initial lifecycle state (defaults to NEW)
+        // Optional initial lifecycle state. Incomplete plans remain DRAFT; complete plans are promoted to NEW.
         SessionStatus status,
 
         // Optional audit metadata

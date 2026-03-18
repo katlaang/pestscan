@@ -22,7 +22,8 @@ public record FieldBlockDto(
         Integer spotChecksPerBay,
         List<String> bayTags,
         Boolean active,
-        BigDecimal areaHectares
+        BigDecimal areaHectares,
+        String cropType
 ) {
 
     public FieldBlockDto(
@@ -35,7 +36,21 @@ public record FieldBlockDto(
             List<String> bayTags,
             Boolean active
     ) {
-        this(id, version, farmId, name, bayCount, spotChecksPerBay, bayTags, active, null);
+        this(id, version, farmId, name, bayCount, spotChecksPerBay, bayTags, active, null, null);
+    }
+
+    public FieldBlockDto(
+            UUID id,
+            Long version,
+            UUID farmId,
+            String name,
+            Integer bayCount,
+            Integer spotChecksPerBay,
+            List<String> bayTags,
+            Boolean active,
+            BigDecimal areaHectares
+    ) {
+        this(id, version, farmId, name, bayCount, spotChecksPerBay, bayTags, active, areaHectares, null);
     }
 }
 

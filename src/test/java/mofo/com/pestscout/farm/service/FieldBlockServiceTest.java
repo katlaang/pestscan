@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -97,5 +98,34 @@ class FieldBlockServiceTest {
 
         assertThat(dto.bayCount()).isEqualTo(12);
         assertThat(dto.spotChecksPerBay()).isEqualTo(5);
+    }
+
+    @Test
+    void createFieldBlock_persistsCropType() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateFieldBlockRequest request = new CreateFieldBlockRequest(
+                "Field Tomatoes",
+                4,
+                2,
+                List.of("Row-1"),
+                true,
+                new BigDecimal("3.25"),
+                "Tomato"
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(fieldBlockRepository.save(any(FieldBlock.class))).thenAnswer(invocation -> {
+            FieldBlock block = invocation.getArgument(0);
+            block.setId(UUID.randomUUID());
+            return block;
+        });
+
+        FieldBlockDto dto = fieldBlockService.createFieldBlock(farmId, request);
+
+        assertThat(dto.cropType()).isEqualTo("Tomato");
+        assertThat(dto.areaHectares()).isEqualByComparingTo("3.25");
     }
 }

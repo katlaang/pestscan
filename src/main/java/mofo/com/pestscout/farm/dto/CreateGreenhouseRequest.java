@@ -1,5 +1,6 @@
 package mofo.com.pestscout.farm.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
@@ -22,7 +23,9 @@ public record CreateGreenhouseRequest(
 
         List<String> bayTags,
         List<String> benchTags,
-        BigDecimal areaHectares
+        BigDecimal areaHectares,
+
+        @Valid List<GreenhouseBayRequest> bays
 ) {
 
     public CreateGreenhouseRequest(
@@ -34,7 +37,20 @@ public record CreateGreenhouseRequest(
             List<String> bayTags,
             List<String> benchTags
     ) {
-        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, null);
+        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, null, null);
+    }
+
+    public CreateGreenhouseRequest(
+            String name,
+            String description,
+            Integer bayCount,
+            Integer benchesPerBay,
+            Integer spotChecksPerBench,
+            List<String> bayTags,
+            List<String> benchTags,
+            BigDecimal areaHectares
+    ) {
+        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, areaHectares, null);
     }
 }
 

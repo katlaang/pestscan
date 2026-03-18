@@ -80,6 +80,7 @@ public class SecurityConfig {
                                 "/api/auth/bootstrap/super-admin",
                                 "/api/auth/bootstrap/super-admin/status",
                                 "/api/auth/refresh",
+                                "/api/auth/session/claim",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
                                 "/actuator/**",

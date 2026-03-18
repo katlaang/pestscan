@@ -1,13 +1,11 @@
 package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.analytics.dto.HeatmapCellResponse;
-import mofo.com.pestscout.analytics.dto.HeatmapResponse;
-import mofo.com.pestscout.analytics.dto.HeatmapSectionResponse;
-import mofo.com.pestscout.analytics.dto.SeverityLegendEntry;
+import mofo.com.pestscout.analytics.dto.*;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.model.Greenhouse;
+import mofo.com.pestscout.farm.model.GreenhouseBayDefinition;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
@@ -254,6 +252,7 @@ public class HeatmapService {
         private final String targetName;
         private final int bayCount;
         private final int benchesPerBay;
+        private final List<HeatmapBayLayoutDto> bayLayouts;
 
         private final Map<String, HeatmapAccumulator> accumulators = new HashMap<>();
 
@@ -275,9 +274,18 @@ public class HeatmapService {
                     ? resolveFieldBlockBayCount(farm, fieldBlock)
                     : farm.resolveBayCount();
 
-            this.benchesPerBay = greenhouse != null
-                    ? resolveGreenhouseBenchesPerBay(farm, greenhouse)
-                    : farm.resolveBenchesPerBay();
+            this.bayLayouts = greenhouse != null
+                    ? buildGreenhouseBayLayouts(farm, greenhouse)
+                    : fieldBlock != null
+                    ? buildFieldBlockBayLayouts(farm, fieldBlock)
+                    : List.of();
+
+            this.benchesPerBay = bayLayouts.stream()
+                    .mapToInt(HeatmapBayLayoutDto::bedCount)
+                    .max()
+                    .orElseGet(() -> greenhouse != null
+                            ? resolveGreenhouseBenchesPerBay(farm, greenhouse)
+                            : farm.resolveBenchesPerBay());
         }
 
         private int resolveGreenhouseBayCount(Farm farm, Greenhouse greenhouse) {
@@ -292,6 +300,60 @@ public class HeatmapService {
             return greenhouse.getBenchesPerBay() != null
                     ? greenhouse.getBenchesPerBay()
                     : farm.resolveBenchesPerBay();
+        }
+
+        private List<HeatmapBayLayoutDto> buildGreenhouseBayLayouts(Farm farm, Greenhouse greenhouse) {
+            List<GreenhouseBayDefinition> bays = greenhouse.getBays();
+            if (bays != null && !bays.isEmpty()) {
+                return java.util.stream.IntStream.range(0, bays.size())
+                        .mapToObj(index -> {
+                            GreenhouseBayDefinition bay = bays.get(index);
+                            List<String> bedTags = defaultTags("Bed", bay.getBedCount());
+                            return new HeatmapBayLayoutDto(index + 1, bay.getBayTag(), bay.getBedCount(), bedTags);
+                        })
+                        .toList();
+            }
+
+            int bayCount = resolveGreenhouseBayCount(farm, greenhouse);
+            int bedCount = resolveGreenhouseBenchesPerBay(farm, greenhouse);
+            List<String> resolvedBayTags = resolveBayTags(greenhouse.getBayTags(), bayCount);
+            List<String> resolvedBedTags = greenhouse.resolvedBedTags();
+            return java.util.stream.IntStream.range(0, bayCount)
+                    .mapToObj(index -> new HeatmapBayLayoutDto(
+                            index + 1,
+                            resolvedBayTags.get(index),
+                            bedCount,
+                            resolvedBedTags
+                    ))
+                    .toList();
+        }
+
+        private List<HeatmapBayLayoutDto> buildFieldBlockBayLayouts(Farm farm, FieldBlock fieldBlock) {
+            int bayCount = resolveFieldBlockBayCount(farm, fieldBlock);
+            List<String> resolvedBayTags = resolveBayTags(fieldBlock.getBayTags(), bayCount);
+            return java.util.stream.IntStream.range(0, bayCount)
+                    .mapToObj(index -> new HeatmapBayLayoutDto(
+                            index + 1,
+                            resolvedBayTags.get(index),
+                            0,
+                            List.of()
+                    ))
+                    .toList();
+        }
+
+        private List<String> resolveBayTags(List<String> configuredTags, int count) {
+            if (configuredTags != null && configuredTags.size() >= count) {
+                return configuredTags.stream()
+                        .limit(count)
+                        .toList();
+            }
+            return defaultTags("Bay", count);
+        }
+
+        private List<String> defaultTags(String prefix, int count) {
+            return java.util.stream.IntStream.rangeClosed(1, count)
+                    .mapToObj(index -> prefix + "-" + index)
+                    .toList();
         }
 
         void add(ScoutingObservation observation) {
@@ -318,7 +380,8 @@ public class HeatmapService {
                     targetName,
                     bayCount,
                     benchesPerBay,
-                    cells
+                    cells,
+                    bayLayouts
             );
         }
 

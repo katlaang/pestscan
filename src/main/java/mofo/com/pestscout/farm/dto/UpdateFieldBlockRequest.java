@@ -23,7 +23,9 @@ public record UpdateFieldBlockRequest(
 
         Boolean active,
 
-        BigDecimal areaHectares
+        BigDecimal areaHectares,
+
+        String cropType
 ) {
 
     public UpdateFieldBlockRequest(
@@ -33,7 +35,18 @@ public record UpdateFieldBlockRequest(
             java.util.List<String> bayTags,
             Boolean active
     ) {
-        this(name, bayCount, spotChecksPerBay, bayTags, active, null);
+        this(name, bayCount, spotChecksPerBay, bayTags, active, null, null);
+    }
+
+    public UpdateFieldBlockRequest(
+            String name,
+            Integer bayCount,
+            Integer spotChecksPerBay,
+            java.util.List<String> bayTags,
+            Boolean active,
+            BigDecimal areaHectares
+    ) {
+        this(name, bayCount, spotChecksPerBay, bayTags, active, areaHectares, null);
     }
 }
 

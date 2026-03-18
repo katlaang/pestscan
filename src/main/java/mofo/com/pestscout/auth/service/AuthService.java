@@ -7,6 +7,7 @@ import mofo.com.pestscout.auth.model.*;
 import mofo.com.pestscout.auth.repository.PasswordResetTokenRepository;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.security.ClientSessionHeaders;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
@@ -20,6 +21,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -46,12 +48,18 @@ public class AuthService {
     private final UserOnboardingService userOnboardingService;
     private final UserSessionService userSessionService;
     private final PasswordPolicyService passwordPolicyService;
+    private final ClientSessionEventService clientSessionEventService;
 
     /**
      * Authenticate user and generate JWT tokens
      */
     @Transactional
     public LoginResponse login(LoginRequest request) {
+        return login(request, null);
+    }
+
+    @Transactional
+    public LoginResponse login(LoginRequest request, String clientSessionId) {
         userRepository.findByEmail(request.email()).ifPresent(this::assertLoginAllowed);
 
         try {
@@ -64,7 +72,7 @@ public class AuthService {
             );
 
             // Load user
-            User user = userRepository.findByEmail(request.email())
+            User user = userRepository.findByEmailForUpdate(request.email())
                     .orElseThrow(() -> new ResourceNotFoundException("User", "email", request.email()));
 
             // Check if user is enabled
@@ -72,8 +80,8 @@ public class AuthService {
                 throw new BadRequestException("User account is disabled");
             }
 
-            // Update last login
-            user.updateLastLogin();
+            String resolvedClientSessionId = activateExclusiveClientSession(user, clientSessionId, true);
+
             user.recordActivity();
             userRepository.save(user);
 
@@ -90,6 +98,7 @@ public class AuthService {
                     .refreshToken(refreshToken)
                     .expiresIn(accessTokenExpirationMillis)
                     .user(userService.convertToDto(user))
+                    .clientSessionId(resolvedClientSessionId)
                     .build();
 
         } catch (AuthenticationException e) {
@@ -174,6 +183,11 @@ public class AuthService {
      */
     @Transactional
     public LoginResponse refreshToken(RefreshTokenRequest request) {
+        return refreshToken(request, null);
+    }
+
+    @Transactional
+    public LoginResponse refreshToken(RefreshTokenRequest request, String clientSessionId) {
         String refreshToken = request.refreshToken();
 
         // Validate refresh token
@@ -188,11 +202,12 @@ public class AuthService {
 
         // Get user from refresh token
         UUID userId = tokenProvider.getUserIdFromToken(refreshToken);
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
         expirePendingInvitationIfNeeded(user);
         assertTokenIsCurrent(user, refreshToken);
+        assertClientSessionIsCurrent(user, refreshToken, clientSessionId);
         if (userSessionService.isIdleExpired(user)) {
             throw new BadRequestException("Session expired due to inactivity. Please log in again.");
         }
@@ -222,6 +237,54 @@ public class AuthService {
                 .refreshToken(newRefreshToken)
                 .expiresIn(accessTokenExpirationMillis)
                 .user(userService.convertToDto(user))
+                .clientSessionId(resolveClientSessionIdForResponse(user, clientSessionId, refreshToken))
+                .build();
+    }
+
+    @Transactional
+    public LoginResponse claimSession(ClaimSessionRequest request, String clientSessionId) {
+        if (clientSessionId == null || clientSessionId.isBlank()) {
+            throw new BadRequestException(ClientSessionHeaders.CLIENT_SESSION_ID + " header is required");
+        }
+
+        String refreshToken = request.refreshToken();
+        if (!tokenProvider.validateToken(refreshToken)) {
+            throw new BadRequestException("Invalid or expired refresh token");
+        }
+        if (!tokenProvider.isRefreshToken(refreshToken)) {
+            throw new BadRequestException("Token is not a refresh token");
+        }
+
+        UUID userId = tokenProvider.getUserIdFromToken(refreshToken);
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        expirePendingInvitationIfNeeded(user);
+        assertTokenIsCurrent(user, refreshToken);
+
+        if (!user.isActive()) {
+            throw new BadRequestException("User account is disabled");
+        }
+
+        if (!requiresCredentialChange(user)) {
+            passwordPolicyService.assertPasswordIsCurrent(user);
+        }
+
+        String resolvedClientSessionId = activateExclusiveClientSession(user, clientSessionId, false);
+        user.recordActivity();
+        userRepository.save(user);
+
+        long accessTokenExpirationMillis = resolveAccessTokenExpirationMillis(user);
+        long refreshTokenExpirationMillis = resolveRefreshTokenExpirationMillis(user);
+        String newAccessToken = tokenProvider.generateToken(user, accessTokenExpirationMillis);
+        String newRefreshToken = tokenProvider.generateRefreshToken(user, refreshTokenExpirationMillis);
+
+        return LoginResponse.builder()
+                .token(newAccessToken)
+                .refreshToken(newRefreshToken)
+                .expiresIn(accessTokenExpirationMillis)
+                .user(userService.convertToDto(user))
+                .clientSessionId(resolvedClientSessionId)
                 .build();
     }
 
@@ -234,6 +297,14 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
         return userService.convertToDto(user);
+    }
+
+    @Transactional(readOnly = true)
+    public SseEmitter subscribeSessionEvents(UUID userId, String clientSessionId) {
+        if (clientSessionId == null || clientSessionId.isBlank()) {
+            throw new BadRequestException(ClientSessionHeaders.CLIENT_SESSION_ID + " header is required");
+        }
+        return clientSessionEventService.subscribe(userId, clientSessionId.trim());
     }
 
     /**
@@ -394,6 +465,63 @@ public class AuthService {
         if (issuedAtDateTime.isBefore(user.getSessionValidAfter())) {
             throw new BadRequestException("Session is no longer valid. Please log in again.");
         }
+    }
+
+    private void assertClientSessionIsCurrent(User user, String token, String requestClientSessionId) {
+        if (user == null || user.getActiveClientSessionId() == null || user.getActiveClientSessionId().isBlank()) {
+            return;
+        }
+
+        String tokenSessionId = tokenProvider.getSessionIdFromToken(token);
+        if (tokenSessionId == null || !user.getActiveClientSessionId().equals(tokenSessionId)) {
+            throw new BadRequestException("Session is no longer valid. Please log in again.");
+        }
+
+        String expectedClientSessionId = requestClientSessionId;
+        if (expectedClientSessionId == null || expectedClientSessionId.isBlank()) {
+            expectedClientSessionId = tokenSessionId;
+        }
+        if (!user.getActiveClientSessionId().equals(expectedClientSessionId)) {
+            throw new BadRequestException("Session is active in another tab or device. Please log in again.");
+        }
+    }
+
+    private String activateExclusiveClientSession(User user, String requestedClientSessionId, boolean updateLastLogin) {
+        String resolvedClientSessionId = normalizeClientSessionId(requestedClientSessionId);
+        String previousClientSessionId = user.getActiveClientSessionId();
+        user.activateExclusiveSession(resolvedClientSessionId);
+        if (updateLastLogin) {
+            user.updateLastLogin();
+        }
+        if (previousClientSessionId != null
+                && !previousClientSessionId.isBlank()
+                && !previousClientSessionId.equals(resolvedClientSessionId)) {
+            clientSessionEventService.notifySessionReplacedAfterCommit(
+                    user.getId(),
+                    previousClientSessionId,
+                    resolvedClientSessionId
+            );
+        }
+        return resolvedClientSessionId;
+    }
+
+    private String normalizeClientSessionId(String requestedClientSessionId) {
+        if (requestedClientSessionId == null || requestedClientSessionId.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        return requestedClientSessionId.trim();
+    }
+
+    private String resolveClientSessionIdForResponse(User user, String requestClientSessionId, String token) {
+        if (user.getActiveClientSessionId() != null && !user.getActiveClientSessionId().isBlank()) {
+            return user.getActiveClientSessionId();
+        }
+
+        if (requestClientSessionId != null && !requestClientSessionId.isBlank()) {
+            return requestClientSessionId.trim();
+        }
+
+        return tokenProvider.getSessionIdFromToken(token);
     }
 
     private long resolveAccessTokenExpirationMillis(User user) {

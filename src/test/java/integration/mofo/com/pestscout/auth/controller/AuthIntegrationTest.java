@@ -164,6 +164,7 @@ class AuthIntegrationTest {
 
         mockMvc.perform(post("/api/auth/users")
                         .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(secondRequest)))
                 .andExpect(status().isCreated())
@@ -207,6 +208,7 @@ class AuthIntegrationTest {
         RefreshTokenRequest refreshRequest = new RefreshTokenRequest(loginResponse.refreshToken());
 
         MvcResult refreshResult = mockMvc.perform(post("/api/auth/refresh")
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshRequest)))
                 .andExpect(status().isOk())
@@ -334,6 +336,7 @@ class AuthIntegrationTest {
 
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "currentPassword", oldPassword,
@@ -392,12 +395,14 @@ class AuthIntegrationTest {
         );
 
         mockMvc.perform(get("/api/farms")
-                        .header("Authorization", "Bearer " + loginResponse.token()))
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("PASSWORD_CHANGE_REQUIRED"));
 
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "currentPassword", oldPassword,
@@ -406,7 +411,8 @@ class AuthIntegrationTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/farms")
-                        .header("Authorization", "Bearer " + loginResponse.token()))
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("SESSION_INVALID"));
 

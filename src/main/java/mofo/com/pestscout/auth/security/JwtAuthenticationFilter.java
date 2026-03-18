@@ -121,6 +121,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         return;
                     }
 
+                    if (isClientSessionMismatch(domainUser, jwt, request)) {
+                        LOGGER.debug("Rejecting JWT for superseded client session '{}'", email);
+                        markAuthenticationFailure(request, "SESSION_REPLACED", "Your session was opened elsewhere. Please log in again.");
+                        SecurityContextHolder.clearContext();
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+
                     if (userSessionService.isIdleExpired(domainUser)) {
                         LOGGER.debug("Ignoring JWT for idle-expired user '{}'", email);
                         markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session expired due to inactivity. Please log in again.");
@@ -243,5 +251,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void markAuthenticationFailure(HttpServletRequest request, String errorCode, String message) {
         request.setAttribute(AUTH_FAILURE_CODE_ATTR, errorCode);
         request.setAttribute(AUTH_FAILURE_MESSAGE_ATTR, message);
+    }
+
+    private boolean isClientSessionMismatch(User user, String token, HttpServletRequest request) {
+        String activeClientSessionId = user.getActiveClientSessionId();
+        if (!StringUtils.hasText(activeClientSessionId)) {
+            return false;
+        }
+
+        String tokenSessionId = tokenProvider.getSessionIdFromToken(token);
+        if (!StringUtils.hasText(tokenSessionId) || !activeClientSessionId.equals(tokenSessionId)) {
+            return true;
+        }
+
+        String requestSessionId = request.getHeader(ClientSessionHeaders.CLIENT_SESSION_ID);
+        return !StringUtils.hasText(requestSessionId) || !activeClientSessionId.equals(requestSessionId);
     }
 }

@@ -7,6 +7,7 @@ public record LoginResponse(
         String token,
         String refreshToken,
         long expiresIn,
-        UserDto user
+        UserDto user,
+        String clientSessionId
 ) {
 }

@@ -3,19 +3,17 @@ package mofo.com.pestscout.farm.service;
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.UserFarmMembership;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.service.CustomerNumberService;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
-import mofo.com.pestscout.farm.dto.CreateFarmRequest;
-import mofo.com.pestscout.farm.dto.FarmResponse;
-import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.FarmStructureType;
-import mofo.com.pestscout.farm.model.FieldBlock;
-import mofo.com.pestscout.farm.model.Greenhouse;
+import mofo.com.pestscout.farm.dto.*;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
@@ -28,10 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -46,6 +41,7 @@ public class FarmService {
     private final FarmAccessService farmAccess;
     private final CurrentUserService currentUserService;
     private final UserRepository userRepository;
+    private final UserFarmMembershipRepository membershipRepository;
     private final CustomerNumberService customerNumberService;
     private final CacheService cacheService;
 
@@ -115,7 +111,7 @@ public class FarmService {
     /**
      * Returns all farms visible to this user.
      * SUPER_ADMIN sees all.
-     * FARM_ADMIN/MANAGER sees only farms they own.
+     * FARM_ADMIN/MANAGER sees farms they own or belong to through active memberships.
      * SCOUT sees only the farm they are assigned to.
      *
      * Cached per user role to improve performance.
@@ -132,9 +128,7 @@ public class FarmService {
 
         switch (farmAccess.getCurrentUserRole()) {
             case SUPER_ADMIN -> farms = farmRepository.findAll();
-            case FARM_ADMIN, MANAGER -> {
-                farms = farmRepository.findByOwnerId(currentUserService.getCurrentUserId());
-            }
+            case FARM_ADMIN, MANAGER -> farms = resolveManagedFarms(currentUserService.getCurrentUserId());
             case SCOUT -> throw new ForbiddenException("Scouts cannot access farm dashboards.");
             default -> farms = List.of();
         }
@@ -204,35 +198,11 @@ public class FarmService {
                 .build();
 
         if (request.greenhouses() != null) {
-            request.greenhouses().forEach(ghRequest -> {
-                Greenhouse greenhouse = Greenhouse.builder()
-                        .farm(farm)
-                        .name(ghRequest.name())
-                        .description(ghRequest.description())
-                        .bayCount(ghRequest.bayCount() != null ? ghRequest.bayCount() : farm.resolveBayCount())
-                        .benchesPerBay(ghRequest.benchesPerBay() != null ? ghRequest.benchesPerBay() : farm.resolveBenchesPerBay())
-                        .spotChecksPerBench(ghRequest.spotChecksPerBench() != null ? ghRequest.spotChecksPerBench() : farm.resolveSpotChecksPerBench())
-                        .areaHectares(ghRequest.areaHectares())
-                        .bayTags(normalizeTags(ghRequest.bayTags()))
-                        .benchTags(normalizeTags(ghRequest.benchTags()))
-                        .build();
-                farm.getGreenhouses().add(greenhouse);
-            });
+            request.greenhouses().forEach(ghRequest -> farm.getGreenhouses().add(buildGreenhouse(farm, ghRequest)));
         }
 
         if (request.fieldBlocks() != null) {
-            request.fieldBlocks().forEach(blockRequest -> {
-                FieldBlock block = FieldBlock.builder()
-                        .farm(farm)
-                        .name(blockRequest.name())
-                        .bayCount(blockRequest.bayCount() != null ? blockRequest.bayCount() : farm.resolveBayCount())
-                        .spotChecksPerBay(blockRequest.spotChecksPerBay() != null ? blockRequest.spotChecksPerBay() : farm.resolveSpotChecksPerBench())
-                        .areaHectares(blockRequest.areaHectares())
-                        .bayTags(normalizeTags(blockRequest.bayTags()))
-                        .active(Boolean.TRUE.equals(blockRequest.active()))
-                        .build();
-                farm.getFieldBlocks().add(block);
-            });
+            request.fieldBlocks().forEach(blockRequest -> farm.getFieldBlocks().add(buildFieldBlock(farm, blockRequest)));
         }
 
         return farm;
@@ -420,6 +390,20 @@ public class FarmService {
         return prefix + "-" + trimmedBase + suffix;
     }
 
+    private List<Farm> resolveManagedFarms(UUID userId) {
+        Map<UUID, Farm> farmsById = new LinkedHashMap<>();
+
+        farmRepository.findByOwnerId(userId).forEach(farm -> farmsById.put(farm.getId(), farm));
+
+        membershipRepository.findByUser_Id(userId).stream()
+                .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                .filter(membership -> membership.getRole() == Role.FARM_ADMIN || membership.getRole() == Role.MANAGER)
+                .map(UserFarmMembership::getFarm)
+                .forEach(farm -> farmsById.put(farm.getId(), farm));
+
+        return new ArrayList<>(farmsById.values());
+    }
+
 
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) {
@@ -430,6 +414,143 @@ public class FarmService {
                 .map(String::trim)
                 .distinct()
                 .toList();
+    }
+
+    private List<String> defaultTags(List<String> providedTags, String prefix, int count) {
+        if (count <= 0) {
+            return providedTags;
+        }
+        if (providedTags.isEmpty()) {
+            return java.util.stream.IntStream.rangeClosed(1, count)
+                    .mapToObj(index -> prefix + "-" + index)
+                    .toList();
+        }
+        if (providedTags.size() >= count) {
+            return providedTags.stream()
+                    .limit(count)
+                    .toList();
+        }
+
+        List<String> paddedTags = new ArrayList<>(providedTags);
+        for (int index = paddedTags.size() + 1; index <= count; index++) {
+            paddedTags.add(prefix + "-" + index);
+        }
+        return List.copyOf(paddedTags);
+    }
+
+    private Greenhouse buildGreenhouse(Farm farm, CreateGreenhouseRequest request) {
+        GreenhouseLayout layout = resolveGreenhouseLayout(
+                farm,
+                request.bayCount(),
+                request.benchesPerBay(),
+                request.bayTags(),
+                request.benchTags(),
+                request.bays()
+        );
+
+        return Greenhouse.builder()
+                .farm(farm)
+                .name(request.name())
+                .description(request.description())
+                .bayCount(layout.bayCount())
+                .benchesPerBay(layout.maxBedCount())
+                .spotChecksPerBench(request.spotChecksPerBench() != null ? request.spotChecksPerBench() : farm.resolveSpotChecksPerBench())
+                .areaHectares(request.areaHectares())
+                .bayTags(layout.bayTags())
+                .benchTags(layout.bedTags())
+                .bays(layout.bays())
+                .build();
+    }
+
+    private FieldBlock buildFieldBlock(Farm farm, CreateFieldBlockRequest request) {
+        int bayCount = request.bayCount() != null ? request.bayCount() : farm.resolveBayCount();
+        int spotChecksPerBay = request.spotChecksPerBay() != null ? request.spotChecksPerBay() : farm.resolveSpotChecksPerBench();
+        List<String> bayTags = defaultTags(normalizeTags(request.bayTags()), "Bay", bayCount);
+
+        return FieldBlock.builder()
+                .farm(farm)
+                .name(request.name())
+                .bayCount(bayCount)
+                .spotChecksPerBay(spotChecksPerBay)
+                .areaHectares(request.areaHectares())
+                .cropType(normalizeNullableText(request.cropType()))
+                .bayTags(bayTags)
+                .active(Boolean.TRUE.equals(request.active()))
+                .build();
+    }
+
+    private GreenhouseLayout resolveGreenhouseLayout(
+            Farm farm,
+            Integer requestedBayCount,
+            Integer requestedBedsPerBay,
+            List<String> requestedBayTags,
+            List<String> requestedBedTags,
+            List<GreenhouseBayRequest> requestedBays
+    ) {
+        if (requestedBays != null && !requestedBays.isEmpty()) {
+            List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays);
+            int maxBedCount = bays.stream()
+                    .mapToInt(GreenhouseBayDefinition::getBedCount)
+                    .max()
+                    .orElse(0);
+            List<String> bedTags = normalizeTags(requestedBedTags);
+            if (!bedTags.isEmpty() && bedTags.size() < maxBedCount) {
+                throw new BadRequestException("Provided bed tags do not cover all configured beds.");
+            }
+            return new GreenhouseLayout(
+                    bays.size(),
+                    maxBedCount,
+                    bays.stream().map(GreenhouseBayDefinition::getBayTag).toList(),
+                    defaultTags(bedTags, "Bed", maxBedCount),
+                    bays
+            );
+        }
+
+        int bayCount = requestedBayCount != null ? requestedBayCount : farm.resolveBayCount();
+        int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : farm.resolveBenchesPerBay();
+        return new GreenhouseLayout(
+                bayCount,
+                maxBedCount,
+                defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
+                defaultTags(normalizeTags(requestedBedTags), "Bed", maxBedCount),
+                List.of()
+        );
+    }
+
+    private List<GreenhouseBayDefinition> normalizeBays(List<GreenhouseBayRequest> requestedBays) {
+        List<GreenhouseBayDefinition> bays = requestedBays.stream()
+                .map(request -> {
+                    String bayTag = normalizeNullableText(request.bayTag());
+                    if (bayTag == null) {
+                        throw new BadRequestException("Each greenhouse bay must have a name.");
+                    }
+                    if (request.bedCount() == null || request.bedCount() < 1) {
+                        throw new BadRequestException("Each greenhouse bay must define at least one bed.");
+                    }
+                    return GreenhouseBayDefinition.builder()
+                            .bayTag(bayTag)
+                            .bedCount(request.bedCount())
+                            .build();
+                })
+                .toList();
+
+        long distinctTags = bays.stream()
+                .map(GreenhouseBayDefinition::getBayTag)
+                .distinct()
+                .count();
+        if (distinctTags != bays.size()) {
+            throw new BadRequestException("Greenhouse bay names must be unique.");
+        }
+        return bays;
+    }
+
+    private record GreenhouseLayout(
+            int bayCount,
+            int maxBedCount,
+            List<String> bayTags,
+            List<String> bedTags,
+            List<GreenhouseBayDefinition> bays
+    ) {
     }
 
 

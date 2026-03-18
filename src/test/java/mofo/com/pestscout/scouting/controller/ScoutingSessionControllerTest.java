@@ -25,8 +25,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -292,6 +291,14 @@ class ScoutingSessionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.remoteStartConsentRequired").value(false));
+    }
+
+    @Test
+    void deletesSession() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/scouting/sessions/{sessionId}", sessionId))
+                .andExpect(status().isNoContent());
     }
 
     @Test

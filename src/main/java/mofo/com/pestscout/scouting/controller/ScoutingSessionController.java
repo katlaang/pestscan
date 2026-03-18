@@ -41,6 +41,14 @@ public class ScoutingSessionController {
         return ResponseEntity.ok(sessionService.updateSession(sessionId, request));
     }
 
+    @DeleteMapping("/{sessionId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSession(@PathVariable UUID sessionId) {
+        LOGGER.info("DELETE /api/scouting/sessions/{} â€” deleting session", sessionId);
+        sessionService.deleteSession(sessionId);
+    }
+
     @PostMapping("/{sessionId}/start")
     @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> startSession(@PathVariable UUID sessionId) {

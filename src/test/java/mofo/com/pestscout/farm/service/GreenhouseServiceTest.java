@@ -3,6 +3,7 @@ package mofo.com.pestscout.farm.service;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
+import mofo.com.pestscout.farm.dto.GreenhouseBayRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseDto;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
@@ -15,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -68,8 +70,10 @@ class GreenhouseServiceTest {
 
         GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
 
-        assertThat(dto.bayTags()).containsExactly("east");
-        assertThat(dto.benchTags()).containsExactly("bench1");
+        assertThat(dto.bayTags()).containsExactly("east", "Bay-2");
+        assertThat(dto.benchTags()).containsExactly("bench1", "Bed-2", "Bed-3");
+        assertThat(dto.bays()).hasSize(2);
+        assertThat(dto.bays().getFirst().bedTags()).containsExactly("bench1", "Bed-2", "Bed-3");
         verify(farmAccessService).requireSuperAdmin();
         verify(cacheService).evictFarmCachesAfterCommit(farmId);
     }
@@ -105,6 +109,45 @@ class GreenhouseServiceTest {
         assertThat(dto.bayCount()).isEqualTo(8);
         assertThat(dto.benchesPerBay()).isEqualTo(6);
         assertThat(dto.spotChecksPerBench()).isEqualTo(4);
+    }
+
+    @Test
+    void createGreenhouse_withConfiguredBays_MapsBedsPerBay() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "House A",
+                "Custom layout",
+                null,
+                null,
+                2,
+                List.of(),
+                List.of(),
+                new BigDecimal("1.50"),
+                List.of(
+                        new GreenhouseBayRequest("Bay-A", 2),
+                        new GreenhouseBayRequest("Bay-B", 4)
+                )
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bayCount()).isEqualTo(2);
+        assertThat(dto.benchesPerBay()).isEqualTo(4);
+        assertThat(dto.bays()).hasSize(2);
+        assertThat(dto.bays().get(0).bayTag()).isEqualTo("Bay-A");
+        assertThat(dto.bays().get(0).bedCount()).isEqualTo(2);
+        assertThat(dto.bays().get(1).bayTag()).isEqualTo("Bay-B");
+        assertThat(dto.bays().get(1).bedCount()).isEqualTo(4);
     }
 
     @Test

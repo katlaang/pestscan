@@ -6,6 +6,7 @@ import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 /**
@@ -75,6 +76,12 @@ public class User extends BaseEntity {
     @Column(name = "session_valid_after")
     private LocalDateTime sessionValidAfter;
 
+    @Column(name = "active_client_session_id", length = 128)
+    private String activeClientSessionId;
+
+    @Column(name = "active_session_started_at")
+    private LocalDateTime activeSessionStartedAt;
+
 
     /**
      * Check if user is active
@@ -133,7 +140,14 @@ public class User extends BaseEntity {
     }
 
     public void invalidateSessions() {
-        this.sessionValidAfter = LocalDateTime.now();
+        // JWT issued-at timestamps are second-based, so keep the cutoff at the same precision.
+        this.sessionValidAfter = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    public void activateExclusiveSession(String clientSessionId) {
+        this.activeClientSessionId = Objects.requireNonNull(clientSessionId, "clientSessionId");
+        this.activeSessionStartedAt = LocalDateTime.now();
+        invalidateSessions();
     }
 
     public void markTemporaryPasswordExpired() {

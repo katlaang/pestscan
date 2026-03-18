@@ -8,6 +8,7 @@ import mofo.com.pestscout.common.model.BaseEntity;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 @Entity
 @Table(
@@ -59,19 +60,59 @@ public class Greenhouse extends BaseEntity {
     private List<String> benchTags = new ArrayList<>();
 
     @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "greenhouse_bays", joinColumns = @JoinColumn(name = "greenhouse_id"))
+    @OrderColumn(name = "position_index")
+    private List<GreenhouseBayDefinition> bays = new ArrayList<>();
+
+    @Builder.Default
     @Column(name = "is_active", nullable = false)
     private Boolean active = true;
 
     public int resolvedBayCount() {
+        if (bays != null && !bays.isEmpty()) {
+            return bays.size();
+        }
         return bayCount != null ? bayCount : farm.resolveBayCount();
     }
 
     public int resolvedBenchesPerBay() {
+        if (bays != null && !bays.isEmpty()) {
+            return bays.stream()
+                    .map(GreenhouseBayDefinition::getBedCount)
+                    .filter(count -> count != null && count > 0)
+                    .max(Integer::compareTo)
+                    .orElse(0);
+        }
         return benchesPerBay != null ? benchesPerBay : farm.resolveBenchesPerBay();
     }
 
     public int resolvedSpotChecksPerBench() {
         return spotChecksPerBench != null ? spotChecksPerBench : farm.resolveSpotChecksPerBench();
+    }
+
+    public List<String> resolvedBayTags() {
+        if (bays != null && !bays.isEmpty()) {
+            return bays.stream()
+                    .map(GreenhouseBayDefinition::getBayTag)
+                    .toList();
+        }
+        return bayTags != null ? List.copyOf(bayTags) : List.of();
+    }
+
+    public List<String> resolvedBedTags() {
+        if (benchTags != null && !benchTags.isEmpty()) {
+            return List.copyOf(benchTags);
+        }
+
+        int bedCount = resolvedBenchesPerBay();
+        if (bedCount <= 0) {
+            return List.of();
+        }
+
+        return IntStream.rangeClosed(1, bedCount)
+                .mapToObj(index -> "Bed-" + index)
+                .toList();
     }
 }
 

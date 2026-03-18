@@ -41,6 +41,7 @@ public class FieldBlockService {
                 .bayCount(request.bayCount() != null ? request.bayCount() : farm.resolveBayCount())
                 .spotChecksPerBay(request.spotChecksPerBay() != null ? request.spotChecksPerBay() : farm.resolveSpotChecksPerBench())
                 .areaHectares(request.areaHectares())
+                .cropType(normalizeNullableText(request.cropType()))
                 .bayTags(normalizeTags(request.bayTags()))
                 .active(request.active() != null ? request.active() : Boolean.TRUE)
                 .build();
@@ -77,6 +78,9 @@ public class FieldBlockService {
         }
         if (isSuperAdmin && request.areaHectares() != null) {
             block.setAreaHectares(request.areaHectares());
+        }
+        if (isSuperAdmin && request.cropType() != null) {
+            block.setCropType(normalizeNullableText(request.cropType()));
         }
 
         FieldBlock saved = fieldBlockRepository.save(block);
@@ -135,7 +139,8 @@ public class FieldBlockService {
                 block.getSpotChecksPerBay(),
                 List.copyOf(block.getBayTags()),
                 block.getActive(),
-                block.getAreaHectares()
+                block.getAreaHectares(),
+                block.getCropType()
         );
     }
 
@@ -148,5 +153,13 @@ public class FieldBlockService {
                 .map(String::trim)
                 .distinct()
                 .toList();
+    }
+
+    private String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

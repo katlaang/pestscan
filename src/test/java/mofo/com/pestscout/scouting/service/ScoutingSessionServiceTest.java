@@ -247,8 +247,57 @@ class ScoutingSessionServiceTest {
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.farmId()).isEqualTo(testFarm.getId());
+        assertThat(result.status()).isEqualTo(SessionStatus.NEW);
         verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
         verify(sessionRepository).save(any(ScoutingSession.class));
+    }
+
+    @Test
+    @DisplayName("Should use explicit target hectares when provided")
+    void createSession_WithExplicitTargetArea_UsesOverride() {
+        SessionTargetRequest targetRequest = new SessionTargetRequest(
+                greenhouse.getId(),
+                null,
+                true,
+                true,
+                List.of(),
+                List.of(),
+                new BigDecimal("1.25")
+        );
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                scout.getId(),
+                List.of(targetRequest),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Test notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin()).thenReturn(false);
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result.sections()).hasSize(1);
+        assertThat(result.sections().getFirst().areaHectares()).isEqualByComparingTo("1.25");
+        verify(licenseService, never()).calculateSelectedAreaHectares(any(), anyInt(), anyBoolean(), anyInt(), anyString());
     }
 
     @Test
@@ -448,6 +497,7 @@ class ScoutingSessionServiceTest {
                 LocalDate.now().plusDays(1),
                 2,
                 null,
+                null,
                 "Updated Crop",
                 "Updated Variety",
                 new BigDecimal("25.0"),
@@ -491,6 +541,7 @@ class ScoutingSessionServiceTest {
                 LocalDate.now(),
                 1,
                 null,
+                null,
                 "Crop",
                 "Variety",
                 null,
@@ -520,6 +571,80 @@ class ScoutingSessionServiceTest {
                 .hasMessageContaining("reopened");
 
         verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should promote a completed planning draft to new when scout and target are assigned")
+    void updateSession_WithDraftAssigningScoutAndTarget_PromotesToNew() {
+        testSession.setVersion(1L);
+        testSession.setScout(null);
+        testSession.getTargets().clear();
+
+        SessionTargetRequest targetRequest = new SessionTargetRequest(
+                greenhouse.getId(),
+                null,
+                true,
+                true,
+                List.of(),
+                List.of()
+        );
+
+        UpdateScoutingSessionRequest updateRequest = new UpdateScoutingSessionRequest(
+                null,
+                null,
+                List.of(targetRequest),
+                scout.getId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                1L,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.updateSession(testSession.getId(), updateRequest);
+
+        assertThat(result.status()).isEqualTo(SessionStatus.NEW);
+        assertThat(result.scoutId()).isEqualTo(scout.getId());
+        assertThat(result.sections()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Should delete draft session")
+    void deleteSession_WithDraftStatus_DeletesSession() {
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        scoutingSessionService.deleteSession(testSession.getId());
+
+        verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
+        verify(sessionRepository).delete(testSession);
+    }
+
+    @Test
+    @DisplayName("Should reject deleting in-progress session")
+    void deleteSession_WithInProgressStatus_ThrowsBadRequestException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.deleteSession(testSession.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("draft or new");
+
+        verify(sessionRepository, never()).delete(any());
     }
 
     @Test
@@ -678,6 +803,7 @@ class ScoutingSessionServiceTest {
     @DisplayName("Should reject manager changing session status to in progress via update")
     void updateSession_WithManagerChangingStatusToInProgress_ThrowsBadRequestException() {
         UpdateScoutingSessionRequest updateRequest = new UpdateScoutingSessionRequest(
+                null,
                 null,
                 null,
                 null,

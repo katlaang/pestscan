@@ -55,6 +55,9 @@ public class JwtTokenProvider {
         claims.put("role", user.getRole().name());
         claims.put("firstName", user.getFirstName());
         claims.put("lastName", user.getLastName());
+        if (user.getActiveClientSessionId() != null && !user.getActiveClientSessionId().isBlank()) {
+            claims.put("sid", user.getActiveClientSessionId());
+        }
 
         return createToken(claims, user.getId().toString(), expirationMillis);
     }
@@ -69,6 +72,9 @@ public class JwtTokenProvider {
     public String generateRefreshToken(User user, long expirationMillis) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", "refresh");
+        if (user.getActiveClientSessionId() != null && !user.getActiveClientSessionId().isBlank()) {
+            claims.put("sid", user.getActiveClientSessionId());
+        }
 
         return createToken(claims, user.getId().toString(), expirationMillis);
     }
@@ -132,6 +138,10 @@ public class JwtTokenProvider {
 
     public Date getIssuedAtFromToken(String token) {
         return getClaimsFromToken(token).getIssuedAt();
+    }
+
+    public String getSessionIdFromToken(String token) {
+        return getClaimsFromToken(token).get("sid", String.class);
     }
 
     private boolean isTokenExpired(String token) {

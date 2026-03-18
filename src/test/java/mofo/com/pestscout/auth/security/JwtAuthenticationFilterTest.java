@@ -236,6 +236,40 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void doFilterInternal_skipsAuthenticationWhenClientSessionHeaderDoesNotMatch() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("active@example.com").password("pass").authorities("ROLE_MANAGER").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("active@example.com")
+                .activeClientSessionId("tab-b")
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getHeader(ClientSessionHeaders.CLIENT_SESSION_ID)).thenReturn("tab-a");
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("active@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(UUID.randomUUID());
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("MANAGER");
+        when(tokenProvider.getSessionIdFromToken(token)).thenReturn("tab-b");
+        when(userDetailsService.loadUserByUsername("active@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "SESSION_REPLACED");
+        verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Your session was opened elsewhere. Please log in again.");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
     void doFilterInternal_skipsAuthenticationWhenPasswordChangeRequiredForProtectedEndpoint() throws ServletException, IOException {
         String token = "token";
         UUID userId = UUID.randomUUID();

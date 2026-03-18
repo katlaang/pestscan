@@ -9,11 +9,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Payload for updating an existing scouting session.
  * All fields are optional; only non-null values will be applied.
- * Manager may edit non-locked metadata.
+ * Manager may edit non-locked metadata, including the assigned scout while a session is still in planning.
  * */
 public record UpdateScoutingSessionRequest(
 
@@ -21,6 +22,7 @@ public record UpdateScoutingSessionRequest(
         Integer weekNumber,
 
         List<SessionTargetRequest> targets,
+        UUID scoutId,
 
         String crop,
         String variety,

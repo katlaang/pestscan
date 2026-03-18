@@ -40,6 +40,9 @@ public class FieldBlock extends BaseEntity {
     @Column(name = "area_hectares", precision = 10, scale = 2)
     private BigDecimal areaHectares;
 
+    @Column(name = "crop_type", length = 255)
+    private String cropType;
+
     @Builder.Default
     @ElementCollection
     @CollectionTable(name = "field_block_bay_tags", joinColumns = @JoinColumn(name = "field_block_id"))

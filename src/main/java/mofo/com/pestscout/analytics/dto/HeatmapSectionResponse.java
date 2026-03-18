@@ -15,8 +15,20 @@ public record HeatmapSectionResponse(
         String targetName,
         int bayCount,
         int benchesPerBay,
-        List<HeatmapCellResponse> cells
+        List<HeatmapCellResponse> cells,
+        List<HeatmapBayLayoutDto> bayLayouts
 ) {
+    public HeatmapSectionResponse(
+            UUID targetId,
+            UUID greenhouseId,
+            UUID fieldBlockId,
+            String targetName,
+            int bayCount,
+            int benchesPerBay,
+            List<HeatmapCellResponse> cells
+    ) {
+        this(targetId, greenhouseId, fieldBlockId, targetName, bayCount, benchesPerBay, cells, List.of());
+    }
 }
 
 

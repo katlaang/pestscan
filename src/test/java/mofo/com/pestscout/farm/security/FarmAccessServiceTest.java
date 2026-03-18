@@ -2,6 +2,8 @@ package mofo.com.pestscout.farm.security;
 
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.auth.model.UserFarmMembership;
+import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.farm.model.Farm;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,9 @@ class FarmAccessServiceTest {
 
     @Mock
     private CurrentUserService currentUserService;
+
+    @Mock
+    private UserFarmMembershipRepository membershipRepository;
 
     @InjectMocks
     private FarmAccessService farmAccessService;
@@ -43,5 +48,23 @@ class FarmAccessServiceTest {
 
         farmAccessService.requireViewAccess(farm);
         assertThat(farm.getOwner()).isEqualTo(owner);
+    }
+
+    @Test
+    void requireAdminOrSuperAdmin_allowsManagerMembership() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@example.com").role(Role.MANAGER).build();
+        Farm farm = new Farm();
+        farm.setId(UUID.randomUUID());
+
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(membershipRepository.findByUser_IdAndFarmId(manager.getId(), farm.getId()))
+                .thenReturn(java.util.Optional.of(UserFarmMembership.builder()
+                        .user(manager)
+                        .farm(farm)
+                        .role(Role.MANAGER)
+                        .isActive(true)
+                        .build()));
+
+        farmAccessService.requireAdminOrSuperAdmin(farm);
     }
 }

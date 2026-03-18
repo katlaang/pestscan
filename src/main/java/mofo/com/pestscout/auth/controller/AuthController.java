@@ -18,8 +18,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.UUID;
@@ -76,9 +78,11 @@ public class AuthController {
                     )
             }
     )
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, required = false) String clientSessionId) {
         LOGGER.info("Login request for email: {}", request.email());
-        LoginResponse response = authService.login(request);
+        LoginResponse response = authService.login(request, clientSessionId);
         return ResponseEntity.ok(response);
     }
 
@@ -279,10 +283,37 @@ public class AuthController {
                     )
             }
     )
-    public ResponseEntity<LoginResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+    public ResponseEntity<LoginResponse> refreshToken(
+            @Valid @RequestBody RefreshTokenRequest request,
+            @RequestHeader(value = mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, required = false) String clientSessionId) {
         LOGGER.info("Token refresh request");
-        LoginResponse response = authService.refreshToken(request);
+        LoginResponse response = authService.refreshToken(request, clientSessionId);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/session/claim")
+    @Operation(
+            summary = "Claim active session",
+            description = "Activate this tab or device as the sole live client session for the user. Requires a refresh token."
+    )
+    public ResponseEntity<LoginResponse> claimSession(
+            @Valid @RequestBody ClaimSessionRequest request,
+            @RequestHeader(value = mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, required = false) String clientSessionId) {
+        LOGGER.info("Session claim request");
+        return ResponseEntity.ok(authService.claimSession(request, clientSessionId));
+    }
+
+    @GetMapping(value = "/session/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Stream session events",
+            description = "Open a live stream for session lifecycle events such as session replacement."
+    )
+    public SseEmitter streamSessionEvents(
+            @RequestAttribute("userId") UUID userId,
+            @RequestHeader(value = mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, required = false) String clientSessionId) {
+        LOGGER.debug("Opening session event stream for user {}", userId);
+        return authService.subscribeSessionEvents(userId, clientSessionId);
     }
 
     /**

@@ -7,6 +7,7 @@ import mofo.com.pestscout.common.model.BaseEntity;
 import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.model.Greenhouse;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,4 +56,7 @@ public class ScoutingSessionTarget extends BaseEntity {
     @CollectionTable(name = "scouting_target_benches", joinColumns = @JoinColumn(name = "target_id"))
     @Column(name = "bench_tag", length = 255)
     private List<String> benchTags = new ArrayList<>();
+
+    @Column(name = "area_hectares", precision = 10, scale = 2)
+    private BigDecimal areaHectares;
 }
