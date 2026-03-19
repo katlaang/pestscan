@@ -46,6 +46,15 @@ public interface ScoutingObservationRepository extends JpaRepository<ScoutingObs
             SpeciesCode speciesCode
     );
 
+    Optional<ScoutingObservation> findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+            UUID sessionId,
+            UUID sessionTargetId,
+            Integer bayIndex,
+            Integer benchIndex,
+            Integer spotIndex,
+            String speciesIdentifier
+    );
+
     Optional<ScoutingObservation> findByClientRequestId(UUID clientRequestId);
 
     List<ScoutingObservation> findBySessionIdInAndUpdatedAtAfter(Collection<UUID> sessionIds, LocalDateTime updatedAfter);

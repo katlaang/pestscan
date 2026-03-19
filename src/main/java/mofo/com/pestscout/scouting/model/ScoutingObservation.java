@@ -18,11 +18,12 @@ import java.util.UUID;
         name = "scouting_observations",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_session_cell_species",
-                columnNames = {"session_id", "session_target_id", "bay_index", "bench_index", "spot_index", "species_code"}
+                columnNames = {"session_id", "session_target_id", "bay_index", "bench_index", "spot_index", "species_identifier"}
         ),
         indexes = {
                 @Index(name = "idx_scouting_observations_session", columnList = "session_id"),
-                @Index(name = "idx_scouting_observations_species", columnList = "species_code")
+                @Index(name = "idx_scouting_observations_species", columnList = "species_code"),
+                @Index(name = "idx_scouting_observations_custom_species", columnList = "custom_species_id")
         }
 )
 @Getter
@@ -41,8 +42,15 @@ public class ScoutingObservation extends BaseEntity {
     private ScoutingSessionTarget sessionTarget;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "species_code", nullable = false, length = 50)
+    @Column(name = "species_code", length = 50)
     private SpeciesCode speciesCode;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "custom_species_id")
+    private CustomSpeciesDefinition customSpecies;
+
+    @Column(name = "species_identifier", nullable = false, length = 128)
+    private String speciesIdentifier;
 
     @Column(name = "bay_index", nullable = false)
     private Integer bayIndex;
@@ -73,6 +81,31 @@ public class ScoutingObservation extends BaseEntity {
      */
     @Transient
     public ObservationCategory getCategory() {
-        return speciesCode.getCategory();
+        if (customSpecies != null) {
+            return customSpecies.getCategory();
+        }
+        return speciesCode != null ? speciesCode.getCategory() : null;
+    }
+
+    @Transient
+    public String getSpeciesDisplayName() {
+        if (customSpecies != null) {
+            return customSpecies.getName();
+        }
+        return speciesCode != null ? speciesCode.getDisplayName() : null;
+    }
+
+    @Transient
+    public String resolveSpeciesIdentifier() {
+        if (speciesIdentifier != null && !speciesIdentifier.isBlank()) {
+            return speciesIdentifier;
+        }
+        if (customSpecies != null && customSpecies.getId() != null) {
+            return "CUSTOM:" + customSpecies.getId();
+        }
+        if (speciesCode != null) {
+            return "CODE:" + speciesCode.name();
+        }
+        return null;
     }
 }

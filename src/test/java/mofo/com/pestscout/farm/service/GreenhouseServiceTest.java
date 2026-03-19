@@ -5,6 +5,7 @@ import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseBayRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseDto;
+import mofo.com.pestscout.farm.dto.UpdateGreenhouseRequest;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
@@ -185,6 +186,65 @@ class GreenhouseServiceTest {
         assertThat(dto.bays().getFirst().bedTags()).containsExactly("A-1", "A-2");
         assertThat(dto.bays().get(1).bedTags()).containsExactly("B-1", "B-2", "B-3");
         assertThat(dto.benchTags()).containsExactly("A-1", "A-2", "B-1", "B-2", "B-3");
+    }
+
+    @Test
+    void updateGreenhouse_usesMutableCollectionsForHibernateMerge() {
+        UUID greenhouseId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        Greenhouse greenhouse = Greenhouse.builder()
+                .id(greenhouseId)
+                .farm(farm)
+                .name("House A")
+                .description("Old layout")
+                .bayCount(1)
+                .benchesPerBay(1)
+                .spotChecksPerBench(2)
+                .bayTags(new java.util.ArrayList<>(List.of("Bay-1")))
+                .benchTags(new java.util.ArrayList<>(List.of("Bed-1")))
+                .bays(new java.util.ArrayList<>())
+                .active(true)
+                .build();
+
+        UpdateGreenhouseRequest request = new UpdateGreenhouseRequest(
+                "House A",
+                null,
+                null,
+                2,
+                true,
+                "Updated layout",
+                List.of(),
+                List.of(),
+                new BigDecimal("1.20"),
+                List.of(
+                        new GreenhouseBayRequest("Bay-A", 2, List.of("A-1", "A-2")),
+                        new GreenhouseBayRequest("Bay-B", 1, List.of("B-1"))
+                )
+        );
+
+        when(greenhouseRepository.findById(greenhouseId)).thenReturn(Optional.of(greenhouse));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse saved = invocation.getArgument(0);
+            // Simulate Hibernate merge mutating collection-backed fields.
+            saved.getBayTags().clear();
+            saved.getBenchTags().clear();
+            saved.getBays().clear();
+
+            saved.setBayTags(new java.util.ArrayList<>(List.of("Bay-A", "Bay-B")));
+            saved.setBenchTags(new java.util.ArrayList<>(List.of("A-1", "A-2", "B-1")));
+            saved.setBays(new java.util.ArrayList<>());
+            return saved;
+        });
+
+        GreenhouseDto dto = greenhouseService.updateGreenhouse(greenhouseId, request);
+
+        assertThat(dto.name()).isEqualTo("House A");
+        verify(farmAccessService).requireAdminOrSuperAdmin(farm);
+        verify(cacheService).evictFarmCachesAfterCommit(farmId);
     }
 
     @Test

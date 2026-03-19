@@ -8,6 +8,7 @@ import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
 import mofo.com.pestscout.scouting.model.ObservationCategory;
 import mofo.com.pestscout.scouting.model.ScoutingObservation;
 import mofo.com.pestscout.scouting.model.SeverityLevel;
+import mofo.com.pestscout.scouting.model.SpeciesCode;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
@@ -151,7 +152,7 @@ public class TrendAnalysisService {
             var observations = obsRepo.findBySessionIdIn(List.of(session.getId()));
 
             int total = observations.stream()
-                    .filter(o -> o.getSpeciesCode().name().equalsIgnoreCase(speciesCode))
+                    .filter(o -> matchesSpeciesQuery(o, speciesCode))
                     .mapToInt(o -> Optional.ofNullable(o.getCount()).orElse(0))
                     .sum();
 
@@ -165,27 +166,23 @@ public class TrendAnalysisService {
         return new PestTrendResponse(farmId, speciesCode, points);
     }
 
-    private static class PestWeekCounts {
-        int thrips;
-        int redSpider;
-        int whiteflies;
-        int mealybugs;
-        int caterpillars;
-        int fcm;
-        int otherPests;
-
-        void apply(ScoutingObservation observation) {
-            int count = Optional.ofNullable(observation.getCount()).orElse(0);
-            switch (observation.getSpeciesCode()) {
-                case THRIPS -> thrips += count;
-                case RED_SPIDER_MITE -> redSpider += count;
-                case WHITEFLIES -> whiteflies += count;
-                case MEALYBUGS -> mealybugs += count;
-                case FALSE_CODLING_MOTH -> fcm += count;
-                default -> {
-                }
-            }
+    private boolean matchesSpeciesQuery(ScoutingObservation observation, String speciesQuery) {
+        if (speciesQuery == null || speciesQuery.isBlank()) {
+            return false;
         }
+
+        SpeciesCode speciesCode = observation.getSpeciesCode();
+        if (speciesCode != null && speciesCode.name().equalsIgnoreCase(speciesQuery)) {
+            return true;
+        }
+
+        String displayName = observation.getSpeciesDisplayName();
+        if (displayName != null && displayName.equalsIgnoreCase(speciesQuery)) {
+            return true;
+        }
+
+        String identifier = observation.resolveSpeciesIdentifier();
+        return identifier != null && identifier.equalsIgnoreCase(speciesQuery);
     }
 
     private static class SeverityWeekCounts {
@@ -202,6 +199,35 @@ public class TrendAnalysisService {
                 case MODERATE -> medium++;
                 case HIGH -> high++;
                 case VERY_HIGH, EMERGENCY -> critical++;
+            }
+        }
+    }
+
+    private static class PestWeekCounts {
+        int thrips;
+        int redSpider;
+        int whiteflies;
+        int mealybugs;
+        int caterpillars;
+        int fcm;
+        int otherPests;
+
+        void apply(ScoutingObservation observation) {
+            int count = Optional.ofNullable(observation.getCount()).orElse(0);
+            SpeciesCode speciesCode = observation.getSpeciesCode();
+            if (speciesCode == null) {
+                otherPests += count;
+                return;
+            }
+
+            switch (speciesCode) {
+                case THRIPS -> thrips += count;
+                case RED_SPIDER_MITE -> redSpider += count;
+                case WHITEFLIES -> whiteflies += count;
+                case MEALYBUGS -> mealybugs += count;
+                case CATERPILLARS -> caterpillars += count;
+                case FALSE_CODLING_MOTH -> fcm += count;
+                default -> otherPests += count;
             }
         }
     }

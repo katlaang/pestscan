@@ -47,6 +47,7 @@ public record CreateScoutingSessionRequest(
         String notes,
 
         List<SpeciesCode> surveySpeciesCodes,
+        List<UUID> customSurveySpeciesIds,
 
         // Default capture source for photos in this session; photo registration may override it
         PhotoSourceType defaultPhotoSourceType,
@@ -95,6 +96,7 @@ public record CreateScoutingSessionRequest(
                 observationTime,
                 weatherNotes,
                 notes,
+                null,
                 null,
                 defaultPhotoSourceType,
                 status,

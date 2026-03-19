@@ -49,7 +49,7 @@ public class TreatmentRecommendationEngine {
         Map<RecommendationKey, RecommendationAccumulator> accumulators = new LinkedHashMap<>();
 
         for (ScoutingObservation observation : observations) {
-            if (observation.getCategory() == ObservationCategory.BENEFICIAL || observation.getSpeciesCode() == null) {
+            if (observation.getCategory() == ObservationCategory.BENEFICIAL) {
                 continue;
             }
 
@@ -59,10 +59,10 @@ public class TreatmentRecommendationEngine {
             }
 
             String sectionName = resolveSectionName(observation);
-            RecommendationKey key = new RecommendationKey(sectionName, observation.getSpeciesCode());
+            RecommendationKey key = new RecommendationKey(sectionName, observation.resolveSpeciesIdentifier());
             RecommendationAccumulator accumulator = accumulators.computeIfAbsent(
                     key,
-                    ignored -> new RecommendationAccumulator(sectionName, observation.getSpeciesCode())
+                    ignored -> new RecommendationAccumulator(sectionName, observation)
             );
             accumulator.add(observation, count);
         }
@@ -97,21 +97,27 @@ public class TreatmentRecommendationEngine {
                 : "Farm overview";
     }
 
-    private record RecommendationKey(String sectionName, SpeciesCode speciesCode) {
+    private record RecommendationKey(String sectionName, String speciesIdentifier) {
     }
 
     private static final class RecommendationAccumulator {
 
         private final String sectionName;
+        private final String speciesIdentifier;
+        private final String speciesDisplayName;
+        private final ObservationCategory category;
         private final SpeciesCode speciesCode;
         private final List<String> notes = new ArrayList<>();
         private int observedCount;
         private int affectedCells;
         private SeverityLevel maxSeverity = SeverityLevel.ZERO;
 
-        private RecommendationAccumulator(String sectionName, SpeciesCode speciesCode) {
+        private RecommendationAccumulator(String sectionName, ScoutingObservation observation) {
             this.sectionName = sectionName;
-            this.speciesCode = speciesCode;
+            this.speciesIdentifier = observation.resolveSpeciesIdentifier();
+            this.speciesDisplayName = observation.getSpeciesDisplayName();
+            this.category = observation.getCategory();
+            this.speciesCode = observation.getSpeciesCode();
         }
 
         private static String toPriority(SeverityLevel severity, int totalCount) {
@@ -142,16 +148,16 @@ public class TreatmentRecommendationEngine {
         }
 
         private TreatmentRecommendationItem toResponse() {
-            RecommendationTemplate template = RecommendationTemplate.forSpecies(speciesCode);
+            RecommendationTemplate template = RecommendationTemplate.forSpecies(speciesCode, category);
             String priority = toPriority(maxSeverity, observedCount);
             BigDecimal suggestedQuantity = template.suggestedQuantity(observedCount, affectedCells);
             BigDecimal unitPrice = template.estimatedUnitPrice();
             String rationale = buildRationale(template);
 
             return new TreatmentRecommendationItem(
-                    speciesCode.name(),
-                    speciesCode.getDisplayName(),
-                    speciesCode.getCategory().name(),
+                    speciesCode != null ? speciesCode.name() : speciesIdentifier,
+                    speciesDisplayName,
+                    category.name(),
                     sectionName,
                     observedCount,
                     maxSeverity.name(),
@@ -172,7 +178,7 @@ public class TreatmentRecommendationEngine {
             builder.append("Detected ")
                     .append(observedCount)
                     .append(' ')
-                    .append(speciesCode.getDisplayName().toLowerCase())
+                    .append(speciesDisplayName.toLowerCase())
                     .append(" observations across ")
                     .append(affectedCells)
                     .append(affectedCells == 1 ? " affected cell" : " affected cells")
@@ -201,7 +207,42 @@ public class TreatmentRecommendationEngine {
             BigDecimal estimatedUnitPrice
     ) {
 
-        private static RecommendationTemplate forSpecies(SpeciesCode speciesCode) {
+        private static RecommendationTemplate forSpecies(SpeciesCode speciesCode, ObservationCategory category) {
+            if (speciesCode == null) {
+                return switch (category) {
+                    case PEST -> new RecommendationTemplate(
+                            "SCOUTING_ESCALATION",
+                            "Escalate for manual review and deploy a broad-spectrum monitoring pack.",
+                            "A custom pest should be reviewed before selecting a targeted treatment.",
+                            "KIT-SCOUT-REVIEW",
+                            "Scouting review kit",
+                            new BigDecimal("1.00"),
+                            "kit",
+                            new BigDecimal("15.00")
+                    );
+                    case DISEASE -> new RecommendationTemplate(
+                            "SANITATION_AND_FUNGICIDE",
+                            "Remove affected material, tighten environment control, and apply a disease treatment.",
+                            "A custom disease should be handled conservatively with sanitation and disease control.",
+                            "FUNGI-PROTECT",
+                            "Protective fungicide pack",
+                            new BigDecimal("1.00"),
+                            "pack",
+                            new BigDecimal("41.00")
+                    );
+                    case BENEFICIAL -> new RecommendationTemplate(
+                            "SCOUTING_ESCALATION",
+                            "Review manually before action.",
+                            "Beneficial detections do not trigger treatment orders by default.",
+                            "KIT-SCOUT-REVIEW",
+                            "Scouting review kit",
+                            new BigDecimal("1.00"),
+                            "kit",
+                            new BigDecimal("15.00")
+                    );
+                };
+            }
+
             return switch (speciesCode) {
                 case THRIPS -> new RecommendationTemplate(
                         "BIOLOGICAL_CONTROL",
@@ -264,7 +305,7 @@ public class TreatmentRecommendationEngine {
                                 "pack",
                                 new BigDecimal("41.00")
                         );
-                case PEST_OTHER, BENEFICIAL_PP -> new RecommendationTemplate(
+                case PEST_OTHER, BENEFICIAL_PP, BENEFICIAL_OTHER -> new RecommendationTemplate(
                         "SCOUTING_ESCALATION",
                         "Escalate for manual review and use a broad-spectrum monitoring supply pack.",
                         "The species needs confirmation before a more specific treatment is ordered.",

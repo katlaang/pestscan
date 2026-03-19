@@ -43,6 +43,7 @@ public record ScoutingSessionDetailDto(
         String notes,
 
         List<SpeciesCode> surveySpeciesCodes,
+        List<CustomSpeciesDto> customSurveySpecies,
 
         PhotoSourceType defaultPhotoSourceType,
 
@@ -60,6 +61,71 @@ public record ScoutingSessionDetailDto(
         List<ScoutingSessionSectionDto> sections,
         List<RecommendationEntryDto> recommendations
 ) {
+    public ScoutingSessionDetailDto(
+            UUID id,
+            Long version,
+            UUID farmId,
+            LocalDate sessionDate,
+            Integer weekNumber,
+            SessionStatus status,
+            SyncStatus syncStatus,
+            UUID managerId,
+            UUID scoutId,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            List<SpeciesCode> surveySpeciesCodes,
+            PhotoSourceType defaultPhotoSourceType,
+            LocalDateTime startedAt,
+            LocalDateTime submittedAt,
+            LocalDateTime completedAt,
+            boolean remoteStartConsentRequired,
+            LocalDateTime remoteStartRequestedAt,
+            String remoteStartRequestedByName,
+            LocalDateTime updatedAt,
+            boolean confirmationAcknowledged,
+            String reopenComment,
+            List<ScoutingSessionSectionDto> sections,
+            List<RecommendationEntryDto> recommendations
+    ) {
+        this(
+                id,
+                version,
+                farmId,
+                sessionDate,
+                weekNumber,
+                status,
+                syncStatus,
+                managerId,
+                scoutId,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                surveySpeciesCodes,
+                List.of(),
+                defaultPhotoSourceType,
+                startedAt,
+                submittedAt,
+                completedAt,
+                remoteStartConsentRequired,
+                remoteStartRequestedAt,
+                remoteStartRequestedByName,
+                updatedAt,
+                confirmationAcknowledged,
+                reopenComment,
+                sections,
+                recommendations
+        );
+    }
+
     public ScoutingSessionDetailDto(
             UUID id,
             Long version,
@@ -107,6 +173,7 @@ public record ScoutingSessionDetailDto(
                 observationTime,
                 weatherNotes,
                 notes,
+                List.of(),
                 List.of(),
                 defaultPhotoSourceType,
                 startedAt,

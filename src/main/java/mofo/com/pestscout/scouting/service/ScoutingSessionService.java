@@ -24,10 +24,7 @@ import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.model.*;
-import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
-import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
-import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
-import mofo.com.pestscout.scouting.repository.SessionAuditEventRepository;
+import mofo.com.pestscout.scouting.repository.*;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +56,7 @@ public class ScoutingSessionService {
     private final LicenseService licenseService;
     private final CacheService cacheService;
     private final SessionAuditService sessionAuditService;
+    private final CustomSpeciesDefinitionRepository customSpeciesDefinitionRepository;
 
     /**
      * Create a new scouting session for a farm.
@@ -79,6 +77,7 @@ public class ScoutingSessionService {
 
         User manager = resolveManager(farm);
         User scout = resolveScout(request, farm);
+        List<CustomSpeciesDefinition> customSurveySpecies = resolveCustomSurveySpecies(farm, request.customSurveySpeciesIds());
 
         SessionStatus initialStatus = request.status() == null ? SessionStatus.DRAFT : request.status();
         if (initialStatus != SessionStatus.DRAFT && initialStatus != SessionStatus.NEW) {
@@ -99,6 +98,7 @@ public class ScoutingSessionService {
                 .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
                 .surveySpecies(normalizeSurveySpecies(request.surveySpeciesCodes()))
+                .customSurveySpecies(customSurveySpecies)
                 .defaultPhotoSourceType(
                         request.defaultPhotoSourceType() != null
                                 ? request.defaultPhotoSourceType()
@@ -172,6 +172,9 @@ public class ScoutingSessionService {
         }
         if (request.surveySpeciesCodes() != null) {
             session.setSurveySpecies(normalizeSurveySpecies(request.surveySpeciesCodes()));
+        }
+        if (request.customSurveySpeciesIds() != null) {
+            session.setCustomSurveySpecies(resolveCustomSurveySpecies(session.getFarm(), request.customSurveySpeciesIds()));
         }
         if (request.defaultPhotoSourceType() != null) {
             session.setDefaultPhotoSourceType(request.defaultPhotoSourceType());
@@ -248,6 +251,7 @@ public class ScoutingSessionService {
                 .cropVariety(sourceSession.getCropVariety())
                 .notes(sourceSession.getNotes())
                 .surveySpecies(new ArrayList<>(normalizeSurveySpecies(sourceSession.getSurveySpecies())))
+                .customSurveySpecies(new ArrayList<>(sourceSession.getCustomSurveySpecies()))
                 .defaultPhotoSourceType(sourceSession.getDefaultPhotoSourceType())
                 .status(SessionStatus.DRAFT)
                 .confirmationAcknowledged(false)
@@ -504,16 +508,17 @@ public class ScoutingSessionService {
 
         ensureSessionEditableForObservations(session);
         assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
-        assertSpeciesAllowed(session, request.speciesCode());
+        ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request);
+        assertSpeciesAllowed(session, resolvedSpecies);
 
         ScoutingObservation observation = observationRepository
-                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                         session.getId(),
                         target.getId(),
                         request.bayIndex(),
                         request.benchIndex(),
                         request.spotIndex(),
-                        request.speciesCode()
+                        resolvedSpecies.identifier()
                 )
                 .orElse(null);
 
@@ -521,7 +526,9 @@ public class ScoutingSessionService {
             observation = ScoutingObservation.builder()
                     .session(session)
                     .sessionTarget(target)
-                    .speciesCode(request.speciesCode())
+                    .speciesCode(resolvedSpecies.speciesCode())
+                    .customSpecies(resolvedSpecies.customSpecies())
+                    .speciesIdentifier(resolvedSpecies.identifier())
                     .bayIndex(request.bayIndex())
                     .bayLabel(request.bayTag())
                     .benchIndex(request.benchIndex())
@@ -537,6 +544,9 @@ public class ScoutingSessionService {
             }
         }
 
+        observation.setSpeciesCode(resolvedSpecies.speciesCode());
+        observation.setCustomSpecies(resolvedSpecies.customSpecies());
+        observation.setSpeciesIdentifier(resolvedSpecies.identifier());
         observation.setCount(request.count());
         observation.setNotes(request.notes());
         observation.setClientRequestId(clientRequestId);
@@ -922,21 +932,25 @@ public class ScoutingSessionService {
             }
         }
 
+        ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request);
+
         Optional<ScoutingObservation> existingOpt = observationRepository
-                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                         session.getId(),
                         target.getId(),
                         request.bayIndex(),
                         request.benchIndex(),
                         request.spotIndex(),
-                        request.speciesCode()
+                        resolvedSpecies.identifier()
                 );
 
         return existingOpt.orElseGet(() -> {
             ScoutingObservation created = ScoutingObservation.builder()
                     .session(session)
                     .sessionTarget(target)
-                    .speciesCode(request.speciesCode())
+                    .speciesCode(resolvedSpecies.speciesCode())
+                    .customSpecies(resolvedSpecies.customSpecies())
+                    .speciesIdentifier(resolvedSpecies.identifier())
                     .bayIndex(request.bayIndex())
                     .bayLabel(request.bayTag())
                     .benchIndex(request.benchIndex())
@@ -1172,6 +1186,7 @@ public class ScoutingSessionService {
                 null,
                 null,
                 List.copyOf(session.getSurveySpecies()),
+                List.of(),
                 null,
                 null,
                 null,
@@ -1231,6 +1246,11 @@ public class ScoutingSessionService {
         List<RecommendationEntryDto> recommendationDtos = session.getRecommendations().entrySet().stream()
                 .map(entry -> new RecommendationEntryDto(entry.getKey(), entry.getValue()))
                 .toList();
+        List<CustomSpeciesDto> customSpeciesDtos = session.getCustomSurveySpecies() == null
+                ? List.of()
+                : session.getCustomSurveySpecies().stream()
+                .map(this::mapToCustomSpeciesDto)
+                .toList();
 
         UUID managerId = session.getManager() != null ? session.getManager().getId() : null;
         UUID scoutId = session.getScout() != null ? session.getScout().getId() : null;
@@ -1253,6 +1273,7 @@ public class ScoutingSessionService {
                 session.getWeatherNotes(),
                 session.getNotes(),
                 List.copyOf(session.getSurveySpecies()),
+                customSpeciesDtos,
                 session.getDefaultPhotoSourceType(),
                 session.getStartedAt(),
                 session.getSubmittedAt(),
@@ -1287,6 +1308,9 @@ public class ScoutingSessionService {
                 observation.getSessionTarget().getGreenhouse() != null ? observation.getSessionTarget().getGreenhouse().getId() : null,
                 observation.getSessionTarget().getFieldBlock() != null ? observation.getSessionTarget().getFieldBlock().getId() : null,
                 observation.getSpeciesCode(),
+                observation.getCustomSpecies() != null ? observation.getCustomSpecies().getId() : null,
+                observation.getSpeciesDisplayName(),
+                observation.resolveSpeciesIdentifier(),
                 category,
                 observation.getBayIndex(),
                 observation.getBayLabel(),
@@ -1375,32 +1399,133 @@ public class ScoutingSessionService {
 
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) {
-            return List.of();
+            return new ArrayList<>();
         }
         return tags.stream()
                 .filter(tag -> tag != null && !tag.isBlank())
                 .map(String::trim)
                 .distinct()
-                .toList();
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private List<SpeciesCode> normalizeSurveySpecies(List<SpeciesCode> surveySpeciesCodes) {
         if (surveySpeciesCodes == null || surveySpeciesCodes.isEmpty()) {
-            return List.of();
+            return new ArrayList<>();
         }
         return surveySpeciesCodes.stream()
                 .filter(Objects::nonNull)
                 .distinct()
-                .toList();
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
-    private void assertSpeciesAllowed(ScoutingSession session, SpeciesCode speciesCode) {
-        if (session.getSurveySpecies() == null || session.getSurveySpecies().isEmpty()) {
+    private List<CustomSpeciesDefinition> resolveCustomSurveySpecies(Farm farm, List<UUID> customSurveySpeciesIds) {
+        if (customSurveySpeciesIds == null || customSurveySpeciesIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<UUID> uniqueIds = customSurveySpeciesIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (uniqueIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<CustomSpeciesDefinition> definitions = customSpeciesDefinitionRepository.findByFarmIdAndIdIn(farm.getId(), uniqueIds);
+        Map<UUID, CustomSpeciesDefinition> definitionsById = definitions.stream()
+                .collect(Collectors.toMap(CustomSpeciesDefinition::getId, definition -> definition));
+
+        List<CustomSpeciesDefinition> orderedDefinitions = new ArrayList<>();
+        for (UUID id : uniqueIds) {
+            CustomSpeciesDefinition definition = definitionsById.get(id);
+            if (definition == null) {
+                throw new BadRequestException("Selected custom species does not belong to this farm.");
+            }
+            orderedDefinitions.add(definition);
+        }
+
+        return orderedDefinitions;
+    }
+
+    private ResolvedObservationSpecies resolveObservationSpecies(ScoutingSession session, UpsertObservationRequest request) {
+        boolean hasBuiltInSpecies = request.speciesCode() != null;
+        boolean hasCustomSpecies = request.customSpeciesId() != null;
+
+        if (hasBuiltInSpecies == hasCustomSpecies) {
+            throw new BadRequestException("Provide either a built-in speciesCode or a customSpeciesId.");
+        }
+
+        if (hasBuiltInSpecies) {
+            SpeciesCode speciesCode = request.speciesCode();
+            return new ResolvedObservationSpecies(
+                    speciesCode,
+                    null,
+                    "CODE:" + speciesCode.name(),
+                    speciesCode.getDisplayName(),
+                    speciesCode.getCategory()
+            );
+        }
+
+        CustomSpeciesDefinition customSpecies = customSpeciesDefinitionRepository
+                .findByIdAndFarmId(request.customSpeciesId(), session.getFarm().getId())
+                .orElseThrow(() -> new BadRequestException("Selected custom species does not belong to this farm."));
+
+        return new ResolvedObservationSpecies(
+                null,
+                customSpecies,
+                "CUSTOM:" + customSpecies.getId(),
+                customSpecies.getName(),
+                customSpecies.getCategory()
+        );
+    }
+
+    private void assertSpeciesAllowed(ScoutingSession session, ResolvedObservationSpecies species) {
+        boolean hasBuiltInSelection = session.getSurveySpecies() != null && !session.getSurveySpecies().isEmpty();
+        boolean hasCustomSelection = session.getCustomSurveySpecies() != null && !session.getCustomSurveySpecies().isEmpty();
+
+        if (!hasBuiltInSelection && !hasCustomSelection) {
             return;
         }
-        if (!session.getSurveySpecies().contains(speciesCode)) {
-            throw new BadRequestException("Selected pest, disease, or beneficial insect is not configured for this session.");
+
+        if (species.speciesCode() != null && session.getSurveySpecies().contains(species.speciesCode())) {
+            return;
         }
+
+        if (species.customSpecies() != null) {
+            boolean selectedCustomSpecies = session.getCustomSurveySpecies().stream()
+                    .anyMatch(definition -> Objects.equals(definition.getId(), species.customSpecies().getId()));
+            if (selectedCustomSpecies) {
+                return;
+            }
+
+            if (allowsCustomSpeciesForCategory(session.getSurveySpecies(), species.category())) {
+                return;
+            }
+        }
+
+        throw new BadRequestException("Selected pest, disease, or beneficial insect is not configured for this session.");
+    }
+
+    private boolean allowsCustomSpeciesForCategory(List<SpeciesCode> selectedSpecies, ObservationCategory category) {
+        if (selectedSpecies == null || selectedSpecies.isEmpty() || category == null) {
+            return false;
+        }
+
+        return switch (category) {
+            case PEST -> selectedSpecies.contains(SpeciesCode.PEST_OTHER);
+            case DISEASE -> selectedSpecies.contains(SpeciesCode.DISEASE_OTHER);
+            case BENEFICIAL -> selectedSpecies.contains(SpeciesCode.BENEFICIAL_OTHER);
+        };
+    }
+
+    private CustomSpeciesDto mapToCustomSpeciesDto(CustomSpeciesDefinition definition) {
+        return new CustomSpeciesDto(
+                definition.getId(),
+                definition.getCategory(),
+                definition.getName(),
+                definition.getCode()
+        );
     }
 
     private void assertTargetSelectionsAllowCell(ScoutingSessionTarget target, String bayTag, String benchTag) {
@@ -1576,6 +1701,15 @@ public class ScoutingSessionService {
             List<String> bayTags,
             List<String> benchTags,
             BigDecimal areaHectares
+    ) {
+    }
+
+    private record ResolvedObservationSpecies(
+            SpeciesCode speciesCode,
+            CustomSpeciesDefinition customSpecies,
+            String identifier,
+            String displayName,
+            ObservationCategory category
     ) {
     }
 

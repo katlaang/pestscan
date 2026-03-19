@@ -147,6 +147,15 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "species_code", length = 50)
     private List<SpeciesCode> surveySpecies = new ArrayList<>();
 
+    @Builder.Default
+    @ManyToMany
+    @JoinTable(
+            name = "scouting_session_custom_species",
+            joinColumns = @JoinColumn(name = "session_id"),
+            inverseJoinColumns = @JoinColumn(name = "custom_species_id")
+    )
+    private List<CustomSpeciesDefinition> customSurveySpecies = new ArrayList<>();
+
 
     /**
      * A session is editable while it is draft or in progress.

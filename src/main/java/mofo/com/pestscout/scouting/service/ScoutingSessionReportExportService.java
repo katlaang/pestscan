@@ -81,6 +81,7 @@ public class ScoutingSessionReportExportService {
                 "total_beds",
                 "section_fully_covered",
                 "species_code",
+                "custom_species_id",
                 "species_name",
                 "category",
                 "bay_index",
@@ -111,6 +112,7 @@ public class ScoutingSessionReportExportService {
                     report.weatherNotes(),
                     report.notes(),
                     recommendationSummary,
+                    null,
                     null,
                     null,
                     null,
@@ -179,6 +181,7 @@ public class ScoutingSessionReportExportService {
                         null,
                         null,
                         null,
+                        null,
                         null
                 ));
                 continue;
@@ -212,7 +215,8 @@ public class ScoutingSessionReportExportService {
                         coverageValue(coverage, false, false),
                         coverage == null ? null : coverage.fullyCovered(),
                         observation.speciesCode(),
-                        observation.speciesCode() == null ? null : observation.speciesCode().getDisplayName(),
+                        observation.customSpeciesId(),
+                        observation.speciesDisplayName(),
                         observation.category(),
                         observation.bayIndex(),
                         observation.bayTag(),

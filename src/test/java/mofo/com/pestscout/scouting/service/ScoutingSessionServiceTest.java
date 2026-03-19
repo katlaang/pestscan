@@ -22,10 +22,7 @@ import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.model.*;
-import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
-import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
-import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
-import mofo.com.pestscout.scouting.repository.SessionAuditEventRepository;
+import mofo.com.pestscout.scouting.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -91,6 +88,9 @@ class ScoutingSessionServiceTest {
     @Mock
     private SessionAuditService sessionAuditService;
 
+    @Mock
+    private CustomSpeciesDefinitionRepository customSpeciesDefinitionRepository;
+
     @InjectMocks
     private ScoutingSessionService scoutingSessionService;
 
@@ -100,6 +100,7 @@ class ScoutingSessionServiceTest {
     private User superAdmin;
     private Greenhouse greenhouse;
     private FieldBlock fieldBlock;
+    private CustomSpeciesDefinition customPest;
     private ScoutingSession testSession;
     private CreateScoutingSessionRequest createRequest;
 
@@ -158,6 +159,14 @@ class ScoutingSessionServiceTest {
                 .name("Field Block 1")
                 .bayCount(8)
                 .areaHectares(new BigDecimal("4.00"))
+                .build();
+
+        customPest = CustomSpeciesDefinition.builder()
+                .id(UUID.randomUUID())
+                .farm(testFarm)
+                .category(ObservationCategory.PEST)
+                .name("Leaf miner")
+                .normalizedName("leaf miner")
                 .build();
 
         testSession = ScoutingSession.builder()
@@ -411,6 +420,57 @@ class ScoutingSessionServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.scoutId()).isNull();
         assertThat(result.sections()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Should attach reusable custom species to the session plan")
+    void createSession_WithCustomSurveySpecies_PersistsSelections() {
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                scout.getId(),
+                List.of(new SessionTargetRequest(greenhouse.getId(), null, true, true, List.of(), List.of())),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Custom species test",
+                List.of(SpeciesCode.PEST_OTHER),
+                List.of(customPest.getId()),
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin()).thenReturn(false);
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(customSpeciesDefinitionRepository.findByFarmIdAndIdIn(testFarm.getId(), List.of(customPest.getId())))
+                .thenReturn(List.of(customPest));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result.surveySpeciesCodes()).containsExactly(SpeciesCode.PEST_OTHER);
+        assertThat(result.customSurveySpecies())
+                .extracting(CustomSpeciesDto::name)
+                .containsExactly("Leaf miner");
     }
 
     @Test
@@ -1104,7 +1164,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.empty());
@@ -1154,7 +1214,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         )).thenReturn(Optional.empty());
         when(observationRepository.save(any(ScoutingObservation.class)))
@@ -1210,7 +1270,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.of(existingObservation));
@@ -1356,7 +1416,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.empty());
@@ -1481,7 +1541,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.of(existing));
@@ -1490,6 +1550,57 @@ class ScoutingSessionServiceTest {
         assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("has changed on the server");
+    }
+
+    @Test
+    @DisplayName("Should save a custom pest observation when the session allows other pests")
+    void upsertObservation_WithCustomSpeciesId_SavesCustomObservation() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setSurveySpecies(new ArrayList<>(List.of(SpeciesCode.PEST_OTHER)));
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                null,
+                customPest.getId(),
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                3,
+                "Custom pest found",
+                UUID.randomUUID(),
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
+        when(customSpeciesDefinitionRepository.findByIdAndFarmId(customPest.getId(), testFarm.getId()))
+                .thenReturn(Optional.of(customPest));
+        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(),
+                target.getId(),
+                1,
+                1,
+                1,
+                "CUSTOM:" + customPest.getId()
+        )).thenReturn(Optional.empty());
+        when(observationRepository.save(any(ScoutingObservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result.customSpeciesId()).isEqualTo(customPest.getId());
+        assertThat(result.speciesDisplayName()).isEqualTo("Leaf miner");
+        assertThat(result.speciesIdentifier()).isEqualTo("CUSTOM:" + customPest.getId());
+        assertThat(result.category()).isEqualTo(ObservationCategory.PEST);
     }
 
     @Test

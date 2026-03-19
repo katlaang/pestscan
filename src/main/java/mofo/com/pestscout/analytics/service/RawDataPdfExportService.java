@@ -45,7 +45,7 @@ public class RawDataPdfExportService {
                         .thenComparing(observation -> observation.getSession().getId())
                         .thenComparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Comparator.naturalOrder()))
-                        .thenComparing(observation -> observation.getSpeciesCode().name()))
+                        .thenComparing(this::speciesSortKey))
                 .toList();
 
         List<String> lines = new ArrayList<>();
@@ -89,7 +89,7 @@ public class RawDataPdfExportService {
             for (ScoutingObservation observation : observations) {
                 lines.add(
                         safe(observation.getSession().getSessionDate())
-                                + " | " + observation.getSpeciesCode().getDisplayName()
+                                + " | " + safe(observation.getSpeciesDisplayName())
                                 + " | category=" + observation.getCategory().name()
                                 + " | count=" + safe(observation.getCount())
                                 + " | bay=" + safe(observation.getBayLabel(), observation.getBayIndex())
@@ -147,6 +147,11 @@ public class RawDataPdfExportService {
             }
         }
         return safe(fallback);
+    }
+
+    private String speciesSortKey(ScoutingObservation observation) {
+        String identifier = observation.resolveSpeciesIdentifier();
+        return identifier == null ? "" : identifier;
     }
 
     public record GeneratedPdfDocument(String fileName, byte[] content) {

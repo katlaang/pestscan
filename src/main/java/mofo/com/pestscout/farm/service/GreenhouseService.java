@@ -15,6 +15,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -173,13 +174,13 @@ public class GreenhouseService {
 
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) {
-            return List.of();
+            return new ArrayList<>();
         }
         return tags.stream()
                 .filter(tag -> tag != null && !tag.isBlank())
                 .map(String::trim)
                 .distinct()
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     private GreenhouseLayout resolveCreateLayout(Farm farm, CreateGreenhouseRequest request) {
@@ -224,7 +225,7 @@ public class GreenhouseService {
                 maxBedCount,
                 defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
                 defaultTags(normalizeTags(requestedBedTags), "Bed", maxBedCount),
-                List.of()
+                new ArrayList<>()
         );
     }
 
@@ -233,7 +234,7 @@ public class GreenhouseService {
             List<String> fallbackBedTags
     ) {
         if (requestedBays == null || requestedBays.isEmpty()) {
-            return List.of();
+            return new ArrayList<>();
         }
 
         List<GreenhouseBayDefinition> bays = requestedBays.stream()
@@ -265,7 +266,7 @@ public class GreenhouseService {
                             .build();
                 })
                 .map(GreenhouseBayDefinition.class::cast)
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
         long distinctTags = bays.stream()
                 .map(GreenhouseBayDefinition::getBayTag)
@@ -280,29 +281,29 @@ public class GreenhouseService {
     private List<String> collectBedTags(List<GreenhouseBayDefinition> bays) {
         java.util.LinkedHashSet<String> bedTags = new java.util.LinkedHashSet<>();
         bays.forEach(bay -> bedTags.addAll(bay.resolvedBedTags()));
-        return List.copyOf(bedTags);
+        return new ArrayList<>(bedTags);
     }
 
     private List<String> defaultTags(List<String> providedTags, String prefix, int count) {
         if (count <= 0) {
-            return providedTags;
+            return new ArrayList<>(providedTags);
         }
         if (providedTags.isEmpty()) {
             return java.util.stream.IntStream.rangeClosed(1, count)
                     .mapToObj(index -> prefix + "-" + index)
-                    .toList();
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         }
         if (providedTags.size() >= count) {
             return providedTags.stream()
                     .limit(count)
-                    .toList();
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         }
 
-        List<String> paddedTags = new java.util.ArrayList<>(providedTags);
+        List<String> paddedTags = new ArrayList<>(providedTags);
         for (int index = paddedTags.size() + 1; index <= count; index++) {
             paddedTags.add(prefix + "-" + index);
         }
-        return List.copyOf(paddedTags);
+        return paddedTags;
     }
 
     private boolean hasLegacyLayoutUpdates(UpdateGreenhouseRequest request) {
@@ -315,9 +316,9 @@ public class GreenhouseService {
     private void applyLayout(Greenhouse greenhouse, GreenhouseLayout layout) {
         greenhouse.setBayCount(layout.bayCount());
         greenhouse.setBenchesPerBay(layout.maxBedCount());
-        greenhouse.setBayTags(layout.bayTags());
-        greenhouse.setBenchTags(layout.bedTags());
-        greenhouse.setBays(layout.bays());
+        greenhouse.setBayTags(new ArrayList<>(layout.bayTags()));
+        greenhouse.setBenchTags(new ArrayList<>(layout.bedTags()));
+        greenhouse.setBays(new ArrayList<>(layout.bays()));
     }
 
     private List<GreenhouseBayDto> mapBayDtos(Greenhouse greenhouse) {

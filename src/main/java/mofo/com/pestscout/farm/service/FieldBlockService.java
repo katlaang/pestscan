@@ -15,6 +15,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -151,13 +152,13 @@ public class FieldBlockService {
 
     private List<String> normalizeTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) {
-            return List.of();
+            return new ArrayList<>();
         }
         return tags.stream()
                 .filter(tag -> tag != null && !tag.isBlank())
                 .map(String::trim)
                 .distinct()
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
     }
 
     private String normalizeNullableText(String value) {

@@ -4,6 +4,7 @@ import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.CreateFieldBlockRequest;
 import mofo.com.pestscout.farm.dto.FieldBlockDto;
+import mofo.com.pestscout.farm.dto.UpdateFieldBlockRequest;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.repository.FarmRepository;
@@ -129,5 +130,49 @@ class FieldBlockServiceTest {
 
         assertThat(dto.cropType()).isEqualTo("Tomato");
         assertThat(dto.areaHectares()).isEqualByComparingTo("3.25");
+    }
+
+    @Test
+    void updateFieldBlock_usesMutableCollectionsForHibernateMerge() {
+        UUID blockId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        FieldBlock block = FieldBlock.builder()
+                .id(blockId)
+                .farm(farm)
+                .name("Field A")
+                .bayCount(1)
+                .spotChecksPerBay(2)
+                .bayTags(new java.util.ArrayList<>(List.of("Row-1")))
+                .active(true)
+                .build();
+
+        UpdateFieldBlockRequest request = new UpdateFieldBlockRequest(
+                "Field A Updated",
+                2,
+                3,
+                List.of("Row-1", "Row-2"),
+                true,
+                new BigDecimal("2.50"),
+                "Pepper"
+        );
+
+        when(fieldBlockRepository.findById(blockId)).thenReturn(Optional.of(block));
+        when(fieldBlockRepository.save(any(FieldBlock.class))).thenAnswer(invocation -> {
+            FieldBlock saved = invocation.getArgument(0);
+            saved.getBayTags().clear();
+            saved.setBayTags(new java.util.ArrayList<>(List.of("Row-1", "Row-2")));
+            return saved;
+        });
+
+        FieldBlockDto dto = fieldBlockService.updateFieldBlock(blockId, request);
+
+        assertThat(dto.name()).isEqualTo("Field A Updated");
+        assertThat(dto.bayTags()).containsExactly("Row-1", "Row-2");
+        verify(farmAccessService).requireAdminOrSuperAdmin(farm);
+        verify(cacheService).evictFarmCachesAfterCommit(farmId);
     }
 }

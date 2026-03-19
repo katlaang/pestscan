@@ -29,6 +29,7 @@ public enum SpeciesCode {
     // You can add beneficial species here as you define them
 
     BENEFICIAL_PP(ObservationCategory.BENEFICIAL, "PP"),
+    BENEFICIAL_OTHER(ObservationCategory.BENEFICIAL, "Other beneficial insect"),
     ;
     private final ObservationCategory category;
     private final String displayName;

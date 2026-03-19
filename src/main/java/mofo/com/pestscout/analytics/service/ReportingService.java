@@ -176,7 +176,7 @@ public class ReportingService {
         Map<String, Long> countsBySpecies = observations.stream()
                 .filter(o -> o.getCategory() == ObservationCategory.PEST)
                 .collect(Collectors.groupingBy(
-                        o -> o.getSpeciesCode().getDisplayName(),
+                        this::speciesName,
                         Collectors.summingLong(o -> o.getCount() == null ? 0 : o.getCount())
                 ));
 
@@ -210,7 +210,7 @@ public class ReportingService {
         Map<String, Long> countsBySpecies = observations.stream()
                 .filter(o -> o.getCategory() == ObservationCategory.DISEASE)
                 .collect(Collectors.groupingBy(
-                        o -> o.getSpeciesCode().getDisplayName(),
+                        this::speciesName,
                         Collectors.summingLong(o -> o.getCount() == null ? 0 : o.getCount())
                 ));
 
@@ -300,7 +300,7 @@ public class ReportingService {
 
                     return new AlertDto(
                             location,
-                            o.getSpeciesCode().getDisplayName(),
+                            speciesName(o),
                             toSeverityLabel(level),
                             o.getCount() == null ? 0 : o.getCount(),
                             o.getSession().getSessionDate() != null ? o.getSession().getSessionDate().toString() : ""
@@ -462,7 +462,7 @@ public class ReportingService {
 
         List<UUID> sessionIds = sessions.stream().map(ScoutingSession::getId).toList();
         return (int) observationRepository.findBySessionIdIn(sessionIds).stream()
-                .map(o -> o.getSpeciesCode().name())
+                .map(this::speciesKey)
                 .distinct()
                 .count();
     }
@@ -520,5 +520,15 @@ public class ReportingService {
             return null;
         }
         return Duration.between(start, end);
+    }
+
+    private String speciesName(ScoutingObservation observation) {
+        String displayName = observation.getSpeciesDisplayName();
+        return displayName == null ? "Unknown species" : displayName;
+    }
+
+    private String speciesKey(ScoutingObservation observation) {
+        String identifier = observation.resolveSpeciesIdentifier();
+        return identifier == null ? "UNKNOWN" : identifier;
     }
 }
