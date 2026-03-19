@@ -1,0 +1,483 @@
+FRONTEND HANDOFF: SCOUTING CELL PHOTOS
+
+Purpose
+- The scout should click a cell, enter or edit the count, add photos for that same cell, then close the cell.
+- The backend supports this flow now.
+- Photos are attached to the cell itself, not only to a committed final observation row.
+- The session can stay open while the scout edits counts and photos.
+- Counts are finalized when the scout completes the session.
+
+Important backend rule
+- A photo belongs to a cell defined by:
+  - sessionTargetId
+  - bayIndex
+  - benchIndex
+  - spotIndex
+- If the frontend does not expose spots yet, always send:
+  - spotIndex = 1
+
+Files on backend
+- src/main/java/mofo/com/pestscout/scouting/controller/ScoutingPhotoController.java
+- src/main/java/mofo/com/pestscout/scouting/service/ScoutingPhotoService.java
+- src/main/java/mofo/com/pestscout/scouting/controller/ScoutingImageAnalysisController.java
+- src/main/java/mofo/com/pestscout/scouting/service/ScoutingImageAnalysisService.java
+- src/main/java/mofo/com/pestscout/analytics/service/ReportingService.java
+- src/main/java/mofo/com/pestscout/analytics/dto/ScoutPerformanceDto.java
+
+==================================================
+1. REQUIRED FRONTEND USER FLOW
+==================================================
+
+The intended flow for one cell is:
+
+1. Scout clicks a cell in the sheet.
+2. A cell modal or side panel opens.
+3. The modal shows:
+   - count input
+   - notes input if your UI already supports it
+   - photo area
+   - photo count badge such as 0/5, 1/5, 2/5
+4. Scout enters or edits the count.
+5. Frontend saves the draft observation for that cell.
+6. Scout adds up to 5 photos for that same cell.
+7. Frontend registers and confirms those photos.
+8. Optional: frontend runs AI analysis on each uploaded photo.
+9. Scout closes the cell modal.
+10. When the session is reopened later, the same draft count and photos should appear again.
+11. When scout clicks Complete session, the draft observation values are promoted to final observations.
+
+Important:
+- Do not wait until Complete session to upload photos.
+- Photos should be saved immediately when added.
+- Count and photos should both use the same cell identity.
+
+==================================================
+2. CELL IDENTITY
+==================================================
+
+Every count save and every photo save must use the same cell identity:
+
+- sessionTargetId
+- bayIndex
+- benchIndex
+- spotIndex
+
+Recommended frontend helper:
+
+const cellKey = `${sessionTargetId}:${bayIndex}:${benchIndex}:${spotIndex}`
+
+If no visible spots exist in the UI:
+- use spotIndex = 1 for every cell
+
+==================================================
+3. DATA TO LOAD WHEN SESSION PAGE OPENS
+==================================================
+
+Load these two things separately:
+
+1. Session detail
+- GET /api/scouting/sessions/{sessionId}
+
+2. Session photos
+- GET /api/scouting/photos/session/{sessionId}
+
+Do not expect photos inside the session detail payload.
+They are loaded separately.
+
+After both calls return:
+- map observations into your grid state
+- map photos into a photo map grouped by cellKey
+
+Recommended local shape:
+
+type CellObservation = {
+  id?: string
+  version?: number
+  sessionId: string
+  sessionTargetId: string
+  bayIndex: number
+  bayTag?: string
+  benchIndex: number
+  benchTag?: string
+  spotIndex: number
+  speciesCode?: string | null
+  customSpeciesId?: string | null
+  count?: number | null
+  notes?: string | null
+}
+
+type CellPhoto = {
+  id: string
+  sessionId: string
+  observationId?: string | null
+  sessionTargetId: string
+  farmId: string
+  bayIndex: number
+  bayTag?: string | null
+  benchIndex: number
+  benchTag?: string | null
+  spotIndex: number
+  localPhotoId: string
+  purpose?: string | null
+  objectKey?: string | null
+  sourceType: string
+  capturedAt?: string | null
+  updatedAt?: string | null
+  syncStatus: string
+}
+
+type CellPhotoMap = Record<string, CellPhoto[]>
+
+==================================================
+4. WHAT TO SHOW ON EACH CELL
+==================================================
+
+Each visible sheet cell should show:
+- count value if any
+- small camera icon
+- photo count badge such as 0/5, 2/5
+- optional visual marker if photos exist
+
+When clicked:
+- open a cell modal or drawer
+
+Inside that modal show:
+- count input
+- notes input if already used
+- "Add photo" button
+- thumbnails for existing photos
+- delete photo action for scouts while the session is still open
+- optional AI status under each photo
+
+Recommended UI rules:
+- if the cell already has 5 active photos, disable Add photo
+- if a photo is uploading, show uploading state
+- if AI analysis is running, show analyzing state
+- if upload fails, show retry state
+
+==================================================
+5. HOW TO SAVE THE CELL COUNT
+==================================================
+
+Use the existing observation draft API.
+
+For a new draft cell:
+- POST /api/scouting/sessions/{sessionId}/observations
+
+For an existing draft cell with an id:
+- PUT /api/scouting/sessions/{sessionId}/observations/{observationId}
+
+The payload must still include the cell identity.
+
+Example create/update payload:
+
+{
+  "sessionTargetId": "target-uuid",
+  "speciesCode": "THRIPS",
+  "bayIndex": 1,
+  "bayTag": "Bay-1",
+  "benchIndex": 1,
+  "benchTag": "Bed-1",
+  "spotIndex": 1,
+  "count": 4,
+  "notes": "Observed on lower leaves",
+  "version": 1
+}
+
+Frontend rule:
+- save the count when the user pauses typing, leaves the field, or clicks Save inside the modal
+- do not hard-delete the cell value just because the input becomes temporarily blank while typing
+- only send the latest value
+
+If the value is cleared intentionally:
+- use the existing delete observation flow if your UI supports explicit clear/delete
+- do not send repeated create/delete during intermediate typing
+
+==================================================
+6. HOW TO ADD PHOTOS TO THE SAME CELL
+==================================================
+
+After count entry, or even before count entry, the scout can add photos to the same cell.
+
+Backend supports cell-level photo registration.
+A committed final observation id is not required.
+
+The flow is:
+
+1. User clicks Add photo in the cell modal.
+2. Frontend opens device camera or file picker.
+3. Frontend creates a localPhotoId.
+4. Frontend calls register.
+5. Frontend uploads the binary file to storage.
+6. Frontend calls confirm.
+7. Optional: frontend calls AI analysis.
+
+==================================================
+7. REGISTER PHOTO
+==================================================
+
+Endpoint:
+- POST /api/scouting/photos/register
+
+Request body:
+
+{
+  "sessionId": "session-uuid",
+  "sessionTargetId": "target-uuid",
+  "bayIndex": 1,
+  "bayTag": "Bay-1",
+  "benchIndex": 1,
+  "benchTag": "Bed-1",
+  "spotIndex": 1,
+  "localPhotoId": "device-photo-123",
+  "purpose": "Cell photo",
+  "sourceType": "SCOUT_HANDHELD",
+  "capturedAt": "2026-03-19T10:15:00"
+}
+
+Important:
+- This must use the same cell identity as the count.
+- observationId is optional and not required for this workflow.
+- The backend enforces a maximum of 5 active photos per cell.
+
+If backend returns 400:
+- show: "This cell already has the maximum of 5 photos."
+
+Frontend should also prevent this before request:
+- if current photo count for that cell is already 5, disable Add photo
+
+==================================================
+8. CONFIRM PHOTO UPLOAD
+==================================================
+
+After the file upload completes successfully, call:
+
+- POST /api/scouting/photos/confirm
+
+Request body:
+
+{
+  "sessionId": "session-uuid",
+  "localPhotoId": "device-photo-123",
+  "objectKey": "photos/session/70bf1718/cell-1/photo-123.jpg"
+}
+
+Frontend rule:
+- before confirm, mark the photo as uploading
+- after confirm, replace the temporary local state with the returned server photo row
+
+==================================================
+9. LOAD PHOTOS FOR A SESSION
+==================================================
+
+Endpoint:
+- GET /api/scouting/photos/session/{sessionId}
+
+Response item example:
+
+{
+  "id": "photo-uuid",
+  "sessionId": "session-uuid",
+  "observationId": null,
+  "sessionTargetId": "target-uuid",
+  "farmId": "farm-uuid",
+  "bayIndex": 1,
+  "bayTag": "Bay-1",
+  "benchIndex": 1,
+  "benchTag": "Bed-1",
+  "spotIndex": 1,
+  "localPhotoId": "device-photo-123",
+  "purpose": "Cell photo",
+  "objectKey": "photos/session/70bf1718/cell-1/photo-123.jpg",
+  "sourceType": "SCOUT_HANDHELD",
+  "capturedAt": "2026-03-19T10:15:00",
+  "updatedAt": "2026-03-19T10:16:00",
+  "syncStatus": "SYNCED"
+}
+
+Frontend should:
+- group by cellKey
+- show thumbnails inside the correct cell modal
+- show count badge on the grid cell
+
+==================================================
+10. DELETE PHOTO
+==================================================
+
+Endpoint:
+- DELETE /api/scouting/photos/session/{sessionId}/{photoId}
+
+Use this only while the session is still open.
+
+Frontend behavior:
+- remove the photo immediately from the local photo list after success
+- decrement the visible photo count badge
+
+Do not show delete after session completion.
+
+==================================================
+11. AI ANALYSIS FLOW
+==================================================
+
+After confirm succeeds, the frontend may run AI analysis immediately.
+
+Run analysis:
+- POST /api/scouting/photos/{photoId}/analysis
+
+Request:
+
+{
+  "farmId": "farm-uuid"
+}
+
+Get analysis later:
+- GET /api/scouting/photos/{photoId}/analysis?farmId={farmId}
+
+Manager/admin review of analysis:
+- PUT /api/scouting/photos/{photoId}/analysis/review
+
+Request:
+
+{
+  "farmId": "farm-uuid",
+  "speciesCode": "THRIPS",
+  "reviewNotes": "Confirmed from image and leaf symptoms"
+}
+
+Frontend display per photo should include:
+- predicted species
+- predicted confidence
+- review status
+- optional reviewer note
+
+Suggested states:
+- no-analysis
+- analyzing
+- pending-review
+- confirmed
+- corrected
+- error
+
+==================================================
+12. HOW ACCURACY NOW WORKS
+==================================================
+
+Scout accuracy is no longer based on completed-session percentage.
+
+It now comes from reviewed AI cell-photo comparisons.
+
+Meaning:
+- a photo is attached to a specific cell
+- manager/admin reviews the AI result for that photo
+- backend compares that reviewed species against what the scout recorded in the same cell
+- that contributes to scout accuracy
+
+This is why cell-level photo attachment matters.
+
+Frontend note for analytics:
+- the scout performance DTO now includes reviewedComparisons
+
+Use this rule:
+- if reviewedComparisons === 0:
+  - show accuracy as "N/A"
+  - do not show 0%
+
+==================================================
+13. SCOUT PERFORMANCE TYPE CHANGE
+==================================================
+
+The frontend analytics type for scout performance must now include:
+
+type ScoutPerformance = {
+  scout: string
+  observations: number
+  accuracy: number
+  avgTime: string
+  reviewedComparisons: number
+}
+
+If the frontend still expects only:
+- scout
+- observations
+- accuracy
+- avgTime
+
+then it must be updated to accept reviewedComparisons.
+
+Display rule:
+- reviewedComparisons > 0 -> show accuracy percentage
+- reviewedComparisons === 0 -> show N/A
+
+==================================================
+14. RECOMMENDED CELL MODAL LOGIC
+==================================================
+
+When cell modal opens:
+- determine sessionTargetId, bayIndex, benchIndex, spotIndex
+- load existing draft count from local sheet state
+- load existing photos from cellPhotoMap[cellKey]
+
+When user edits count:
+- update local modal state immediately
+- debounce save to observation endpoint
+
+When user adds photo:
+- if current count >= 5, block add
+- else:
+  - generate localPhotoId
+  - register photo
+  - upload file
+  - confirm photo
+  - append returned photo to cellPhotoMap[cellKey]
+  - optionally run AI analysis
+
+When user closes modal:
+- keep the latest saved count in the sheet
+- keep the latest photo badge and thumbnail count on the cell
+
+==================================================
+15. OFFLINE OR TIMEOUT BEHAVIOR
+==================================================
+
+If scout session times out or the scout logs in again:
+- reload session detail
+- reload GET /api/scouting/photos/session/{sessionId}
+- rebuild the cell photo map
+- repopulate every cell modal from server state
+
+Do not rely only on in-memory frontend state for photos.
+
+==================================================
+16. WHAT NOT TO DO
+==================================================
+
+Do not:
+- require a final committed observation before allowing photos
+- attach photos only at the session level without cell coordinates
+- wait until Complete session to save photos
+- show more than 5 active photos per cell
+- display 0% scout accuracy when there are no reviewed photo comparisons
+
+==================================================
+17. MINIMUM FRONTEND IMPLEMENTATION CHECKLIST
+==================================================
+
+Required:
+- camera button on each scouting cell
+- cell modal or drawer
+- count input in that modal
+- photo strip in that modal
+- GET session photos
+- POST register photo
+- POST confirm photo
+- DELETE photo
+- 5-photo cap in UI
+- group photos by sessionTargetId + bayIndex + benchIndex + spotIndex
+- analytics UI updated for reviewedComparisons and N/A accuracy
+
+Recommended:
+- auto-run AI analysis after confirm
+- show AI result per photo
+- manager review UI for photo analysis
+- retry UI for failed upload or failed analysis
+
