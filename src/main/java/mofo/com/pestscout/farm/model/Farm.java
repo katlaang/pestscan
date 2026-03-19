@@ -276,7 +276,7 @@ public class Farm extends BaseEntity {
 
     @Transient
     public int resolveBayCount() {
-        return defaultBayCount != null ? defaultBayCount : 1;
+        return defaultBayCount != null ? defaultBayCount : 0;
     }
 
     @Transient

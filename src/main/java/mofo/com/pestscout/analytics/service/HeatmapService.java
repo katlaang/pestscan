@@ -308,7 +308,9 @@ public class HeatmapService {
                 return java.util.stream.IntStream.range(0, bays.size())
                         .mapToObj(index -> {
                             GreenhouseBayDefinition bay = bays.get(index);
-                            List<String> bedTags = defaultTags("Bed", bay.getBedCount());
+                            List<String> bedTags = bay.getBedTags() != null && !bay.getBedTags().isEmpty()
+                                    ? List.copyOf(bay.getBedTags())
+                                    : defaultTags("Bed", bay.getBedCount());
                             return new HeatmapBayLayoutDto(index + 1, bay.getBayTag(), bay.getBedCount(), bedTags);
                         })
                         .toList();

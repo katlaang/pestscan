@@ -27,13 +27,15 @@ public class GreenhouseService {
     private final GreenhouseRepository greenhouseRepository;
     private final FarmAccessService farmAccessService;
     private final CacheService cacheService;
+    private final FarmAreaAllocationService farmAreaAllocationService;
 
     @Transactional
     public GreenhouseDto createGreenhouse(UUID farmId, CreateGreenhouseRequest request) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
-        farmAccessService.requireSuperAdmin();
+        farmAccessService.requireAdminOrSuperAdmin(farm);
+        farmAreaAllocationService.validateStructureArea(farm, request.areaHectares(), null, null);
         GreenhouseLayout layout = resolveCreateLayout(farm, request);
 
         Greenhouse greenhouse = Greenhouse.builder()
@@ -60,18 +62,23 @@ public class GreenhouseService {
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
 
         farmAccessService.requireAdminOrSuperAdmin(greenhouse.getFarm());
-        boolean isSuperAdmin = farmAccessService.isSuperAdmin();
+        farmAreaAllocationService.validateStructureArea(
+                greenhouse.getFarm(),
+                request.areaHectares() != null ? request.areaHectares() : greenhouse.getAreaHectares(),
+                greenhouse.getId(),
+                null
+        );
 
-        if (isSuperAdmin && request.bays() != null) {
+        if (request.bays() != null) {
             applyLayout(greenhouse, resolveLayoutFromBays(request.bays(), request.benchTags()));
         }
-        if (isSuperAdmin && request.name() != null) {
+        if (request.name() != null) {
             greenhouse.setName(request.name());
         }
-        if (isSuperAdmin && request.description() != null) {
+        if (request.description() != null) {
             greenhouse.setDescription(request.description());
         }
-        if (isSuperAdmin && request.bays() == null && hasLegacyLayoutUpdates(request)) {
+        if (request.bays() == null && hasLegacyLayoutUpdates(request)) {
             applyLayout(greenhouse, resolveLegacyLayout(
                     greenhouse.getFarm(),
                     request.bayCount(),
@@ -80,10 +87,10 @@ public class GreenhouseService {
                     request.benchTags()
             ));
         } else {
-            if (isSuperAdmin && request.bayTags() != null) {
+            if (request.bayTags() != null) {
                 greenhouse.setBayTags(normalizeTags(request.bayTags()));
             }
-            if (isSuperAdmin && request.benchTags() != null) {
+            if (request.benchTags() != null) {
                 greenhouse.setBenchTags(normalizeTags(request.benchTags()));
             }
         }
@@ -96,7 +103,7 @@ public class GreenhouseService {
         if (request.spotChecksPerBench() != null) {
             greenhouse.setSpotChecksPerBench(request.spotChecksPerBench());
         }
-        if (isSuperAdmin && request.areaHectares() != null) {
+        if (request.areaHectares() != null) {
             greenhouse.setAreaHectares(request.areaHectares());
         }
 
@@ -189,20 +196,16 @@ public class GreenhouseService {
     }
 
     private GreenhouseLayout resolveLayoutFromBays(List<GreenhouseBayRequest> requestedBays, List<String> requestedBedTags) {
-        List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays);
+        List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, normalizeTags(requestedBedTags));
         int maxBedCount = bays.stream()
                 .mapToInt(GreenhouseBayDefinition::getBedCount)
                 .max()
                 .orElse(0);
-        List<String> bedTags = normalizeTags(requestedBedTags);
-        if (!bedTags.isEmpty() && bedTags.size() < maxBedCount) {
-            throw new BadRequestException("Provided bed tags do not cover all configured beds.");
-        }
         return new GreenhouseLayout(
                 bays.size(),
                 maxBedCount,
                 bays.stream().map(GreenhouseBayDefinition::getBayTag).toList(),
-                defaultTags(bedTags, "Bed", maxBedCount),
+                collectBedTags(bays),
                 bays
         );
     }
@@ -214,8 +217,8 @@ public class GreenhouseService {
             List<String> requestedBayTags,
             List<String> requestedBedTags
     ) {
-        int bayCount = requestedBayCount != null ? requestedBayCount : farm.resolveBayCount();
-        int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : farm.resolveBenchesPerBay();
+        int bayCount = requestedBayCount != null ? requestedBayCount : 0;
+        int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : 0;
         return new GreenhouseLayout(
                 bayCount,
                 maxBedCount,
@@ -225,7 +228,10 @@ public class GreenhouseService {
         );
     }
 
-    private List<GreenhouseBayDefinition> normalizeBays(List<GreenhouseBayRequest> requestedBays) {
+    private List<GreenhouseBayDefinition> normalizeBays(
+            List<GreenhouseBayRequest> requestedBays,
+            List<String> fallbackBedTags
+    ) {
         if (requestedBays == null || requestedBays.isEmpty()) {
             return List.of();
         }
@@ -239,11 +245,26 @@ public class GreenhouseService {
                     if (request.bedCount() == null || request.bedCount() < 1) {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");
                     }
+                    List<String> bedTags = defaultTags(
+                            normalizeTags(
+                                    request.bedTags() == null || request.bedTags().isEmpty()
+                                            ? fallbackBedTags
+                                            : request.bedTags()
+                            ),
+                            "Bed",
+                            request.bedCount()
+                    );
+                    long distinctBedTags = bedTags.stream().distinct().count();
+                    if (distinctBedTags != bedTags.size()) {
+                        throw new BadRequestException("Bed names within a greenhouse bay must be unique.");
+                    }
                     return GreenhouseBayDefinition.builder()
                             .bayTag(bayTag)
                             .bedCount(request.bedCount())
+                            .bedTags(bedTags)
                             .build();
                 })
+                .map(GreenhouseBayDefinition.class::cast)
                 .toList();
 
         long distinctTags = bays.stream()
@@ -254,6 +275,12 @@ public class GreenhouseService {
             throw new BadRequestException("Greenhouse bay names must be unique.");
         }
         return bays;
+    }
+
+    private List<String> collectBedTags(List<GreenhouseBayDefinition> bays) {
+        java.util.LinkedHashSet<String> bedTags = new java.util.LinkedHashSet<>();
+        bays.forEach(bay -> bedTags.addAll(bay.resolvedBedTags()));
+        return List.copyOf(bedTags);
     }
 
     private List<String> defaultTags(List<String> providedTags, String prefix, int count) {
@@ -299,8 +326,7 @@ public class GreenhouseService {
             return java.util.stream.IntStream.range(0, bays.size())
                     .mapToObj(index -> {
                         GreenhouseBayDefinition bay = bays.get(index);
-                        List<String> bedTags = defaultTags(List.of(), "Bed", bay.getBedCount());
-                        return new GreenhouseBayDto(index + 1, bay.getBayTag(), bay.getBedCount(), bedTags);
+                        return new GreenhouseBayDto(index + 1, bay.getBayTag(), bay.getBedCount(), bay.resolvedBedTags());
                     })
                     .toList();
         }

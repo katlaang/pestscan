@@ -18,7 +18,8 @@ public record ScoutingSessionSectionDto(
         List<String> bayTags,
         List<String> benchTags,
         List<ScoutingObservationDto> observations,
-        BigDecimal areaHectares
+        BigDecimal areaHectares,
+        ScoutingSectionCoverageDto coverage
 ) {
     public ScoutingSessionSectionDto(
             UUID targetId,
@@ -30,6 +31,20 @@ public record ScoutingSessionSectionDto(
             List<String> benchTags,
             List<ScoutingObservationDto> observations
     ) {
-        this(targetId, greenhouseId, fieldBlockId, includeAllBays, includeAllBenches, bayTags, benchTags, observations, null);
+        this(targetId, greenhouseId, fieldBlockId, includeAllBays, includeAllBenches, bayTags, benchTags, observations, null, null);
+    }
+
+    public ScoutingSessionSectionDto(
+            UUID targetId,
+            UUID greenhouseId,
+            UUID fieldBlockId,
+            Boolean includeAllBays,
+            Boolean includeAllBenches,
+            List<String> bayTags,
+            List<String> benchTags,
+            List<ScoutingObservationDto> observations,
+            BigDecimal areaHectares
+    ) {
+        this(targetId, greenhouseId, fieldBlockId, includeAllBays, includeAllBenches, bayTags, benchTags, observations, areaHectares, null);
     }
 }

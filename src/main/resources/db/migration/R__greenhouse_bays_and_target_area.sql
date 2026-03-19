@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS greenhouse_bays
 )
     );
 
+ALTER TABLE greenhouse_bays
+    ADD COLUMN IF NOT EXISTS bed_tags_json TEXT;
+
 ALTER TABLE field_blocks
     ADD COLUMN IF NOT EXISTS crop_type VARCHAR (255);
 

@@ -7,6 +7,7 @@ import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.service.ScoutingSessionReportExportService;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,8 +27,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(controllers = ScoutingSessionController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -41,6 +41,9 @@ class ScoutingSessionControllerTest {
 
     @MockitoBean
     private ScoutingSessionService sessionService;
+
+    @MockitoBean
+    private ScoutingSessionReportExportService reportExportService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -302,6 +305,50 @@ class ScoutingSessionControllerTest {
     }
 
     @Test
+    void reusesSessionAsDraft() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                UUID.randomUUID(),
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 12),
+                11,
+                SessionStatus.DRAFT,
+                SyncStatus.PENDING_UPLOAD,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                null,
+                null,
+                null,
+                null,
+                "Carry over planning notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.reuseSession(sessionId)).thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions/{sessionId}/reuse", sessionId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.notes").value("Carry over planning notes"));
+    }
+
+    @Test
     void syncsSessionsWithParams() throws Exception {
         UUID farmId = UUID.randomUUID();
         LocalDateTime since = LocalDateTime.of(2024, 3, 1, 0, 0);
@@ -315,5 +362,23 @@ class ScoutingSessionControllerTest {
                         .param("includeDeleted", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sessions").isArray());
+    }
+
+    @Test
+    void downloadsSessionReportCsv() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        byte[] content = "session_id,status\n123,COMPLETED\n".getBytes();
+
+        when(reportExportService.exportSessionCsv(sessionId))
+                .thenReturn(new ScoutingSessionReportExportService.GeneratedCsvDocument(
+                        "scouting-session-" + sessionId + ".csv",
+                        content
+                ));
+
+        mockMvc.perform(get("/api/scouting/sessions/{sessionId}/report.csv", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"scouting-session-" + sessionId + ".csv\""))
+                .andExpect(header().string("Content-Type", "text/csv"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().bytes(content));
     }
 }

@@ -2,6 +2,7 @@ package mofo.com.pestscout.scouting.model;
 
 public enum SessionAuditAction {
     SESSION_CREATED,
+    SESSION_REUSED,
     SESSION_VIEWED,
     SESSION_EDITED,
     SESSION_REMOTE_START_REQUESTED,

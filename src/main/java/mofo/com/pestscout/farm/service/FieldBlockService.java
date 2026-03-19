@@ -27,18 +27,20 @@ public class FieldBlockService {
     private final FieldBlockRepository fieldBlockRepository;
     private final FarmAccessService farmAccessService;
     private final CacheService cacheService;
+    private final FarmAreaAllocationService farmAreaAllocationService;
 
     @Transactional
     public FieldBlockDto createFieldBlock(UUID farmId, CreateFieldBlockRequest request) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
-        farmAccessService.requireSuperAdmin();
+        farmAccessService.requireAdminOrSuperAdmin(farm);
+        farmAreaAllocationService.validateStructureArea(farm, request.areaHectares(), null, null);
 
         FieldBlock block = FieldBlock.builder()
                 .farm(farm)
                 .name(request.name())
-                .bayCount(request.bayCount() != null ? request.bayCount() : farm.resolveBayCount())
+                .bayCount(request.bayCount() != null ? request.bayCount() : 0)
                 .spotChecksPerBay(request.spotChecksPerBay() != null ? request.spotChecksPerBay() : farm.resolveSpotChecksPerBench())
                 .areaHectares(request.areaHectares())
                 .cropType(normalizeNullableText(request.cropType()))
@@ -57,9 +59,14 @@ public class FieldBlockService {
                 .orElseThrow(() -> new ResourceNotFoundException("FieldBlock", "id", fieldBlockId));
 
         farmAccessService.requireAdminOrSuperAdmin(block.getFarm());
-        boolean isSuperAdmin = farmAccessService.isSuperAdmin();
+        farmAreaAllocationService.validateStructureArea(
+                block.getFarm(),
+                request.areaHectares() != null ? request.areaHectares() : block.getAreaHectares(),
+                null,
+                block.getId()
+        );
 
-        if (isSuperAdmin && request.name() != null) {
+        if (request.name() != null) {
             block.setName(request.name());
         }
         if (request.bayCount() != null) {
@@ -68,18 +75,16 @@ public class FieldBlockService {
         if (request.spotChecksPerBay() != null) {
             block.setSpotChecksPerBay(request.spotChecksPerBay());
         }
-        if (farmAccessService.isSuperAdmin() && request.bayTags() != null) {
+        if (request.bayTags() != null) {
             block.setBayTags(normalizeTags(request.bayTags()));
         }
         if (request.active() != null) {
-            if (isSuperAdmin) {
-                block.setActive(request.active());
-            }
+            block.setActive(request.active());
         }
-        if (isSuperAdmin && request.areaHectares() != null) {
+        if (request.areaHectares() != null) {
             block.setAreaHectares(request.areaHectares());
         }
-        if (isSuperAdmin && request.cropType() != null) {
+        if (request.cropType() != null) {
             block.setCropType(normalizeNullableText(request.cropType()));
         }
 

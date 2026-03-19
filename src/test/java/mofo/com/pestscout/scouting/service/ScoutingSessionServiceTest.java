@@ -414,6 +414,86 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should reuse a session as an empty editable draft")
+    void reuseSession_WithExistingSession_CreatesEmptyDraftCopy() {
+        testSession.setStatus(SessionStatus.COMPLETED);
+        testSession.setTemperatureCelsius(new BigDecimal("23.5"));
+        testSession.setRelativeHumidityPercent(new BigDecimal("61.0"));
+        testSession.setObservationTime(LocalTime.of(9, 45));
+        testSession.setWeatherNotes("Warm and clear");
+        testSession.setNotes("Carry over planning notes");
+        testSession.setSurveySpecies(new ArrayList<>(List.of(SpeciesCode.WHITEFLIES, SpeciesCode.THRIPS)));
+        testSession.setDefaultPhotoSourceType(PhotoSourceType.DRONE);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .areaHectares(new BigDecimal("1.50"))
+                .build();
+        testSession.addTarget(target);
+
+        ScoutingObservation observation = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.WHITEFLIES)
+                .bayIndex(1)
+                .bayLabel("Bay-1")
+                .benchIndex(1)
+                .benchLabel("Bed-1")
+                .spotIndex(1)
+                .count(4)
+                .notes("Observed whiteflies")
+                .build();
+        testSession.addObservation(observation);
+
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(farmAccessService.isSuperAdmin())
+                .thenReturn(false);
+        when(currentUserService.getCurrentUser())
+                .thenReturn(manager);
+        when(greenhouseRepository.findById(greenhouse.getId()))
+                .thenReturn(Optional.of(greenhouse));
+        when(sessionRepository.save(any(ScoutingSession.class)))
+                .thenAnswer(invocation -> {
+                    ScoutingSession saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    saved.setVersion(1L);
+                    return saved;
+                });
+
+        ScoutingSessionDetailDto result = scoutingSessionService.reuseSession(testSession.getId());
+
+        assertThat(result).isNotNull();
+        assertThat(result.id()).isNotEqualTo(testSession.getId());
+        assertThat(result.status()).isEqualTo(SessionStatus.DRAFT);
+        assertThat(result.managerId()).isEqualTo(manager.getId());
+        assertThat(result.scoutId()).isEqualTo(scout.getId());
+        assertThat(result.temperatureCelsius()).isNull();
+        assertThat(result.relativeHumidityPercent()).isNull();
+        assertThat(result.observationTime()).isNull();
+        assertThat(result.weatherNotes()).isNull();
+        assertThat(result.notes()).isEqualTo("Carry over planning notes");
+        assertThat(result.surveySpeciesCodes()).containsExactly(SpeciesCode.WHITEFLIES, SpeciesCode.THRIPS);
+        assertThat(result.sections()).hasSize(1);
+        assertThat(result.sections().getFirst().observations()).isEmpty();
+
+        verify(sessionAuditService).record(
+                any(ScoutingSession.class),
+                eq(SessionAuditAction.SESSION_REUSED),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull()
+        );
+    }
+
+    @Test
     @DisplayName("Should throw ResourceNotFoundException when farm not found")
     void createSession_WithInvalidFarm_ThrowsResourceNotFoundException() {
         // Arrange

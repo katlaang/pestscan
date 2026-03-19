@@ -8,6 +8,7 @@ import mofo.com.pestscout.farm.model.SubscriptionTier;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public record UpdateFarmRequest(
 
@@ -73,6 +74,73 @@ public record UpdateFarmRequest(
 
         java.util.UUID ownerId,
         java.util.UUID scoutId,
-        Boolean accessLocked
+        Boolean accessLocked,
+        List<FarmMemberAssignmentRequest> memberAssignments
 ) {
+        public UpdateFarmRequest(
+                String name,
+                String description,
+                String address,
+                BigDecimal latitude,
+                BigDecimal longitude,
+                String city,
+                String province,
+                String postalCode,
+                String country,
+                String contactName,
+                String contactEmail,
+                String contactPhone,
+                SubscriptionStatus subscriptionStatus,
+                SubscriptionTier subscriptionTier,
+                String billingEmail,
+                BigDecimal licensedAreaHectares,
+                Integer licensedUnitQuota,
+                BigDecimal quotaDiscountPercentage,
+                LocalDate licenseExpiryDate,
+                LocalDate licenseGracePeriodEnd,
+                LocalDate licenseArchivedDate,
+                Boolean autoRenewEnabled,
+                Boolean isArchived,
+                Integer defaultBayCount,
+                Integer defaultBenchesPerBay,
+                Integer defaultSpotChecksPerBench,
+                String timezone,
+                java.util.UUID ownerId,
+                java.util.UUID scoutId,
+                Boolean accessLocked
+        ) {
+                this(
+                        name,
+                        description,
+                        address,
+                        latitude,
+                        longitude,
+                        city,
+                        province,
+                        postalCode,
+                        country,
+                        contactName,
+                        contactEmail,
+                        contactPhone,
+                        subscriptionStatus,
+                        subscriptionTier,
+                        billingEmail,
+                        licensedAreaHectares,
+                        licensedUnitQuota,
+                        quotaDiscountPercentage,
+                        licenseExpiryDate,
+                        licenseGracePeriodEnd,
+                        licenseArchivedDate,
+                        autoRenewEnabled,
+                        isArchived,
+                        defaultBayCount,
+                        defaultBenchesPerBay,
+                        defaultSpotChecksPerBench,
+                        timezone,
+                        ownerId,
+                        scoutId,
+                        accessLocked,
+                        null
+                );
+        }
 }

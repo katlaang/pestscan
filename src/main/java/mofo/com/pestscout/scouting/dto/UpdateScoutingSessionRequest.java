@@ -4,6 +4,7 @@ package mofo.com.pestscout.scouting.dto;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.model.SpeciesCode;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -32,6 +33,7 @@ public record UpdateScoutingSessionRequest(
         LocalTime observationTime,
         String weatherNotes,
         String notes,
+        List<SpeciesCode> surveySpeciesCodes,
         PhotoSourceType defaultPhotoSourceType,
         SessionStatus status,
         Long version,
@@ -41,4 +43,48 @@ public record UpdateScoutingSessionRequest(
         String comment,
         String actorName
 ) {
+    public UpdateScoutingSessionRequest(
+            LocalDate sessionDate,
+            Integer weekNumber,
+            List<SessionTargetRequest> targets,
+            UUID scoutId,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            PhotoSourceType defaultPhotoSourceType,
+            SessionStatus status,
+            Long version,
+            String deviceId,
+            String deviceType,
+            String location,
+            String comment,
+            String actorName
+    ) {
+        this(
+                sessionDate,
+                weekNumber,
+                targets,
+                scoutId,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                null,
+                defaultPhotoSourceType,
+                status,
+                version,
+                deviceId,
+                deviceType,
+                location,
+                comment,
+                actorName
+        );
+    }
 }

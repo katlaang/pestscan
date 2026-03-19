@@ -101,6 +101,13 @@ public class Greenhouse extends BaseEntity {
     }
 
     public List<String> resolvedBedTags() {
+        if (bays != null && !bays.isEmpty()) {
+            return bays.stream()
+                    .flatMap(bay -> bay.resolvedBedTags().stream())
+                    .distinct()
+                    .toList();
+        }
+
         if (benchTags != null && !benchTags.isEmpty()) {
             return List.copyOf(benchTags);
         }

@@ -33,7 +33,7 @@ public class GreenhouseController {
     }
 
     @PostMapping("/farms/{farmId}/greenhouses")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<GreenhouseDto> createGreenhouse(@PathVariable UUID farmId,
                                                           @Valid @RequestBody CreateGreenhouseRequest request) {
         LOGGER.info("POST /api/farms/{}/greenhouses — creating greenhouse", farmId);

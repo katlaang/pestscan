@@ -42,6 +42,9 @@ class FieldBlockServiceTest {
     @Mock
     private CacheService cacheService;
 
+    @Mock
+    private FarmAreaAllocationService farmAreaAllocationService;
+
     @InjectMocks
     private FieldBlockService fieldBlockService;
 
@@ -65,7 +68,7 @@ class FieldBlockServiceTest {
         assertThat(dto.name()).isEqualTo("Block A");
         assertThat(dto.bayTags()).containsExactly("north");
         verify(cacheService).evictFarmCachesAfterCommit(farmId);
-        verify(farmAccessService).requireSuperAdmin();
+        verify(farmAccessService).requireAdminOrSuperAdmin(farm);
     }
 
     @Test
@@ -78,11 +81,10 @@ class FieldBlockServiceTest {
     }
 
     @Test
-    void createFieldBlock_usesFarmDefaultsWhenCountsOmitted() {
+    void createFieldBlock_defaultsToZeroBaysWhenCountsOmitted() {
         UUID farmId = UUID.randomUUID();
         Farm farm = new Farm();
         farm.setId(farmId);
-        farm.setDefaultBayCount(12);
         farm.setDefaultSpotChecksPerBench(5);
 
         CreateFieldBlockRequest request = new CreateFieldBlockRequest("Field A", null, null, List.of(), true);
@@ -96,7 +98,7 @@ class FieldBlockServiceTest {
 
         FieldBlockDto dto = fieldBlockService.createFieldBlock(farmId, request);
 
-        assertThat(dto.bayCount()).isEqualTo(12);
+        assertThat(dto.bayCount()).isEqualTo(0);
         assertThat(dto.spotChecksPerBay()).isEqualTo(5);
     }
 

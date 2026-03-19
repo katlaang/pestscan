@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.model.SpeciesCode;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -45,6 +46,8 @@ public record CreateScoutingSessionRequest(
         // General remarks for the whole session (not per bay)
         String notes,
 
+        List<SpeciesCode> surveySpeciesCodes,
+
         // Default capture source for photos in this session; photo registration may override it
         PhotoSourceType defaultPhotoSourceType,
 
@@ -58,6 +61,50 @@ public record CreateScoutingSessionRequest(
         String comment,
         String actorName
 ) {
+    public CreateScoutingSessionRequest(
+            UUID farmId,
+            UUID scoutId,
+            List<SessionTargetRequest> targets,
+            LocalDate sessionDate,
+            Integer weekNumber,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            PhotoSourceType defaultPhotoSourceType,
+            SessionStatus status,
+            String deviceId,
+            String deviceType,
+            String location,
+            String comment,
+            String actorName
+    ) {
+        this(
+                farmId,
+                scoutId,
+                targets,
+                sessionDate,
+                weekNumber,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                null,
+                defaultPhotoSourceType,
+                status,
+                deviceId,
+                deviceType,
+                location,
+                comment,
+                actorName
+        );
+    }
 }
 
 

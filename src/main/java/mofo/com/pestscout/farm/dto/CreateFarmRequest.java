@@ -62,8 +62,73 @@ public record CreateFarmRequest(
 
         // License lifecycle management
         LocalDate licenseExpiryDate,
-        Boolean autoRenewEnabled
+        Boolean autoRenewEnabled,
+        BigDecimal latitude,
+        BigDecimal longitude,
+        List<FarmMemberAssignmentRequest> memberAssignments
 ) {
+    public CreateFarmRequest(
+            String name,
+            String description,
+            String address,
+            String city,
+            String province,
+            String postalCode,
+            String country,
+            UUID ownerId,
+            UUID scoutId,
+            String contactName,
+            String contactEmail,
+            String contactPhone,
+            SubscriptionStatus subscriptionStatus,
+            SubscriptionTier subscriptionTier,
+            String billingEmail,
+            BigDecimal licensedAreaHectares,
+            Integer licensedUnitQuota,
+            BigDecimal quotaDiscountPercentage,
+            FarmStructureType structureType,
+            Integer defaultBayCount,
+            Integer defaultBenchesPerBay,
+            Integer defaultSpotChecksPerBench,
+            List<CreateGreenhouseRequest> greenhouses,
+            List<CreateFieldBlockRequest> fieldBlocks,
+            String timezone,
+            LocalDate licenseExpiryDate,
+            Boolean autoRenewEnabled
+    ) {
+        this(
+                name,
+                description,
+                address,
+                city,
+                province,
+                postalCode,
+                country,
+                ownerId,
+                scoutId,
+                contactName,
+                contactEmail,
+                contactPhone,
+                subscriptionStatus,
+                subscriptionTier,
+                billingEmail,
+                licensedAreaHectares,
+                licensedUnitQuota,
+                quotaDiscountPercentage,
+                structureType,
+                defaultBayCount,
+                defaultBenchesPerBay,
+                defaultSpotChecksPerBench,
+                greenhouses,
+                fieldBlocks,
+                timezone,
+                licenseExpiryDate,
+                autoRenewEnabled,
+                null,
+                null,
+                null
+        );
+    }
 }
 
 

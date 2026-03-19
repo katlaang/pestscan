@@ -33,7 +33,7 @@ public class FieldBlockController {
     }
 
     @PostMapping("/farms/{farmId}/field-blocks")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<FieldBlockDto> createFieldBlock(@PathVariable UUID farmId,
                                                           @Valid @RequestBody CreateFieldBlockRequest request) {
         LOGGER.info("POST /api/farms/{}/field-blocks — creating field block", farmId);

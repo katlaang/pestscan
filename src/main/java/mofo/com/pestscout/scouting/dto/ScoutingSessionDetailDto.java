@@ -3,6 +3,7 @@ package mofo.com.pestscout.scouting.dto;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.model.SpeciesCode;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,6 +42,8 @@ public record ScoutingSessionDetailDto(
         // Session-level notes
         String notes,
 
+        List<SpeciesCode> surveySpeciesCodes,
+
         PhotoSourceType defaultPhotoSourceType,
 
         LocalDateTime startedAt,
@@ -57,4 +60,66 @@ public record ScoutingSessionDetailDto(
         List<ScoutingSessionSectionDto> sections,
         List<RecommendationEntryDto> recommendations
 ) {
+    public ScoutingSessionDetailDto(
+            UUID id,
+            Long version,
+            UUID farmId,
+            LocalDate sessionDate,
+            Integer weekNumber,
+            SessionStatus status,
+            SyncStatus syncStatus,
+            UUID managerId,
+            UUID scoutId,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            PhotoSourceType defaultPhotoSourceType,
+            LocalDateTime startedAt,
+            LocalDateTime submittedAt,
+            LocalDateTime completedAt,
+            boolean remoteStartConsentRequired,
+            LocalDateTime remoteStartRequestedAt,
+            String remoteStartRequestedByName,
+            LocalDateTime updatedAt,
+            boolean confirmationAcknowledged,
+            String reopenComment,
+            List<ScoutingSessionSectionDto> sections,
+            List<RecommendationEntryDto> recommendations
+    ) {
+        this(
+                id,
+                version,
+                farmId,
+                sessionDate,
+                weekNumber,
+                status,
+                syncStatus,
+                managerId,
+                scoutId,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                List.of(),
+                defaultPhotoSourceType,
+                startedAt,
+                submittedAt,
+                completedAt,
+                remoteStartConsentRequired,
+                remoteStartRequestedAt,
+                remoteStartRequestedByName,
+                updatedAt,
+                confirmationAcknowledged,
+                reopenComment,
+                sections,
+                recommendations
+        );
+    }
 }

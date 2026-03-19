@@ -44,6 +44,7 @@ public class FarmService {
     private final UserFarmMembershipRepository membershipRepository;
     private final CustomerNumberService customerNumberService;
     private final CacheService cacheService;
+    private final FarmAreaAllocationService farmAreaAllocationService;
 
     /**
      * SUPER_ADMIN ONLY.
@@ -59,9 +60,15 @@ public class FarmService {
         });
 
         String countryCode = customerNumberService.normalizeCountryCode(request.country());
+        farmAreaAllocationService.validateFarmStructureAreas(
+                request.licensedAreaHectares(),
+                request.greenhouses(),
+                request.fieldBlocks()
+        );
 
         Farm farm = toFarmEntity(request, countryCode);
         Farm saved = farmRepository.save(farm);
+        synchronizeFarmMemberships(saved, saved.getOwner(), saved.getScout(), request.memberAssignments(), true);
 
         LOGGER.info("Farm '{}' created with id {}", saved.getName(), saved.getId());
         return mapToResponse(saved);
@@ -100,6 +107,13 @@ public class FarmService {
         applyAllowedFarmUpdates(farm, request);
 
         Farm saved = farmRepository.save(farm);
+        synchronizeFarmMemberships(
+                saved,
+                saved.getOwner(),
+                saved.getScout(),
+                request.memberAssignments(),
+                request.memberAssignments() != null
+        );
 
         // Clear all related caches (greenhouses, sessions, analytics, etc.)
         cacheService.evictFarmCachesAfterCommit(farmId);
@@ -173,6 +187,8 @@ public class FarmService {
                 .externalId(generateExternalId())
                 .farmTag(generateFarmTag(countryCode, request.name()))
                 .address(request.address())
+                .latitude(request.latitude())
+                .longitude(request.longitude())
                 .city(request.city())
                 .province(request.province())
                 .postalCode(request.postalCode())
@@ -189,8 +205,8 @@ public class FarmService {
                 .licensedUnitQuota(request.licensedUnitQuota())
                 .quotaDiscountPercentage(request.quotaDiscountPercentage())
                 .structureType(resolveStructureType(request.structureType(), hasGreenhouses, hasFieldBlocks))
-                .defaultBayCount(request.defaultBayCount())
-                .defaultBenchesPerBay(request.defaultBenchesPerBay())
+                .defaultBayCount(request.defaultBayCount() != null ? request.defaultBayCount() : 0)
+                .defaultBenchesPerBay(request.defaultBenchesPerBay() != null ? request.defaultBenchesPerBay() : 0)
                 .defaultSpotChecksPerBench(request.defaultSpotChecksPerBench())
                 .timezone(request.timezone())
                 .licenseExpiryDate(request.licenseExpiryDate())
@@ -244,6 +260,7 @@ public class FarmService {
             applyTextUpdate(request.billingEmail(), farm::setBillingEmail);
 
             if (request.licensedAreaHectares() != null) {
+                farmAreaAllocationService.validateCurrentAllocationWithinLicense(farm, request.licensedAreaHectares());
                 farm.setLicensedAreaHectares(request.licensedAreaHectares());
             }
             if (request.licensedUnitQuota() != null) {
@@ -310,6 +327,8 @@ public class FarmService {
                 farm.getDescription(),
                 farm.getExternalId(),
                 farm.getAddress(),
+                farm.getLatitude(),
+                farm.getLongitude(),
                 farm.getCity(),
                 farm.getProvince(),
                 farm.getPostalCode(),
@@ -332,8 +351,8 @@ public class FarmService {
                 hideLicense ? null : farm.isExpired() || farm.inGracePeriod() || Boolean.TRUE.equals(farm.getIsArchived()),
                 farm.getStructureType(),
 
-                farm.getDefaultBayCount(),
-                farm.getDefaultBenchesPerBay(),
+                farm.getDefaultBayCount() != null ? farm.getDefaultBayCount() : 0,
+                farm.getDefaultBenchesPerBay() != null ? farm.getDefaultBenchesPerBay() : 0,
                 farm.getDefaultSpotChecksPerBench(),
                 toInstant(farm.getCreatedAt()),
                 toInstant(farm.getUpdatedAt()),
@@ -463,7 +482,7 @@ public class FarmService {
     }
 
     private FieldBlock buildFieldBlock(Farm farm, CreateFieldBlockRequest request) {
-        int bayCount = request.bayCount() != null ? request.bayCount() : farm.resolveBayCount();
+        int bayCount = request.bayCount() != null ? request.bayCount() : 0;
         int spotChecksPerBay = request.spotChecksPerBay() != null ? request.spotChecksPerBay() : farm.resolveSpotChecksPerBench();
         List<String> bayTags = defaultTags(normalizeTags(request.bayTags()), "Bay", bayCount);
 
@@ -488,26 +507,22 @@ public class FarmService {
             List<GreenhouseBayRequest> requestedBays
     ) {
         if (requestedBays != null && !requestedBays.isEmpty()) {
-            List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays);
+            List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, normalizeTags(requestedBedTags));
             int maxBedCount = bays.stream()
                     .mapToInt(GreenhouseBayDefinition::getBedCount)
                     .max()
                     .orElse(0);
-            List<String> bedTags = normalizeTags(requestedBedTags);
-            if (!bedTags.isEmpty() && bedTags.size() < maxBedCount) {
-                throw new BadRequestException("Provided bed tags do not cover all configured beds.");
-            }
             return new GreenhouseLayout(
                     bays.size(),
                     maxBedCount,
                     bays.stream().map(GreenhouseBayDefinition::getBayTag).toList(),
-                    defaultTags(bedTags, "Bed", maxBedCount),
+                    collectBedTags(bays),
                     bays
             );
         }
 
-        int bayCount = requestedBayCount != null ? requestedBayCount : farm.resolveBayCount();
-        int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : farm.resolveBenchesPerBay();
+        int bayCount = requestedBayCount != null ? requestedBayCount : 0;
+        int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : 0;
         return new GreenhouseLayout(
                 bayCount,
                 maxBedCount,
@@ -517,7 +532,10 @@ public class FarmService {
         );
     }
 
-    private List<GreenhouseBayDefinition> normalizeBays(List<GreenhouseBayRequest> requestedBays) {
+    private List<GreenhouseBayDefinition> normalizeBays(
+            List<GreenhouseBayRequest> requestedBays,
+            List<String> fallbackBedTags
+    ) {
         List<GreenhouseBayDefinition> bays = requestedBays.stream()
                 .map(request -> {
                     String bayTag = normalizeNullableText(request.bayTag());
@@ -527,11 +545,26 @@ public class FarmService {
                     if (request.bedCount() == null || request.bedCount() < 1) {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");
                     }
+                    List<String> bedTags = defaultTags(
+                            normalizeTags(
+                                    request.bedTags() == null || request.bedTags().isEmpty()
+                                            ? fallbackBedTags
+                                            : request.bedTags()
+                            ),
+                            "Bed",
+                            request.bedCount()
+                    );
+                    long distinctBedTags = bedTags.stream().distinct().count();
+                    if (distinctBedTags != bedTags.size()) {
+                        throw new BadRequestException("Bed names within a greenhouse bay must be unique.");
+                    }
                     return GreenhouseBayDefinition.builder()
                             .bayTag(bayTag)
                             .bedCount(request.bedCount())
+                            .bedTags(bedTags)
                             .build();
                 })
+                .map(GreenhouseBayDefinition.class::cast)
                 .toList();
 
         long distinctTags = bays.stream()
@@ -542,6 +575,12 @@ public class FarmService {
             throw new BadRequestException("Greenhouse bay names must be unique.");
         }
         return bays;
+    }
+
+    private List<String> collectBedTags(List<GreenhouseBayDefinition> bays) {
+        LinkedHashSet<String> bedTags = new LinkedHashSet<>();
+        bays.forEach(bay -> bedTags.addAll(bay.resolvedBedTags()));
+        return List.copyOf(bedTags);
     }
 
     private record GreenhouseLayout(
@@ -574,8 +613,110 @@ public class FarmService {
             return null;
         }
 
-        return userRepository.findById(userId)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        if (!user.isActive()) {
+            throw new BadRequestException("Assigned " + fieldName + " must be active.");
+        }
+        if ("owner".equals(fieldName) && user.getRole() != Role.FARM_ADMIN && user.getRole() != Role.MANAGER) {
+            throw new BadRequestException("Assigned owner must have FARM_ADMIN or MANAGER role.");
+        }
+        if ("scout".equals(fieldName) && user.getRole() != Role.SCOUT) {
+            throw new BadRequestException("Assigned scout must have SCOUT role.");
+        }
+
+        return user;
+    }
+
+    private void synchronizeFarmMemberships(
+            Farm farm,
+            User owner,
+            User scout,
+            List<FarmMemberAssignmentRequest> requestedAssignments,
+            boolean replaceNonPrimaryMembers
+    ) {
+        List<UserFarmMembership> existingMembershipRows = Optional.ofNullable(membershipRepository.findByFarmId(farm.getId()))
+                .orElse(List.of());
+        Map<UUID, UserFarmMembership> existingMemberships = existingMembershipRows.stream()
+                .collect(Collectors.toMap(
+                        membership -> membership.getUser().getId(),
+                        membership -> membership,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+
+        Map<UUID, Role> desiredMemberships = new LinkedHashMap<>();
+        Map<UUID, User> resolvedUsers = new LinkedHashMap<>();
+
+        if (owner != null) {
+            desiredMemberships.put(owner.getId(), owner.getRole());
+            resolvedUsers.put(owner.getId(), owner);
+        }
+        if (scout != null) {
+            desiredMemberships.put(scout.getId(), Role.SCOUT);
+            resolvedUsers.put(scout.getId(), scout);
+        }
+
+        if (requestedAssignments != null) {
+            for (FarmMemberAssignmentRequest assignment : requestedAssignments) {
+                User user = resolveMembershipUser(assignment);
+                Role requestedRole = validateMembershipRole(user, assignment.role());
+
+                Role existingDesiredRole = desiredMemberships.get(user.getId());
+                if (existingDesiredRole != null && existingDesiredRole != requestedRole) {
+                    throw new BadRequestException("Assigned owner or scout cannot also be attached with a different farm member role.");
+                }
+
+                desiredMemberships.putIfAbsent(user.getId(), requestedRole);
+                resolvedUsers.putIfAbsent(user.getId(), user);
+            }
+        }
+
+        for (Map.Entry<UUID, Role> desiredMembership : desiredMemberships.entrySet()) {
+            UUID userId = desiredMembership.getKey();
+            Role role = desiredMembership.getValue();
+            UserFarmMembership membership = existingMemberships.remove(userId);
+
+            if (membership == null) {
+                membership = UserFarmMembership.builder()
+                        .user(resolvedUsers.get(userId))
+                        .farm(farm)
+                        .build();
+            }
+
+            membership.setRole(role);
+            membership.setIsActive(true);
+            membershipRepository.save(membership);
+        }
+
+        if (replaceNonPrimaryMembers) {
+            existingMemberships.values().forEach(membership -> {
+                if (Boolean.TRUE.equals(membership.getIsActive())) {
+                    membership.setIsActive(false);
+                    membershipRepository.save(membership);
+                }
+            });
+        }
+    }
+
+    private User resolveMembershipUser(FarmMemberAssignmentRequest assignment) {
+        User user = userRepository.findById(assignment.userId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", assignment.userId()));
+        if (!user.isActive()) {
+            throw new BadRequestException("Farm members must be active users.");
+        }
+        return user;
+    }
+
+    private Role validateMembershipRole(User user, Role requestedRole) {
+        if (requestedRole == Role.SUPER_ADMIN || requestedRole == Role.EDGE_SYNC) {
+            throw new BadRequestException("Only SCOUT, MANAGER, and FARM_ADMIN can be attached as farm members.");
+        }
+        if (user.getRole() != requestedRole) {
+            throw new BadRequestException("Farm member role must match the selected user's role.");
+        }
+        return requestedRole;
     }
 
     private String resolveContactName(String requestedContactName, User owner) {

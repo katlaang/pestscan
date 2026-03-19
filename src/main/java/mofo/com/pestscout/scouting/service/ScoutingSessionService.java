@@ -98,6 +98,7 @@ public class ScoutingSessionService {
                 .observationTime(request.observationTime())
                 .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
+                .surveySpecies(normalizeSurveySpecies(request.surveySpeciesCodes()))
                 .defaultPhotoSourceType(
                         request.defaultPhotoSourceType() != null
                                 ? request.defaultPhotoSourceType()
@@ -169,6 +170,9 @@ public class ScoutingSessionService {
         if (request.notes() != null) {
             session.setNotes(request.notes());
         }
+        if (request.surveySpeciesCodes() != null) {
+            session.setSurveySpecies(normalizeSurveySpecies(request.surveySpeciesCodes()));
+        }
         if (request.defaultPhotoSourceType() != null) {
             session.setDefaultPhotoSourceType(request.defaultPhotoSourceType());
         }
@@ -219,6 +223,45 @@ public class ScoutingSessionService {
 
         sessionRepository.delete(session);
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
+    }
+
+    @Transactional
+    public ScoutingSessionDetailDto reuseSession(UUID sessionId) {
+        ScoutingSession sourceSession = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        Farm farm = sourceSession.getFarm();
+        farmAccessService.requireAdminOrSuperAdmin(farm);
+        licenseService.validateFarmLicenseActive(farm);
+
+        List<ResolvedTarget> resolvedTargets = resolveTargets(sourceSession);
+        BigDecimal requestedArea = calculateRequestedArea(resolvedTargets);
+        licenseService.validateAreaWithinLicense(farm, requestedArea);
+
+        ScoutingSession reusedSession = ScoutingSession.builder()
+                .farm(farm)
+                .manager(resolveManager(farm))
+                .scout(resolveReusableScout(sourceSession))
+                .sessionDate(sourceSession.getSessionDate())
+                .weekNumber(resolveWeekNumber(sourceSession.getSessionDate(), sourceSession.getWeekNumber()))
+                .cropType(sourceSession.getCropType())
+                .cropVariety(sourceSession.getCropVariety())
+                .notes(sourceSession.getNotes())
+                .surveySpecies(new ArrayList<>(normalizeSurveySpecies(sourceSession.getSurveySpecies())))
+                .defaultPhotoSourceType(sourceSession.getDefaultPhotoSourceType())
+                .status(SessionStatus.DRAFT)
+                .confirmationAcknowledged(false)
+                .recommendations(new EnumMap<>(RecommendationType.class))
+                .build();
+
+        reusedSession.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        resolvedTargets.forEach(target -> reusedSession.addTarget(buildTarget(target)));
+
+        ScoutingSession saved = sessionRepository.save(reusedSession);
+        log.info("Reused scouting session {} into draft {}", sourceSession.getId(), saved.getId());
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_REUSED, null, null, null, null, null);
+        cacheService.evictSessionCachesAfterCommit(farm.getId(), saved.getId());
+        return mapToDetailDto(saved);
     }
 
     /**
@@ -461,6 +504,7 @@ public class ScoutingSessionService {
 
         ensureSessionEditableForObservations(session);
         assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
+        assertSpeciesAllowed(session, request.speciesCode());
 
         ScoutingObservation observation = observationRepository
                 .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesCode(
@@ -923,6 +967,26 @@ public class ScoutingSessionService {
                 .toList();
     }
 
+    private List<ResolvedTarget> resolveTargets(ScoutingSession sourceSession) {
+        if (sourceSession.getTargets() == null || sourceSession.getTargets().isEmpty()) {
+            return List.of();
+        }
+
+        Farm farm = sourceSession.getFarm();
+        return sourceSession.getTargets().stream()
+                .map(target -> new SessionTargetRequest(
+                        target.getGreenhouse() != null ? target.getGreenhouse().getId() : null,
+                        target.getFieldBlock() != null ? target.getFieldBlock().getId() : null,
+                        target.getIncludeAllBays(),
+                        target.getIncludeAllBenches(),
+                        target.getBayTags() == null ? List.of() : List.copyOf(target.getBayTags()),
+                        target.getBenchTags() == null ? List.of() : List.copyOf(target.getBenchTags()),
+                        target.getAreaHectares()
+                ))
+                .map(target -> resolveTarget(target, farm))
+                .toList();
+    }
+
     private List<ResolvedTarget> resolveDefaultTargets(Farm farm) {
         List<ResolvedTarget> defaults = new ArrayList<>();
 
@@ -954,6 +1018,19 @@ public class ScoutingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", scoutId));
 
         return validateAssignedScout(scout, farm, "requested");
+    }
+
+    private User resolveReusableScout(ScoutingSession sourceSession) {
+        if (sourceSession.getScout() == null) {
+            return null;
+        }
+
+        try {
+            return validateAssignedScout(sourceSession.getScout(), sourceSession.getFarm(), "reused");
+        } catch (BadRequestException exception) {
+            log.info("Reused session {} will not keep scout assignment: {}", sourceSession.getId(), exception.getMessage());
+            return null;
+        }
     }
 
     private User validateAssignedScout(User scout, Farm farm, String source) {
@@ -1094,6 +1171,7 @@ public class ScoutingSessionService {
                 null,
                 null,
                 null,
+                List.copyOf(session.getSurveySpecies()),
                 null,
                 null,
                 null,
@@ -1144,7 +1222,8 @@ public class ScoutingSessionService {
                             List.copyOf(target.getBayTags()),
                             List.copyOf(target.getBenchTags()),
                             targetObservations,
-                            target.getAreaHectares()
+                            target.getAreaHectares(),
+                            buildCoverage(target, targetObservations)
                     );
                 })
                 .toList();
@@ -1173,6 +1252,7 @@ public class ScoutingSessionService {
                 session.getObservationTime(),
                 session.getWeatherNotes(),
                 session.getNotes(),
+                List.copyOf(session.getSurveySpecies()),
                 session.getDefaultPhotoSourceType(),
                 session.getStartedAt(),
                 session.getSubmittedAt(),
@@ -1257,6 +1337,7 @@ public class ScoutingSessionService {
         if (areaHectares != null && areaHectares.signum() < 0) {
             throw new BadRequestException("Target area cannot be negative.");
         }
+        validateTargetSelections(greenhouse, fieldBlock, bayTags, benchTags);
 
         return new ResolvedTarget(greenhouse, fieldBlock, includeAllBays, includeAllBenches, bayTags, benchTags, areaHectares);
     }
@@ -1303,6 +1384,25 @@ public class ScoutingSessionService {
                 .toList();
     }
 
+    private List<SpeciesCode> normalizeSurveySpecies(List<SpeciesCode> surveySpeciesCodes) {
+        if (surveySpeciesCodes == null || surveySpeciesCodes.isEmpty()) {
+            return List.of();
+        }
+        return surveySpeciesCodes.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private void assertSpeciesAllowed(ScoutingSession session, SpeciesCode speciesCode) {
+        if (session.getSurveySpecies() == null || session.getSurveySpecies().isEmpty()) {
+            return;
+        }
+        if (!session.getSurveySpecies().contains(speciesCode)) {
+            throw new BadRequestException("Selected pest, disease, or beneficial insect is not configured for this session.");
+        }
+    }
+
     private void assertTargetSelectionsAllowCell(ScoutingSessionTarget target, String bayTag, String benchTag) {
         if (!Boolean.TRUE.equals(target.getIncludeAllBays()) && bayTag != null && !target.getBayTags().contains(bayTag)) {
             throw new BadRequestException("Selected bay is not part of this session target.");
@@ -1310,6 +1410,144 @@ public class ScoutingSessionService {
         if (!Boolean.TRUE.equals(target.getIncludeAllBenches()) && benchTag != null && !target.getBenchTags().contains(benchTag)) {
             throw new BadRequestException("Selected bench is not part of this session target.");
         }
+    }
+
+    private void validateTargetSelections(Greenhouse greenhouse,
+                                          FieldBlock fieldBlock,
+                                          List<String> bayTags,
+                                          List<String> benchTags) {
+        if (greenhouse != null) {
+            List<String> availableBayTags = resolveGreenhouseBayTags(greenhouse);
+            if (availableBayTags.isEmpty()) {
+                throw new BadRequestException("Greenhouse must define at least one bay before it can be added to a scouting session.");
+            }
+            if (!bayTags.isEmpty() && !availableBayTags.containsAll(bayTags)) {
+                throw new BadRequestException("Selected greenhouse bays do not exist.");
+            }
+            List<String> availableBedTags = greenhouse.resolvedBedTags();
+            if (!benchTags.isEmpty() && !availableBedTags.containsAll(benchTags)) {
+                throw new BadRequestException("Selected greenhouse beds do not exist.");
+            }
+        }
+
+        if (fieldBlock != null) {
+            List<String> availableBayTags = resolveFieldBayTags(fieldBlock);
+            if (availableBayTags.isEmpty()) {
+                throw new BadRequestException("Field must define at least one bay before it can be added to a scouting session.");
+            }
+            if (!bayTags.isEmpty() && !availableBayTags.containsAll(bayTags)) {
+                throw new BadRequestException("Selected field bays do not exist.");
+            }
+        }
+    }
+
+    private ScoutingSectionCoverageDto buildCoverage(ScoutingSessionTarget target, List<ScoutingObservationDto> observations) {
+        if (target.getGreenhouse() == null) {
+            return null;
+        }
+
+        Greenhouse greenhouse = target.getGreenhouse();
+        List<String> plannedBays = resolveSelectedGreenhouseBayTags(target, greenhouse);
+        int totalBedCount = plannedBays.stream()
+                .mapToInt(bayTag -> resolveSelectedBedTagsForBay(target, greenhouse, bayTag).size())
+                .sum();
+
+        Set<String> coveredBays = new LinkedHashSet<>();
+        Set<String> coveredBeds = new LinkedHashSet<>();
+
+        for (ScoutingObservationDto observation : observations) {
+            String bayTag = observation.bayTag() != null
+                    ? observation.bayTag()
+                    : resolveTagByIndex(resolveGreenhouseBayTags(greenhouse), observation.bayIndex());
+            if (bayTag == null || !plannedBays.contains(bayTag)) {
+                continue;
+            }
+
+            coveredBays.add(bayTag);
+
+            String bedTag = observation.benchTag() != null
+                    ? observation.benchTag()
+                    : resolveTagByIndex(resolveBedTagsForBay(greenhouse, bayTag), observation.benchIndex());
+            if (bedTag == null) {
+                continue;
+            }
+
+            if (resolveSelectedBedTagsForBay(target, greenhouse, bayTag).contains(bedTag)) {
+                coveredBeds.add(bayTag + "::" + bedTag);
+            }
+        }
+
+        return new ScoutingSectionCoverageDto(
+                coveredBays.size(),
+                plannedBays.size(),
+                coveredBeds.size(),
+                totalBedCount,
+                totalBedCount > 0 && coveredBeds.size() >= totalBedCount
+        );
+    }
+
+    private List<String> resolveSelectedGreenhouseBayTags(ScoutingSessionTarget target, Greenhouse greenhouse) {
+        List<String> availableBayTags = resolveGreenhouseBayTags(greenhouse);
+        if (Boolean.TRUE.equals(target.getIncludeAllBays())) {
+            return availableBayTags;
+        }
+        return target.getBayTags().stream()
+                .filter(availableBayTags::contains)
+                .toList();
+    }
+
+    private List<String> resolveSelectedBedTagsForBay(ScoutingSessionTarget target, Greenhouse greenhouse, String bayTag) {
+        List<String> availableBedTags = resolveBedTagsForBay(greenhouse, bayTag);
+        if (Boolean.TRUE.equals(target.getIncludeAllBenches())) {
+            return availableBedTags;
+        }
+        return target.getBenchTags().stream()
+                .filter(availableBedTags::contains)
+                .toList();
+    }
+
+    private List<String> resolveGreenhouseBayTags(Greenhouse greenhouse) {
+        List<String> bayTags = greenhouse.resolvedBayTags();
+        if (!bayTags.isEmpty()) {
+            return bayTags;
+        }
+        return generateTags("Bay", greenhouse.resolvedBayCount());
+    }
+
+    private List<String> resolveFieldBayTags(FieldBlock fieldBlock) {
+        if (fieldBlock.getBayTags() != null && !fieldBlock.getBayTags().isEmpty()) {
+            return List.copyOf(fieldBlock.getBayTags());
+        }
+        return generateTags("Bay", fieldBlock.resolvedBayCount());
+    }
+
+    private List<String> resolveBedTagsForBay(Greenhouse greenhouse, String bayTag) {
+        if (greenhouse.getBays() != null && !greenhouse.getBays().isEmpty()) {
+            return greenhouse.getBays().stream()
+                    .filter(bay -> bayTag.equals(bay.getBayTag()))
+                    .findFirst()
+                    .map(bay -> bay.getBedTags() != null && !bay.getBedTags().isEmpty()
+                            ? List.copyOf(bay.getBedTags())
+                            : generateTags("Bed", bay.getBedCount()))
+                    .orElse(List.of());
+        }
+        return greenhouse.resolvedBedTags();
+    }
+
+    private List<String> generateTags(String prefix, int count) {
+        if (count <= 0) {
+            return List.of();
+        }
+        return java.util.stream.IntStream.rangeClosed(1, count)
+                .mapToObj(index -> prefix + "-" + index)
+                .toList();
+    }
+
+    private String resolveTagByIndex(List<String> tags, Integer index) {
+        if (tags == null || tags.isEmpty() || index == null || index < 1 || index > tags.size()) {
+            return null;
+        }
+        return tags.get(index - 1);
     }
 
     private Greenhouse loadGreenhouse(UUID greenhouseId, UUID farmId) {

@@ -3,11 +3,14 @@ package mofo.com.pestscout.scouting.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.scouting.dto.*;
+import mofo.com.pestscout.scouting.service.ScoutingSessionReportExportService;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +27,7 @@ public class ScoutingSessionController {
     private static final Logger LOGGER = LoggerFactory.getLogger(ScoutingSessionController.class);
 
     private final ScoutingSessionService sessionService;
+    private final ScoutingSessionReportExportService reportExportService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
@@ -47,6 +51,13 @@ public class ScoutingSessionController {
     public void deleteSession(@PathVariable UUID sessionId) {
         LOGGER.info("DELETE /api/scouting/sessions/{} â€” deleting session", sessionId);
         sessionService.deleteSession(sessionId);
+    }
+
+    @PostMapping("/{sessionId}/reuse")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<ScoutingSessionDetailDto> reuseSession(@PathVariable UUID sessionId) {
+        LOGGER.info("POST /api/scouting/sessions/{}/reuse - creating reusable draft copy", sessionId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(sessionService.reuseSession(sessionId));
     }
 
     @PostMapping("/{sessionId}/start")
@@ -157,5 +168,17 @@ public class ScoutingSessionController {
     public ResponseEntity<List<ScoutingSessionAuditDto>> listAuditTrail(@PathVariable UUID sessionId) {
         LOGGER.info("GET /api/scouting/sessions/{}/audits — listing audit trail", sessionId);
         return ResponseEntity.ok(sessionService.listAuditTrail(sessionId));
+    }
+
+    @GetMapping(value = {"/{sessionId}/report.csv", "/{sessionId}/export.csv"}, produces = "text/csv")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<byte[]> downloadSessionReportCsv(@PathVariable UUID sessionId) {
+        LOGGER.info("GET /api/scouting/sessions/{}/report.csv - exporting session report", sessionId);
+        ScoutingSessionReportExportService.GeneratedCsvDocument document = reportExportService.exportSessionCsv(sessionId);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + document.fileName() + "\"")
+                .contentType(MediaType.parseMediaType(document.mediaType()))
+                .body(document.content());
     }
 }

@@ -42,6 +42,9 @@ class GreenhouseServiceTest {
     @Mock
     private CacheService cacheService;
 
+    @Mock
+    private FarmAreaAllocationService farmAreaAllocationService;
+
     @InjectMocks
     private GreenhouseService greenhouseService;
 
@@ -74,17 +77,15 @@ class GreenhouseServiceTest {
         assertThat(dto.benchTags()).containsExactly("bench1", "Bed-2", "Bed-3");
         assertThat(dto.bays()).hasSize(2);
         assertThat(dto.bays().getFirst().bedTags()).containsExactly("bench1", "Bed-2", "Bed-3");
-        verify(farmAccessService).requireSuperAdmin();
+        verify(farmAccessService).requireAdminOrSuperAdmin(farm);
         verify(cacheService).evictFarmCachesAfterCommit(farmId);
     }
 
     @Test
-    void createGreenhouse_usesFarmDefaultsWhenCountsOmitted() {
+    void createGreenhouse_defaultsToExplicitZeroLayoutWhenCountsOmitted() {
         UUID farmId = UUID.randomUUID();
         Farm farm = new Farm();
         farm.setId(farmId);
-        farm.setDefaultBayCount(8);
-        farm.setDefaultBenchesPerBay(6);
         farm.setDefaultSpotChecksPerBench(4);
 
         CreateGreenhouseRequest request = new CreateGreenhouseRequest(
@@ -106,8 +107,8 @@ class GreenhouseServiceTest {
 
         GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
 
-        assertThat(dto.bayCount()).isEqualTo(8);
-        assertThat(dto.benchesPerBay()).isEqualTo(6);
+        assertThat(dto.bayCount()).isEqualTo(0);
+        assertThat(dto.benchesPerBay()).isEqualTo(0);
         assertThat(dto.spotChecksPerBench()).isEqualTo(4);
     }
 
@@ -148,6 +149,42 @@ class GreenhouseServiceTest {
         assertThat(dto.bays().get(0).bedCount()).isEqualTo(2);
         assertThat(dto.bays().get(1).bayTag()).isEqualTo("Bay-B");
         assertThat(dto.bays().get(1).bedCount()).isEqualTo(4);
+    }
+
+    @Test
+    void createGreenhouse_withExplicitBedTags_PreservesPerBayBedIds() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "House B",
+                "Named beds",
+                null,
+                null,
+                2,
+                List.of(),
+                List.of(),
+                new BigDecimal("2.25"),
+                List.of(
+                        new GreenhouseBayRequest("Bay-A", 2, List.of("A-1", "A-2")),
+                        new GreenhouseBayRequest("Bay-B", 3, List.of("B-1", "B-2", "B-3"))
+                )
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bays()).hasSize(2);
+        assertThat(dto.bays().getFirst().bedTags()).containsExactly("A-1", "A-2");
+        assertThat(dto.bays().get(1).bedTags()).containsExactly("B-1", "B-2", "B-3");
+        assertThat(dto.benchTags()).containsExactly("A-1", "A-2", "B-1", "B-2", "B-3");
     }
 
     @Test

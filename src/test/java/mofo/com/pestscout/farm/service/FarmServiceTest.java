@@ -60,12 +60,16 @@ class FarmServiceTest {
     @Mock
     private CacheService cacheService;
 
+    @Mock
+    private FarmAreaAllocationService farmAreaAllocationService;
+
     @InjectMocks
     private FarmService farmService;
 
     private User superAdmin;
     private User farmOwner;
     private User scout;
+    private User managerMember;
     private Farm testFarm;
     private CreateFarmRequest createRequest;
     private UpdateFarmRequest updateRequest;
@@ -90,6 +94,13 @@ class FarmServiceTest {
                 .id(UUID.randomUUID())
                 .email("scout@example.com")
                 .role(Role.SCOUT)
+                .isEnabled(true)
+                .build();
+
+        managerMember = User.builder()
+                .id(UUID.randomUUID())
+                .email("manager@example.com")
+                .role(Role.MANAGER)
                 .isEnabled(true)
                 .build();
 
@@ -202,6 +213,11 @@ class FarmServiceTest {
         // Assert
         assertThat(response).isNotNull();
         verify(farmAccessService).requireSuperAdmin();
+        verify(farmAreaAllocationService).validateFarmStructureAreas(
+                createRequest.licensedAreaHectares(),
+                createRequest.greenhouses(),
+                createRequest.fieldBlocks()
+        );
         verify(farmRepository).save(any(Farm.class));
     }
 
@@ -253,6 +269,62 @@ class FarmServiceTest {
         assertThat(response.scoutId()).isNull();
         assertThat(response.contactName()).isEqualTo("Ops Contact");
         verify(userRepository, never()).findById(new UUID(0L, 0L));
+    }
+
+    @Test
+    @DisplayName("Should persist create-time coordinates and attach requested members")
+    void createFarm_WithCoordinatesAndMembers_PersistsCoordinatesAndMemberships() {
+        CreateFarmRequest request = new CreateFarmRequest(
+                "Coordinate Farm",
+                "Mapped farm",
+                "123 Farm Road",
+                "Farmville",
+                "Ontario",
+                "N1N 1N1",
+                "Canada",
+                farmOwner.getId(),
+                scout.getId(),
+                "John Doe",
+                "john@example.com",
+                "555-1234",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.STANDARD,
+                "billing@example.com",
+                new BigDecimal("15.00"),
+                100,
+                new BigDecimal("5.00"),
+                FarmStructureType.GREENHOUSE,
+                5,
+                10,
+                3,
+                new ArrayList<>(),
+                new ArrayList<>(),
+                "America/Toronto",
+                LocalDate.now().plusYears(1),
+                true,
+                new BigDecimal("43.1234567"),
+                new BigDecimal("-80.1234567"),
+                List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER))
+        );
+
+        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(userRepository.findById(managerMember.getId())).thenReturn(Optional.of(managerMember));
+        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
+            Farm farm = invocation.getArgument(0);
+            farm.setId(UUID.randomUUID());
+            return farm;
+        });
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+        when(membershipRepository.findByFarmId(any())).thenReturn(List.of());
+
+        FarmResponse response = farmService.createFarm(request);
+
+        assertThat(response.latitude()).isEqualByComparingTo("43.1234567");
+        assertThat(response.longitude()).isEqualByComparingTo("-80.1234567");
+        verify(membershipRepository, times(3)).save(any(UserFarmMembership.class));
     }
 
     @Test
@@ -370,6 +442,82 @@ class FarmServiceTest {
 
         assertThat(response.ownerId()).isEqualTo(farmOwner.getId());
         assertThat(response.scoutId()).isEqualTo(scout.getId());
+    }
+
+    @Test
+    @DisplayName("Update can replace farm member assignments")
+    void updateFarm_WithMemberAssignments_ReplacesNonPrimaryMembers() {
+        User priorMember = User.builder()
+                .id(UUID.randomUUID())
+                .email("old-member@example.com")
+                .role(Role.MANAGER)
+                .isEnabled(true)
+                .build();
+
+        UpdateFarmRequest membershipUpdate = new UpdateFarmRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER))
+        );
+
+        UserFarmMembership oldMembership = UserFarmMembership.builder()
+                .user(priorMember)
+                .farm(testFarm)
+                .role(Role.MANAGER)
+                .isActive(true)
+                .build();
+        UserFarmMembership ownerMembership = UserFarmMembership.builder()
+                .user(farmOwner)
+                .farm(testFarm)
+                .role(Role.FARM_ADMIN)
+                .isActive(true)
+                .build();
+        UserFarmMembership scoutMembership = UserFarmMembership.builder()
+                .user(scout)
+                .farm(testFarm)
+                .role(Role.SCOUT)
+                .isActive(true)
+                .build();
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.isSuperAdmin()).thenReturn(true);
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+        when(userRepository.findById(managerMember.getId())).thenReturn(Optional.of(managerMember));
+        when(membershipRepository.findByFarmId(testFarm.getId())).thenReturn(List.of(oldMembership, ownerMembership, scoutMembership));
+
+        farmService.updateFarm(testFarm.getId(), membershipUpdate);
+
+        assertThat(oldMembership.getIsActive()).isFalse();
+        verify(membershipRepository, atLeast(2)).save(any(UserFarmMembership.class));
     }
 
     @Test
@@ -701,7 +849,7 @@ class FarmServiceTest {
         verify(farmRepository).save(argThat(farm ->
                 farm.getStructureType() == FarmStructureType.FIELD
                         && farm.getFieldBlocks().size() == 1
-                        && farm.getFieldBlocks().getFirst().getBayCount() == 9
+                        && farm.getFieldBlocks().getFirst().getBayCount() == 0
                         && farm.getFieldBlocks().getFirst().getSpotChecksPerBay() == 4
         ));
     }

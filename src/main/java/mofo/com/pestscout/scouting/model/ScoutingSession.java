@@ -140,6 +140,13 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "recommendation", length = 2000)
     private Map<RecommendationType, String> recommendations = new EnumMap<>(RecommendationType.class);
 
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "scouting_session_species", joinColumns = @JoinColumn(name = "session_id"))
+    @Enumerated(EnumType.STRING)
+    @Column(name = "species_code", length = 50)
+    private List<SpeciesCode> surveySpecies = new ArrayList<>();
+
 
     /**
      * A session is editable while it is draft or in progress.
