@@ -187,8 +187,8 @@ public class FarmService {
                 .externalId(generateExternalId())
                 .farmTag(generateFarmTag(countryCode, request.name()))
                 .address(request.address())
-                .latitude(request.latitude())
-                .longitude(request.longitude())
+                .latitude(CoordinateFormatSupport.validateLatitude(request.latitude()))
+                .longitude(CoordinateFormatSupport.validateLongitude(request.longitude()))
                 .city(request.city())
                 .province(request.province())
                 .postalCode(request.postalCode())
@@ -288,10 +288,10 @@ public class FarmService {
                 farm.setIsArchived(requestedArchivedState);
             }
             if (request.latitude() != null) {
-                farm.setLatitude(request.latitude());
+                farm.setLatitude(CoordinateFormatSupport.validateLatitude(request.latitude()));
             }
             if (request.longitude() != null) {
-                farm.setLongitude(request.longitude());
+                farm.setLongitude(CoordinateFormatSupport.validateLongitude(request.longitude()));
             }
 
             if (request.ownerId() != null) {

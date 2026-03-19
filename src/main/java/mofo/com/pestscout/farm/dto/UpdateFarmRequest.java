@@ -1,5 +1,6 @@
 package mofo.com.pestscout.farm.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -22,7 +23,9 @@ public record UpdateFarmRequest(
         @Size(max = 255)
         String address,
 
+        @JsonDeserialize(using = LatitudeDeserializer.class)
         BigDecimal latitude,
+        @JsonDeserialize(using = LongitudeDeserializer.class)
         BigDecimal longitude,
 
         @Size(max = 100)

@@ -2,6 +2,7 @@ package mofo.com.pestscout.scouting.service;
 
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.model.User;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.farm.model.Farm;
@@ -10,13 +11,11 @@ import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.scouting.dto.PhotoMetadataRequest;
 import mofo.com.pestscout.scouting.dto.PhotoUploadConfirmationRequest;
 import mofo.com.pestscout.scouting.dto.ScoutingPhotoDto;
-import mofo.com.pestscout.scouting.model.PhotoSourceType;
-import mofo.com.pestscout.scouting.model.ScoutingPhoto;
-import mofo.com.pestscout.scouting.model.ScoutingSession;
-import mofo.com.pestscout.scouting.model.SessionStatus;
+import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingPhotoRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +31,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +48,9 @@ class ScoutingPhotoServiceTest {
     private ScoutingPhotoRepository photoRepository;
 
     @Mock
+    private ScoutingSessionTargetRepository sessionTargetRepository;
+
+    @Mock
     private FarmAccessService farmAccessService;
 
     @Mock
@@ -59,6 +62,7 @@ class ScoutingPhotoServiceTest {
     private User scout;
     private User manager;
     private ScoutingSession session;
+    private ScoutingSessionTarget target;
 
     @BeforeEach
     void setUp() {
@@ -89,6 +93,13 @@ class ScoutingPhotoServiceTest {
                 .status(SessionStatus.IN_PROGRESS)
                 .defaultPhotoSourceType(PhotoSourceType.SCOUT_HANDHELD)
                 .build();
+
+        target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(session)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
     }
 
     @Test
@@ -96,6 +107,12 @@ class ScoutingPhotoServiceTest {
         PhotoMetadataRequest request = new PhotoMetadataRequest(
                 session.getId(),
                 null,
+                target.getId(),
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
                 "photo-1",
                 "Leaf close-up",
                 null,
@@ -105,7 +122,11 @@ class ScoutingPhotoServiceTest {
         when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
         when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
         when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
-        when(photoRepository.findByLocalPhotoId("photo-1")).thenReturn(Optional.empty());
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), session.getId())).thenReturn(Optional.of(target));
+        when(photoRepository.findByLocalPhotoIdAndDeletedFalse("photo-1")).thenReturn(Optional.empty());
+        when(photoRepository.countBySessionIdAndSessionTarget_IdAndBayIndexAndBenchIndexAndSpotIndexAndDeletedFalse(
+                session.getId(), target.getId(), 1, 1, 1
+        )).thenReturn(0L);
         when(photoRepository.save(any(ScoutingPhoto.class))).thenAnswer(invocation -> {
             ScoutingPhoto photo = invocation.getArgument(0);
             photo.setId(UUID.randomUUID());
@@ -116,6 +137,10 @@ class ScoutingPhotoServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.localPhotoId()).isEqualTo("photo-1");
+        assertThat(result.sessionTargetId()).isEqualTo(target.getId());
+        assertThat(result.bayIndex()).isEqualTo(1);
+        assertThat(result.benchIndex()).isEqualTo(1);
+        assertThat(result.spotIndex()).isEqualTo(1);
         assertThat(result.sourceType()).isEqualTo(PhotoSourceType.SCOUT_HANDHELD);
         assertThat(result.syncStatus()).isEqualTo(SyncStatus.PENDING_UPLOAD);
     }
@@ -125,6 +150,12 @@ class ScoutingPhotoServiceTest {
         PhotoMetadataRequest request = new PhotoMetadataRequest(
                 session.getId(),
                 null,
+                target.getId(),
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
                 "photo-1",
                 "Leaf close-up",
                 null,
@@ -144,7 +175,11 @@ class ScoutingPhotoServiceTest {
         ScoutingPhoto photo = ScoutingPhoto.builder()
                 .id(UUID.randomUUID())
                 .session(session)
+                .sessionTarget(target)
                 .farmId(session.getFarm().getId())
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
                 .localPhotoId("photo-1")
                 .sourceType(PhotoSourceType.SCOUT_HANDHELD)
                 .build();
@@ -157,12 +192,43 @@ class ScoutingPhotoServiceTest {
 
         when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
         when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
-        when(photoRepository.findByLocalPhotoId("photo-1")).thenReturn(Optional.of(photo));
+        when(photoRepository.findByLocalPhotoIdAndDeletedFalse("photo-1")).thenReturn(Optional.of(photo));
         when(photoRepository.save(any(ScoutingPhoto.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ScoutingPhotoDto result = scoutingPhotoService.confirmUpload(request);
 
         assertThat(result.objectKey()).isEqualTo("photos/session/photo-1.jpg");
         assertThat(result.syncStatus()).isEqualTo(SyncStatus.SYNCED);
+    }
+
+    @Test
+    void registerMetadata_WithFiveExistingCellPhotos_ThrowsBadRequestException() {
+        PhotoMetadataRequest request = new PhotoMetadataRequest(
+                session.getId(),
+                null,
+                target.getId(),
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                "photo-6",
+                "Leaf close-up",
+                null,
+                LocalDateTime.now()
+        );
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), session.getId())).thenReturn(Optional.of(target));
+        when(photoRepository.findByLocalPhotoIdAndDeletedFalse("photo-6")).thenReturn(Optional.empty());
+        when(photoRepository.countBySessionIdAndSessionTarget_IdAndBayIndexAndBenchIndexAndSpotIndexAndDeletedFalse(
+                eq(session.getId()), eq(target.getId()), eq(1), eq(1), eq(1)
+        )).thenReturn(5L);
+
+        assertThatThrownBy(() -> scoutingPhotoService.registerMetadata(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("at most 5 active photos");
     }
 }

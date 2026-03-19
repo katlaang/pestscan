@@ -961,4 +961,70 @@ class AuthServiceTest {
         assertThat(targetUser.getPasswordChangeRequired()).isTrue();
         verify(userOnboardingService).issueSetupInvitation(targetUser, true);
     }
+
+    @Test
+    @DisplayName("Should let super admin assign a new temporary password to an active user")
+    void resetUserTemporaryPassword_WithSuperAdminRequester_AssignsTemporaryPassword() {
+        UUID requesterId = UUID.randomUUID();
+        UUID targetUserId = UUID.randomUUID();
+
+        User requester = User.builder()
+                .id(requesterId)
+                .email("admin@example.com")
+                .role(Role.SUPER_ADMIN)
+                .isEnabled(true)
+                .build();
+
+        User targetUser = User.builder()
+                .id(targetUserId)
+                .email("target@example.com")
+                .password("oldPassword")
+                .phoneNumber("1112223333")
+                .country("KE")
+                .customerNumber("KE00000111")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .activeClientSessionId("old-session")
+                .activeSessionStartedAt(LocalDateTime.now().minusHours(1))
+                .build();
+
+        PasswordResetToken staleToken = PasswordResetToken.builder()
+                .id(UUID.randomUUID())
+                .user(targetUser)
+                .token("stale-token")
+                .expiresAt(LocalDateTime.now().plusDays(1))
+                .verificationChannel(ResetChannel.EMAIL)
+                .build();
+
+        UserDto updatedUser = UserDto.builder()
+                .id(targetUserId)
+                .email(targetUser.getEmail())
+                .role(targetUser.getRole())
+                .passwordChangeRequired(true)
+                .build();
+
+        when(userRepository.findById(requesterId)).thenReturn(Optional.of(requester));
+        when(userRepository.findByIdForUpdate(targetUserId)).thenReturn(Optional.of(targetUser));
+        when(userOnboardingService.calculateTemporaryPasswordExpiry()).thenReturn(LocalDateTime.now().plusDays(5));
+        when(passwordResetTokenRepository.findByUserAndUsedAtIsNull(targetUser)).thenReturn(List.of(staleToken));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userService.convertToDto(targetUser)).thenReturn(updatedUser);
+
+        UserDto result = authService.resetUserTemporaryPassword(
+                targetUserId,
+                new AdminResetUserPasswordRequest("TempPass123"),
+                requesterId
+        );
+
+        assertThat(result.getEmail()).isEqualTo(targetUser.getEmail());
+        assertThat(targetUser.getPassword()).isEqualTo("encoded:TempPass123");
+        assertThat(targetUser.getPasswordChangeRequired()).isTrue();
+        assertThat(targetUser.getTemporaryPasswordExpiresAt()).isNotNull();
+        assertThat(targetUser.getActiveClientSessionId()).isNull();
+        assertThat(targetUser.getActiveSessionStartedAt()).isNull();
+        assertThat(targetUser.getSessionValidAfter()).isNotNull();
+        assertThat(staleToken.getUsedAt()).isNotNull();
+        verify(passwordPolicyService).recordPassword(targetUser, "TempPass123");
+        verify(clientSessionEventService).notifySessionReplacedAfterCommit(targetUserId, "old-session", null);
+    }
 }

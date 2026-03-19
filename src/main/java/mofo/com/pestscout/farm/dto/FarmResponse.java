@@ -1,5 +1,6 @@
 package mofo.com.pestscout.farm.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
@@ -120,5 +121,15 @@ public record FarmResponse(
                 ownerId,
                 scoutId
         );
+    }
+
+    @JsonProperty("latitudeDisplay")
+    public String latitudeDisplay() {
+        return CoordinateFormatSupport.formatLatitude(latitude);
+    }
+
+    @JsonProperty("longitudeDisplay")
+    public String longitudeDisplay() {
+        return CoordinateFormatSupport.formatLongitude(longitude);
     }
 }

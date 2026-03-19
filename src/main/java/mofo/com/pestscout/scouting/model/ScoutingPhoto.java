@@ -30,6 +30,10 @@ public class ScoutingPhoto extends BaseEntity {
     @JoinColumn(name = "observation_id")
     private ScoutingObservation observation;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "session_target_id")
+    private ScoutingSessionTarget sessionTarget;
+
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
 
@@ -46,6 +50,21 @@ public class ScoutingPhoto extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", nullable = false, length = 32)
     private PhotoSourceType sourceType = PhotoSourceType.SCOUT_HANDHELD;
+
+    @Column(name = "bay_index")
+    private Integer bayIndex;
+
+    @Column(name = "bay_label", length = 255)
+    private String bayLabel;
+
+    @Column(name = "bench_index")
+    private Integer benchIndex;
+
+    @Column(name = "bench_label", length = 255)
+    private String benchLabel;
+
+    @Column(name = "spot_index")
+    private Integer spotIndex;
 
     @Column(name = "captured_at")
     private LocalDateTime capturedAt;

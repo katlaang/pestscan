@@ -6,11 +6,9 @@ import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.service.AnalyticsService;
 import mofo.com.pestscout.scouting.dto.ScoutingSessionDetailDto;
-import mofo.com.pestscout.scouting.model.ObservationCategory;
-import mofo.com.pestscout.scouting.model.ScoutingObservation;
-import mofo.com.pestscout.scouting.model.ScoutingSession;
-import mofo.com.pestscout.scouting.model.SeverityLevel;
+import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingPhotoAnalysisRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.springframework.stereotype.Service;
@@ -33,6 +31,7 @@ public class ReportingService {
     private final FarmRepository farmRepository;
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
+    private final ScoutingPhotoAnalysisRepository photoAnalysisRepository;
     private final HeatmapService heatmapService;
     private final AnalyticsService analyticsService;
     private final ScoutingSessionService scoutingSessionService;
@@ -372,11 +371,32 @@ public class ReportingService {
                 .filter(s -> s.getScout() != null)
                 .collect(Collectors.groupingBy(s -> s.getScout().getId()));
 
+        Map<UUID, List<ScoutingPhotoAnalysis>> reviewedAnalysesByScout = photoAnalysisRepository
+                .findByFarmIdAndReviewStatusIn(
+                        farmId,
+                        List.of(PhotoAnalysisReviewStatus.CONFIRMED, PhotoAnalysisReviewStatus.CORRECTED)
+                )
+                .stream()
+                .filter(analysis -> analysis.getPhoto() != null)
+                .filter(analysis -> analysis.getPhoto().getSession() != null)
+                .filter(analysis -> analysis.getPhoto().getSession().getScout() != null)
+                .collect(Collectors.groupingBy(analysis -> analysis.getPhoto().getSession().getScout().getId()));
+
         List<ScoutPerformanceDto> performance = new ArrayList<>();
 
         for (var entry : sessionsByScout.entrySet()) {
             var scoutSessions = entry.getValue();
             var scout = scoutSessions.getFirst().getScout();
+            List<ScoutingObservation> scoutObservations = scoutSessions.stream()
+                    .map(ScoutingSession::getId)
+                    .map(observationsBySession::get)
+                    .filter(Objects::nonNull)
+                    .flatMap(List::stream)
+                    .toList();
+            Set<String> observationKeys = scoutObservations.stream()
+                    .map(this::toObservationComparisonKey)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
 
             int totalObservationCount = scoutSessions.stream()
                     .map(ScoutingSession::getId)
@@ -386,11 +406,16 @@ public class ReportingService {
                     .mapToInt(o -> o.getCount() == null ? 0 : o.getCount())
                     .sum();
 
-            long completedSessions = scoutSessions.stream()
-                    .filter(s -> s.getStatus() == mofo.com.pestscout.scouting.model.SessionStatus.COMPLETED)
+            List<ScoutingPhotoAnalysis> reviewedAnalyses = reviewedAnalysesByScout.getOrDefault(entry.getKey(), List.of());
+            List<ScoutingPhotoAnalysis> comparableAnalyses = reviewedAnalyses.stream()
+                    .filter(this::hasComparableScoutCell)
+                    .toList();
+            long exactMatchCount = comparableAnalyses.stream()
+                    .filter(analysis -> observationKeys.contains(toPhotoComparisonKey(analysis)))
                     .count();
-
-            int accuracy = (int) Math.round((completedSessions * 100.0) / scoutSessions.size());
+            int accuracy = comparableAnalyses.isEmpty()
+                    ? 0
+                    : (int) Math.round((exactMatchCount * 100.0) / comparableAnalyses.size());
 
             String avgDuration = averageDuration(scoutSessions);
 
@@ -399,13 +424,72 @@ public class ReportingService {
                     scoutName.isBlank() ? scout.getEmail() : scoutName,
                     totalObservationCount,
                     accuracy,
-                    avgDuration
+                    avgDuration,
+                    comparableAnalyses.size()
             ));
         }
 
         return performance.stream()
                 .sorted(Comparator.comparingInt(ScoutPerformanceDto::observations).reversed())
                 .toList();
+    }
+
+    private boolean hasComparableScoutCell(ScoutingPhotoAnalysis analysis) {
+        return toPhotoComparisonKey(analysis) != null;
+    }
+
+    private String toObservationComparisonKey(ScoutingObservation observation) {
+        if (observation.getSession() == null
+                || observation.getSessionTarget() == null
+                || observation.getBayIndex() == null
+                || observation.getBenchIndex() == null
+                || observation.getSpotIndex() == null
+                || observation.getSpeciesCode() == null) {
+            return null;
+        }
+
+        return observation.getSession().getId()
+                + "|" + observation.getSessionTarget().getId()
+                + "|" + observation.getBayIndex()
+                + "|" + observation.getBenchIndex()
+                + "|" + observation.getSpotIndex()
+                + "|" + observation.getSpeciesCode().name();
+    }
+
+    private String toPhotoComparisonKey(ScoutingPhotoAnalysis analysis) {
+        if (analysis.getReviewedSpeciesCode() == null || analysis.getPhoto() == null) {
+            return null;
+        }
+
+        if (analysis.getPhoto().getObservation() != null
+                && analysis.getPhoto().getObservation().getSession() != null
+                && analysis.getPhoto().getObservation().getSessionTarget() != null
+                && analysis.getPhoto().getObservation().getBayIndex() != null
+                && analysis.getPhoto().getObservation().getBenchIndex() != null
+                && analysis.getPhoto().getObservation().getSpotIndex() != null) {
+            ScoutingObservation observation = analysis.getPhoto().getObservation();
+            return observation.getSession().getId()
+                    + "|" + observation.getSessionTarget().getId()
+                    + "|" + observation.getBayIndex()
+                    + "|" + observation.getBenchIndex()
+                    + "|" + observation.getSpotIndex()
+                    + "|" + analysis.getReviewedSpeciesCode().name();
+        }
+
+        if (analysis.getPhoto().getSession() == null
+                || analysis.getPhoto().getSessionTarget() == null
+                || analysis.getPhoto().getBayIndex() == null
+                || analysis.getPhoto().getBenchIndex() == null
+                || analysis.getPhoto().getSpotIndex() == null) {
+            return null;
+        }
+
+        return analysis.getPhoto().getSession().getId()
+                + "|" + analysis.getPhoto().getSessionTarget().getId()
+                + "|" + analysis.getPhoto().getBayIndex()
+                + "|" + analysis.getPhoto().getBenchIndex()
+                + "|" + analysis.getPhoto().getSpotIndex()
+                + "|" + analysis.getReviewedSpeciesCode().name();
     }
 
     private int sessionsInPeriod(UUID farmId, LocalDate start, LocalDate end) {

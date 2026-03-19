@@ -10,6 +10,7 @@ import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FieldBlock;
@@ -51,6 +52,9 @@ class ScoutingSessionServiceTest {
 
     @Mock
     private ScoutingObservationRepository observationRepository;
+
+    @Mock
+    private ScoutingObservationDraftRepository observationDraftRepository;
 
     @Mock
     private ScoutingSessionTargetRepository sessionTargetRepository;
@@ -224,6 +228,17 @@ class ScoutingSessionServiceTest {
                         .role(Role.SCOUT)
                         .isActive(true)
                         .build()));
+        lenient().when(observationDraftRepository.existsBySessionId(any())).thenReturn(false);
+        lenient().when(observationDraftRepository.findBySessionId(any())).thenReturn(List.of());
+        lenient().when(observationDraftRepository.findByClientRequestId(any())).thenReturn(Optional.empty());
+        lenient().when(observationDraftRepository.findByIdAndSessionId(any(), any())).thenReturn(Optional.empty());
+        lenient().when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(Optional.empty());
+        lenient().when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(observationDraftRepository.saveAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -655,6 +670,7 @@ class ScoutingSessionServiceTest {
                 null
         );
         testSession.setVersion(1L);
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
         when(sessionRepository.save(any(ScoutingSession.class)))
@@ -699,6 +715,7 @@ class ScoutingSessionServiceTest {
                 null
         );
 
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
 
@@ -709,6 +726,85 @@ class ScoutingSessionServiceTest {
         ))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("reopened");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should allow assigned scout to update runtime session fields")
+    void updateSession_AsScoutWithRuntimeFields_UpdatesSession() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setVersion(3L);
+
+        UpdateScoutingSessionRequest updateRequest = new UpdateScoutingSessionRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new BigDecimal("23.5"),
+                new BigDecimal("61.0"),
+                LocalTime.of(11, 15),
+                "Warm with light wind",
+                "Scout runtime notes",
+                null,
+                null,
+                3L,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.updateSession(testSession.getId(), updateRequest);
+
+        assertThat(result.temperatureCelsius()).isEqualByComparingTo("23.5");
+        assertThat(result.relativeHumidityPercent()).isEqualByComparingTo("61.0");
+        assertThat(result.observationTime()).isEqualTo(LocalTime.of(11, 15));
+        assertThat(result.weatherNotes()).isEqualTo("Warm with light wind");
+        assertThat(result.notes()).isEqualTo("Scout runtime notes");
+        verify(farmAccessService, never()).requireAdminOrSuperAdmin(any());
+        verify(sessionRepository).save(testSession);
+    }
+
+    @Test
+    @DisplayName("Should reject scout planning edits through session update")
+    void updateSession_AsScoutWithPlanningFields_ThrowsBadRequestException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setVersion(2L);
+
+        UpdateScoutingSessionRequest updateRequest = new UpdateScoutingSessionRequest(
+                LocalDate.now().plusDays(1),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                2L,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.updateSession(testSession.getId(), updateRequest))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Scouts can only update weather");
 
         verify(sessionRepository, never()).save(any());
     }
@@ -751,6 +847,7 @@ class ScoutingSessionServiceTest {
                 null
         );
 
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
         when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
         when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
         when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
@@ -1039,6 +1136,72 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should commit persisted draft observations when completing a session")
+    void completeSession_WithDraftObservations_PromotesDraftsToCommitted() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setVersion(3L);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+        testSession.getTargets().clear();
+        testSession.addTarget(target);
+
+        ScoutingObservation committedObservation = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(1)
+                .notes("Old committed value")
+                .build();
+        testSession.getObservations().clear();
+        testSession.addObservation(committedObservation);
+
+        ScoutingObservationDraft draftObservation = ScoutingObservationDraft.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .speciesIdentifier("CODE:THRIPS")
+                .bayIndex(1)
+                .bayLabel("Bay-1")
+                .benchIndex(1)
+                .benchLabel("Bed-1")
+                .spotIndex(1)
+                .count(9)
+                .notes("Draft grid value")
+                .build();
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findBySessionId(testSession.getId())).thenReturn(List.of(draftObservation));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(
+                testSession.getId(),
+                new CompleteSessionRequest(3L, true, "Complete session", null, null, null, "Scout User")
+        );
+
+        assertThat(result.status()).isEqualTo(SessionStatus.COMPLETED);
+        assertThat(result.sections()).hasSize(1);
+        assertThat(result.sections().getFirst().observations()).hasSize(1);
+        assertThat(result.sections().getFirst().observations().getFirst().count()).isEqualTo(9);
+        assertThat(testSession.getObservations()).hasSize(1);
+        assertThat(testSession.getObservations().getFirst().getCount()).isEqualTo(9);
+        verify(observationRepository).flush();
+        verify(observationDraftRepository).deleteBySessionId(testSession.getId());
+    }
+
+    @Test
     @DisplayName("Should reject manager from completing a session")
     void completeSession_WithManagerRole_ThrowsForbiddenException() {
         testSession.setStatus(SessionStatus.SUBMITTED);
@@ -1164,11 +1327,11 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.empty());
-        when(observationRepository.save(any(ScoutingObservation.class)))
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -1180,7 +1343,7 @@ class ScoutingSessionServiceTest {
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.count()).isEqualTo(5);
-        verify(observationRepository).save(any(ScoutingObservation.class));
+        verify(observationDraftRepository).save(any(ScoutingObservationDraft.class));
     }
 
     @Test
@@ -1214,17 +1377,100 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         )).thenReturn(Optional.empty());
-        when(observationRepository.save(any(ScoutingObservation.class)))
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
 
         assertThat(result).isNotNull();
         assertThat(result.count()).isEqualTo(2);
-        verify(observationRepository).save(any(ScoutingObservation.class));
+        verify(observationDraftRepository).save(any(ScoutingObservationDraft.class));
+    }
+
+    @Test
+    @DisplayName("Should infer session target and default spot index when omitted for single-section session")
+    void upsertObservation_WithSingleTargetAndMissingIds_CreatesObservation() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+        testSession.getTargets().clear();
+        testSession.getTargets().add(target);
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                null,
+                null,
+                SpeciesCode.THRIPS,
+                1,
+                "Bay-1",
+                1,
+                "Bench-1",
+                null,
+                6,
+                "Autosave grid value",
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(), target.getId(), 1, 1, 1, "CODE:THRIPS"
+        )).thenReturn(Optional.empty());
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result.count()).isEqualTo(6);
+        assertThat(result.sessionTargetId()).isEqualTo(target.getId());
+        assertThat(result.spotIndex()).isEqualTo(1);
+        verify(sessionTargetRepository, never()).findByIdAndSessionId(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should require session target when session has multiple sections")
+    void upsertObservation_WithMultipleTargetsAndNoTargetId_ThrowsBadRequest() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.getTargets().clear();
+        testSession.getTargets().add(ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .build());
+        testSession.getTargets().add(ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .fieldBlock(fieldBlock)
+                .build());
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                null,
+                null,
+                SpeciesCode.THRIPS,
+                1,
+                "Bay-1",
+                1,
+                "Bench-1",
+                null,
+                3,
+                "Ambiguous section",
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("sessionTargetId is required");
+
+        verify(observationDraftRepository, never()).save(any());
     }
 
     @Test
@@ -1240,7 +1486,7 @@ class ScoutingSessionServiceTest {
                 .includeAllBenches(true)
                 .build();
 
-        ScoutingObservation existingObservation = ScoutingObservation.builder()
+        ScoutingObservationDraft existingObservation = ScoutingObservationDraft.builder()
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(target)
@@ -1270,11 +1516,11 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.of(existingObservation));
-        when(observationRepository.save(any(ScoutingObservation.class)))
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         // Act
@@ -1286,8 +1532,76 @@ class ScoutingSessionServiceTest {
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.count()).isEqualTo(10);
-        verify(observationRepository).save(argThat(obs ->
+        verify(observationDraftRepository).save(argThat(obs ->
                 obs.getCount() == 10 && "Updated observation".equals(obs.getNotes())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should update an observation draft by id")
+    void updateObservation_WithExistingDraft_UpdatesObservation() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        ScoutingObservationDraft existingObservation = ScoutingObservationDraft.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .speciesIdentifier("CODE:THRIPS")
+                .bayIndex(1)
+                .bayLabel("Bay-1")
+                .benchIndex(1)
+                .benchLabel("Bed-1")
+                .spotIndex(1)
+                .count(3)
+                .notes("Initial")
+                .build();
+        existingObservation.setVersion(1L);
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                null,
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                11,
+                "Edited value",
+                UUID.randomUUID(),
+                1L
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
+        when(observationDraftRepository.findByIdAndSessionId(existingObservation.getId(), testSession.getId()))
+                .thenReturn(Optional.of(existingObservation));
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(), target.getId(), 1, 1, 1, "CODE:THRIPS"
+        )).thenReturn(Optional.of(existingObservation));
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.updateObservation(
+                testSession.getId(),
+                existingObservation.getId(),
+                request
+        );
+
+        assertThat(result.count()).isEqualTo(11);
+        assertThat(result.notes()).isEqualTo("Edited value");
+        verify(observationDraftRepository).save(argThat(obs ->
+                obs.getId().equals(existingObservation.getId())
+                        && obs.getCount() == 11
+                        && "Edited value".equals(obs.getNotes())
         ));
     }
 
@@ -1337,21 +1651,24 @@ class ScoutingSessionServiceTest {
     void deleteObservation_WithValidObservation_DeletesObservation() {
         // Arrange
         testSession.setStatus(SessionStatus.IN_PROGRESS);
-        ScoutingObservation observation = ScoutingObservation.builder()
+        ScoutingObservationDraft observation = ScoutingObservationDraft.builder()
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(ScoutingSessionTarget.builder().id(UUID.randomUUID()).session(testSession).build())
                 .build();
-        testSession.addObservation(observation);
 
-        when(observationRepository.findByIdAndSessionId(observation.getId(), testSession.getId()))
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findByIdAndSessionId(observation.getId(), testSession.getId()))
                 .thenReturn(Optional.of(observation));
 
         // Act
         scoutingSessionService.deleteObservation(testSession.getId(), observation.getId());
 
         // Assert
-        verify(observationRepository).save(argThat(saved -> saved.isDeleted() && saved.getDeletedAt() != null));
+        verify(observationDraftRepository).save(argThat(saved ->
+                saved.isDeleted() && saved.getDeletedAt() != null
+        ));
     }
 
     @Test
@@ -1359,7 +1676,9 @@ class ScoutingSessionServiceTest {
     void deleteObservation_WithInvalidId_ThrowsResourceNotFoundException() {
         // Arrange
         UUID observationId = UUID.randomUUID();
-        when(observationRepository.findByIdAndSessionId(observationId, testSession.getId()))
+        when(sessionRepository.findById(testSession.getId()))
+                .thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findByIdAndSessionId(observationId, testSession.getId()))
                 .thenReturn(Optional.empty());
 
         // Act & Assert
@@ -1416,11 +1735,11 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.empty());
-        when(observationRepository.save(any(ScoutingObservation.class)))
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         BulkUpsertObservationsRequest bulkRequest = new BulkUpsertObservationsRequest(
@@ -1434,7 +1753,7 @@ class ScoutingSessionServiceTest {
         // Assert
         assertThat(results).hasSize(1);
         assertThat(results.getFirst().count()).isEqualTo(2);
-        verify(observationRepository, times(1)).save(any(ScoutingObservation.class));
+        verify(observationDraftRepository, times(1)).save(any(ScoutingObservationDraft.class));
     }
 
     @Test
@@ -1475,7 +1794,7 @@ class ScoutingSessionServiceTest {
                 .recommendations(new EnumMap<>(RecommendationType.class))
                 .build();
 
-        ScoutingObservation existing = ScoutingObservation.builder()
+        ScoutingObservationDraft existing = ScoutingObservationDraft.builder()
                 .id(UUID.randomUUID())
                 .session(otherSession)
                 .clientRequestId(requestId)
@@ -1489,7 +1808,7 @@ class ScoutingSessionServiceTest {
 
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
-        when(observationRepository.findByClientRequestId(requestId))
+        when(observationDraftRepository.findByClientRequestId(requestId))
                 .thenReturn(Optional.of(existing));
 
         // Act & Assert
@@ -1510,7 +1829,7 @@ class ScoutingSessionServiceTest {
                 .includeAllBenches(true)
                 .build();
 
-        ScoutingObservation existing = ScoutingObservation.builder()
+        ScoutingObservationDraft existing = ScoutingObservationDraft.builder()
                 .id(UUID.randomUUID())
                 .session(testSession)
                 .sessionTarget(target)
@@ -1541,7 +1860,7 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Optional.of(testSession));
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId()))
                 .thenReturn(Optional.of(target));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 any(), any(), any(), any(), any(), any()
         ))
                 .thenReturn(Optional.of(existing));
@@ -1550,6 +1869,66 @@ class ScoutingSessionServiceTest {
         assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("has changed on the server");
+    }
+
+    @Test
+    @DisplayName("Should restore a deleted draft observation when scout re-enters the value")
+    void upsertObservation_WithDeletedDraft_RestoresObservation() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        ScoutingObservationDraft deletedObservation = ScoutingObservationDraft.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .speciesIdentifier("CODE:THRIPS")
+                .bayIndex(1)
+                .bayLabel("Bay-1")
+                .benchIndex(1)
+                .benchLabel("Bed-1")
+                .spotIndex(1)
+                .count(0)
+                .notes(null)
+                .build();
+        deletedObservation.markDeleted();
+        deletedObservation.setVersion(2L);
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.THRIPS,
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                4,
+                "Edited again",
+                UUID.randomUUID(),
+                1L
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(), target.getId(), 1, 1, 1, "CODE:THRIPS"
+        )).thenReturn(Optional.of(deletedObservation));
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result.count()).isEqualTo(4);
+        verify(observationDraftRepository).save(argThat(saved ->
+                !saved.isDeleted()
+                        && saved.getCount() == 4
+                        && "Edited again".equals(saved.getNotes())
+        ));
     }
 
     @Test
@@ -1585,7 +1964,7 @@ class ScoutingSessionServiceTest {
         when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
         when(customSpeciesDefinitionRepository.findByIdAndFarmId(customPest.getId(), testFarm.getId()))
                 .thenReturn(Optional.of(customPest));
-        when(observationRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                 testSession.getId(),
                 target.getId(),
                 1,
@@ -1593,7 +1972,7 @@ class ScoutingSessionServiceTest {
                 1,
                 "CUSTOM:" + customPest.getId()
         )).thenReturn(Optional.empty());
-        when(observationRepository.save(any(ScoutingObservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
 
@@ -1746,6 +2125,63 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should return persisted draft observations to scout while session is active")
+    void getSession_WithPersistedDraftObservations_ReturnsDraftValues() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+        testSession.getTargets().clear();
+        testSession.addTarget(target);
+
+        ScoutingObservation committedObservation = ScoutingObservation.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(1)
+                .notes("Committed value")
+                .build();
+        testSession.getObservations().clear();
+        testSession.addObservation(committedObservation);
+
+        ScoutingObservationDraft draftObservation = ScoutingObservationDraft.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .speciesIdentifier("CODE:THRIPS")
+                .bayIndex(1)
+                .bayLabel("Bay-1")
+                .benchIndex(1)
+                .benchLabel("Bed-1")
+                .spotIndex(1)
+                .count(7)
+                .notes("Draft value")
+                .build();
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findBySessionId(testSession.getId())).thenReturn(List.of(draftObservation));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.getSession(testSession.getId());
+
+        assertThat(result.sections()).hasSize(1);
+        assertThat(result.sections().getFirst().observations()).hasSize(1);
+        assertThat(result.sections().getFirst().observations().getFirst().count()).isEqualTo(7);
+        assertThat(result.sections().getFirst().observations().getFirst().notes()).isEqualTo("Draft value");
+    }
+
+    @Test
     @DisplayName("Should hide in-progress session details from super admin")
     void getSession_WithInProgressSessionAndSuperAdmin_ThrowsForbiddenException() {
         testSession.setStatus(SessionStatus.IN_PROGRESS);
@@ -1782,20 +2218,41 @@ class ScoutingSessionServiceTest {
     @Test
     @DisplayName("Should block manager from viewing audit trail of in-progress session")
     void listAuditTrail_WithInProgressSessionAndManager_ThrowsForbiddenException() {
-        testSession.setStatus(SessionStatus.IN_PROGRESS);
-
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.MANAGER);
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(manager.getId());
-        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
-                .thenReturn(true);
-        when(sessionRepository.findById(testSession.getId()))
-                .thenReturn(Optional.of(testSession));
+        doThrow(new ForbiddenException("Only super administrators can perform this action."))
+                .when(farmAccessService).requireSuperAdmin();
 
         assertThatThrownBy(() -> scoutingSessionService.listAuditTrail(testSession.getId()))
                 .isInstanceOf(ForbiddenException.class)
-                .hasMessageContaining("visible in the list");
+                .hasMessageContaining("super administrators");
+
+        verify(sessionRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("Should allow super admin to view audit trail")
+    void listAuditTrail_WithSuperAdmin_ReturnsAuditEvents() {
+        SessionAuditEvent event = SessionAuditEvent.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .action(SessionAuditAction.SESSION_CREATED)
+                .actorId(superAdmin.getId())
+                .actorName("System Admin")
+                .actorEmail(superAdmin.getEmail())
+                .actorRole(Role.SUPER_ADMIN)
+                .comment("Created by admin")
+                .occurredAt(LocalDateTime.now())
+                .syncStatus(SyncStatus.SYNCED)
+                .build();
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(auditEventRepository.findBySessionIdOrderByOccurredAtAsc(testSession.getId())).thenReturn(List.of(event));
+
+        List<ScoutingSessionAuditDto> audits = scoutingSessionService.listAuditTrail(testSession.getId());
+
+        assertThat(audits).hasSize(1);
+        assertThat(audits.getFirst().action()).isEqualTo(SessionAuditAction.SESSION_CREATED);
+        assertThat(audits.getFirst().actorRole()).isEqualTo(Role.SUPER_ADMIN);
+        verify(farmAccessService).requireSuperAdmin();
     }
 
     @Test

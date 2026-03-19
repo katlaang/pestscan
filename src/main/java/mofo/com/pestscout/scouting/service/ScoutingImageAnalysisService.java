@@ -199,6 +199,10 @@ public class ScoutingImageAnalysisService {
 
     private List<ResolvedCandidate> resolveCandidates(ScoutingPhoto photo) {
         List<ScoutingObservation> sessionObservations = observationRepository.findBySessionId(photo.getSession().getId());
+        List<ScoutingObservation> cellObservations = sessionObservations.stream()
+                .filter(observation -> belongsToSameCell(photo, observation))
+                .toList();
+        List<ScoutingObservation> contextualObservations = cellObservations.isEmpty() ? sessionObservations : cellObservations;
         EnumMap<SpeciesCode, CandidateAccumulator> candidates = new EnumMap<>(SpeciesCode.class);
 
         if (photo.getObservation() != null && photo.getObservation().getSpeciesCode() != null) {
@@ -233,7 +237,7 @@ public class ScoutingImageAnalysisService {
             }
         });
 
-        Map<SpeciesCode, Integer> sessionCounts = aggregateCountsBySpecies(sessionObservations);
+        Map<SpeciesCode, Integer> sessionCounts = aggregateCountsBySpecies(contextualObservations);
         int totalSessionCount = sessionCounts.values().stream().mapToInt(Integer::intValue).sum();
         sessionCounts.entrySet().stream()
                 .sorted(Map.Entry.<SpeciesCode, Integer>comparingByValue().reversed())
@@ -246,7 +250,9 @@ public class ScoutingImageAnalysisService {
                             candidates,
                             entry.getKey(),
                             contextualBoost,
-                            "Commonly observed in the same scouting session (" + entry.getValue() + " counts)."
+                            cellObservations.isEmpty()
+                                    ? "Commonly observed in the same scouting session (" + entry.getValue() + " counts)."
+                                    : "Observed in the same scouting cell (" + entry.getValue() + " counts)."
                     );
                 });
 
@@ -264,6 +270,24 @@ public class ScoutingImageAnalysisService {
                 .sorted(Comparator.comparing(ResolvedCandidate::confidence).reversed())
                 .limit(3)
                 .toList();
+    }
+
+    private boolean belongsToSameCell(ScoutingPhoto photo, ScoutingObservation observation) {
+        if (photo.getSessionTarget() == null
+                || photo.getBayIndex() == null
+                || photo.getBenchIndex() == null
+                || photo.getSpotIndex() == null
+                || observation.getSessionTarget() == null
+                || observation.getBayIndex() == null
+                || observation.getBenchIndex() == null
+                || observation.getSpotIndex() == null) {
+            return false;
+        }
+
+        return Objects.equals(photo.getSessionTarget().getId(), observation.getSessionTarget().getId())
+                && Objects.equals(photo.getBayIndex(), observation.getBayIndex())
+                && Objects.equals(photo.getBenchIndex(), observation.getBenchIndex())
+                && Objects.equals(photo.getSpotIndex(), observation.getSpotIndex());
     }
 
     private Map<SpeciesCode, Integer> aggregateCountsBySpecies(List<ScoutingObservation> observations) {

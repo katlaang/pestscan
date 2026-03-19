@@ -191,6 +191,9 @@ public class UserService {
         if (request.getLastName() != null) {
             targetUser.setLastName(request.getLastName());
         }
+        if (request.getPhoneNumber() != null) {
+            targetUser.setPhoneNumber(request.getPhoneNumber());
+        }
         if (request.getCountry() != null) {
             targetUser.setCountry(customerNumberService.normalizeCountryCode(request.getCountry()));
         }

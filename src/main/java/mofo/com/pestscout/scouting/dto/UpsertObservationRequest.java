@@ -6,15 +6,15 @@ import mofo.com.pestscout.scouting.model.SpeciesCode;
 import java.util.UUID;
 
 public record UpsertObservationRequest(
-        @NotNull UUID sessionId,
-        @NotNull UUID sessionTargetId,
+        UUID sessionId,
+        UUID sessionTargetId,
         SpeciesCode speciesCode,
         UUID customSpeciesId,
         @NotNull Integer bayIndex,
         String bayTag,
         @NotNull Integer benchIndex,
         String benchTag,
-        @NotNull Integer spotIndex,
+        Integer spotIndex,
         @NotNull Integer count,
         String notes,
         UUID clientRequestId,

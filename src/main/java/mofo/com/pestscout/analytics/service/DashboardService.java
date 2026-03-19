@@ -2,14 +2,18 @@ package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
+import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
+import mofo.com.pestscout.scouting.model.ScoutingSession;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -47,12 +51,8 @@ public class DashboardService {
                 .mapToInt(s -> s.getRecommendations().size())
                 .sum();
 
-        // ISO week number
-        int weekNumber = today.get(WeekFields.ISO.weekOfWeekBasedYear());
-        int year = today.getYear();
-
-        // Weekly heatmap generated using correct signature
-        var weeklyHeatmap = heatmapService.generateHeatmap(farmId, weekNumber, year);
+        var weeklyHeatmap = resolveDashboardHeatmap(farmId, allSessions, today);
+        int weekNumber = weeklyHeatmap.week();
 
         // Last 30-day trend for default pest
         var trend = trendService.getPestTrend(
@@ -78,6 +78,41 @@ public class DashboardService {
                 )),
                 trend.points()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public HeatmapResponse getDashboardHeatmap(UUID farmId) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
+        return resolveDashboardHeatmap(farmId, sessionRepo.findByFarmId(farmId), LocalDate.now());
+    }
+
+    private HeatmapResponse resolveDashboardHeatmap(UUID farmId, List<ScoutingSession> sessions, LocalDate today) {
+        WeekFields weekFields = WeekFields.ISO;
+        int requestedWeek = today.get(weekFields.weekOfWeekBasedYear());
+        int requestedYear = today.get(weekFields.weekBasedYear());
+
+        HeatmapResponse heatmap = heatmapService.generateHeatmap(farmId, requestedWeek, requestedYear);
+        if (!isEmptyHeatmap(heatmap)) {
+            return heatmap;
+        }
+
+        return sessions.stream()
+                .map(ScoutingSession::getSessionDate)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.reverseOrder())
+                .map(date -> {
+                    int week = date.get(weekFields.weekOfWeekBasedYear());
+                    int year = date.get(weekFields.weekBasedYear());
+                    return heatmapService.generateHeatmap(farmId, week, year);
+                })
+                .filter(candidate -> !isEmptyHeatmap(candidate))
+                .findFirst()
+                .orElse(heatmap);
+    }
+
+    private boolean isEmptyHeatmap(HeatmapResponse heatmap) {
+        return heatmap.cells().isEmpty() && heatmap.sections().isEmpty();
     }
 
     private int countPestsDetected(UUID farmId, LocalDate start, LocalDate end) {

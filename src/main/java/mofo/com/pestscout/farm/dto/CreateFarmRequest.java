@@ -1,5 +1,6 @@
 package mofo.com.pestscout.farm.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -63,7 +64,9 @@ public record CreateFarmRequest(
         // License lifecycle management
         LocalDate licenseExpiryDate,
         Boolean autoRenewEnabled,
+        @JsonDeserialize(using = LatitudeDeserializer.class)
         BigDecimal latitude,
+        @JsonDeserialize(using = LongitudeDeserializer.class)
         BigDecimal longitude,
         List<FarmMemberAssignmentRequest> memberAssignments
 ) {

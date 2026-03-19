@@ -172,6 +172,40 @@ public class AuthService {
         return userService.convertToDto(savedUser);
     }
 
+    @Transactional
+    public UserDto resetUserTemporaryPassword(UUID userId, AdminResetUserPasswordRequest request, UUID requestingUserId) {
+        User requester = userRepository.findById(requestingUserId)
+                .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
+
+        if (requester.getRole() != Role.SUPER_ADMIN) {
+            throw new UnauthorizedException("Only super admins can reset user passwords");
+        }
+
+        User targetUser = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        if (targetUser.isDeleted()
+                || Boolean.TRUE.equals(targetUser.getReactivationRequired())
+                || !Boolean.TRUE.equals(targetUser.getIsEnabled())) {
+            throw new BadRequestException("Disabled or deleted users must be reactivated instead of resetting the password.");
+        }
+
+        String previousClientSessionId = targetUser.getActiveClientSessionId();
+        invalidateExistingTokens(targetUser);
+        passwordPolicyService.validateAndApplyPassword(targetUser, request.temporaryPassword());
+        targetUser.beginTemporaryPasswordWindow(userOnboardingService.calculateTemporaryPasswordExpiry());
+        targetUser.invalidateSessions();
+        targetUser.setActiveClientSessionId(null);
+        targetUser.setActiveSessionStartedAt(null);
+
+        User savedUser = userRepository.save(targetUser);
+        passwordPolicyService.recordPassword(savedUser, request.temporaryPassword());
+        clientSessionEventService.notifySessionReplacedAfterCommit(savedUser.getId(), previousClientSessionId, null);
+
+        log.info("Temporary password reset for {} by {}", savedUser.getEmail(), requester.getEmail());
+        return userService.convertToDto(savedUser);
+    }
+
     @Transactional(readOnly = true)
     public InitialSuperAdminStatusResponse getInitialSuperAdminStatus() {
         boolean exists = userRepository.existsByRoleAndDeletedFalse(Role.SUPER_ADMIN);

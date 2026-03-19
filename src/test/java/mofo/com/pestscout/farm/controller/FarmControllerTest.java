@@ -13,6 +13,7 @@ import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
 import mofo.com.pestscout.farm.service.FarmService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -27,6 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -309,6 +311,105 @@ class FarmControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.subscriptionStatus").value("SUSPENDED"))
                 .andExpect(jsonPath("$.accessLocked").value(true));
+    }
+
+    @Test
+    void createsFarmFromDirectionalCoordinateStrings() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        FarmResponse response = new FarmResponse(
+                farmId,
+                "TAG-COORD",
+                "Directional Farm",
+                "Directional coordinates",
+                "EXT-COORD",
+                "123 Main St",
+                new BigDecimal("-1.292066"),
+                new BigDecimal("-104.0204"),
+                "Nairobi",
+                "Nairobi County",
+                "00100",
+                "Kenya",
+                "Jane Doe",
+                "jane@example.com",
+                "+254700000000",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                BigDecimal.valueOf(1.5),
+                100,
+                BigDecimal.TEN,
+                LocalDate.of(2026, 1, 1),
+                true,
+                false,
+                FarmStructureType.GREENHOUSE,
+                4,
+                10,
+                5,
+                Instant.parse("2024-01-01T00:00:00Z"),
+                Instant.parse("2024-01-02T00:00:00Z"),
+                "Africa/Nairobi",
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+
+        when(farmService.createFarm(any(CreateFarmRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/farms")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Directional Farm",
+                                  "description": "Directional coordinates",
+                                  "address": "123 Main St",
+                                  "city": "Nairobi",
+                                  "province": "Nairobi County",
+                                  "postalCode": "00100",
+                                  "country": "Kenya",
+                                  "contactName": "Jane Doe",
+                                  "contactEmail": "jane@example.com",
+                                  "contactPhone": "+254700000000",
+                                  "subscriptionStatus": "ACTIVE",
+                                  "subscriptionTier": "BASIC",
+                                  "billingEmail": "billing@example.com",
+                                  "licensedAreaHectares": 1.5,
+                                  "structureType": "GREENHOUSE",
+                                  "defaultBayCount": 4,
+                                  "defaultBenchesPerBay": 10,
+                                  "defaultSpotChecksPerBench": 5,
+                                  "greenhouses": [],
+                                  "fieldBlocks": [],
+                                  "timezone": "Africa/Nairobi",
+                                  "licenseExpiryDate": "2026-01-01",
+                                  "autoRenewEnabled": true,
+                                  "latitude": "1.292066° S",
+                                  "longitude": "104.0204° W"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.latitude").value(-1.292066))
+                .andExpect(jsonPath("$.longitude").value(-104.0204))
+                .andExpect(jsonPath("$.latitudeDisplay").value("1.292066° S"))
+                .andExpect(jsonPath("$.longitudeDisplay").value("104.0204° W"));
+
+        ArgumentCaptor<CreateFarmRequest> captor = ArgumentCaptor.forClass(CreateFarmRequest.class);
+        Mockito.verify(farmService).createFarm(captor.capture());
+        assertThat(captor.getValue().latitude()).isEqualByComparingTo("-1.292066");
+        assertThat(captor.getValue().longitude()).isEqualByComparingTo("-104.0204");
+    }
+
+    @Test
+    void rejectsInvalidDirectionalCoordinateStrings() throws Exception {
+        mockMvc.perform(put("/api/farms/{farmId}", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "latitude": "12.34° W"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("latitude only accepts N or S")));
     }
 
     @Test

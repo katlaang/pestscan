@@ -1,0 +1,685 @@
+FRONTEND IMPLEMENTATION INSTRUCTIONS
+CUSTOM PESTS, DISEASES, AND BENEFICIAL INSECTS
+
+PURPOSE
+This document explains exactly how the frontend should implement the new custom:
+- pests
+- diseases
+- beneficial insects
+
+These custom items are farm-specific.
+They are saved in the backend.
+They can be reused in future sessions.
+They can be created during session planning and during scout observation entry.
+
+IMPORTANT USER EXPERIENCE RULE
+Do NOT make the user:
+- type comma-separated values
+- type quotes
+- create an item and then go back to manually select it again
+
+The correct UX is:
+1. User clicks "Other pest" or "Other disease" or "Other beneficial insect"
+2. A modal opens
+3. User adds names one at a time
+4. User clicks Save
+5. Frontend sends the names to backend
+6. Backend returns the created items
+7. Frontend immediately:
+   - adds them to the options list
+   - marks them selected automatically
+8. User continues working without leaving the page
+
+======================================================================
+1. BACKEND ENDPOINTS
+======================================================================
+
+LOAD EXISTING CUSTOM ITEMS
+
+Use these endpoints:
+
+GET /api/farms/{farmId}/custom-species?category=PEST
+GET /api/farms/{farmId}/custom-species?category=DISEASE
+GET /api/farms/{farmId}/custom-species?category=BENEFICIAL
+
+Example response:
+[
+  {
+    "id": "8aa6b6d2-1111-4444-9999-111111111111",
+    "category": "PEST",
+    "name": "Leaf miner",
+    "code": "LEAF_MINER"
+  },
+  {
+    "id": "8aa6b6d2-2222-4444-9999-222222222222",
+    "category": "PEST",
+    "name": "Aphid",
+    "code": "APHID"
+  }
+]
+
+
+CREATE NEW CUSTOM ITEMS
+
+POST /api/farms/{farmId}/custom-species
+
+Request body:
+{
+  "category": "PEST",
+  "names": ["Leaf miner", "Aphid"]
+}
+
+Response body:
+[
+  {
+    "id": "8aa6b6d2-1111-4444-9999-111111111111",
+    "category": "PEST",
+    "name": "Leaf miner",
+    "code": "LEAF_MINER"
+  },
+  {
+    "id": "8aa6b6d2-2222-4444-9999-222222222222",
+    "category": "PEST",
+    "name": "Aphid",
+    "code": "APHID"
+  }
+]
+
+IMPORTANT:
+- The frontend can send one name in the array.
+- The frontend can send multiple names in the array.
+- The user should still enter them one at a time in the UI.
+
+======================================================================
+2. WHAT THE BACKEND RETURNS
+======================================================================
+
+Each custom item now has:
+- id
+- category
+- name
+- code
+
+Meaning:
+- id = internal identifier used when saving the session or observation
+- name = user-friendly display name
+- code = backend-generated code for display/reference only
+
+Examples:
+- "Leaf miner" becomes code "LEAF_MINER"
+- "Powdery mildew plus" becomes code "POWDERY_MILDEW_PLUS"
+
+Important:
+- The frontend should display the name
+- The frontend may also show the code as helper text
+- The frontend should save by id, not by code
+
+======================================================================
+3. REQUIRED FRONTEND STATE
+======================================================================
+
+Recommended types:
+
+type Category = "PEST" | "DISEASE" | "BENEFICIAL";
+
+type CustomSpecies = {
+  id: string;
+  category: Category;
+  name: string;
+  code: string;
+};
+
+type CustomSpeciesByCategory = {
+  PEST: CustomSpecies[];
+  DISEASE: CustomSpecies[];
+  BENEFICIAL: CustomSpecies[];
+};
+
+type CustomSpeciesModalState = {
+  open: boolean;
+  category: Category | null;
+  inputValue: string;
+  pendingNames: string[];
+  saving: boolean;
+  errorMessage: string | null;
+};
+
+For session planning:
+
+type SessionPlannerState = {
+  surveySpeciesCodes: string[];
+  customSurveySpeciesIds: string[];
+};
+
+For observation entry:
+
+type CurrentSpeciesSelection =
+  | { type: "built_in"; speciesCode: string }
+  | { type: "custom"; customSpeciesId: string };
+
+======================================================================
+4. INITIAL DATA LOADING
+======================================================================
+
+When the user opens:
+- session creation
+- session edit
+- scout observation entry
+
+Frontend should load custom species for the farm.
+
+Recommended:
+1. Load pests
+2. Load diseases
+3. Load beneficials
+
+Store them in:
+- customSpeciesByCategory.PEST
+- customSpeciesByCategory.DISEASE
+- customSpeciesByCategory.BENEFICIAL
+
+The built-in list and the custom list should both be available in the same page.
+
+======================================================================
+5. HOW THE MODAL SHOULD WORK
+======================================================================
+
+This modal should be reusable.
+
+Open it when the user clicks:
+- Other pest
+- Other disease
+- Other beneficial insect
+
+Modal contents:
+- title
+- one text input
+- Add button
+- list of pending items already typed
+- Save button
+- Cancel button
+
+USER FLOW
+
+Step 1:
+User types one name in the input.
+Example:
+Leaf miner
+
+Step 2:
+User clicks Add.
+
+Step 3:
+Frontend validates the input.
+
+Step 4:
+If valid, frontend adds it to pendingNames and clears the input.
+
+Step 5:
+User may add another one.
+
+Step 6:
+When done, user clicks Save.
+
+Step 7:
+Frontend sends all pendingNames to backend.
+
+Step 8:
+On success, frontend merges returned items into local options and auto-selects them.
+
+IMPORTANT:
+The user should never type:
+- commas
+- quotes
+- JSON
+
+Each name is entered one at a time in the UI.
+
+======================================================================
+6. INPUT NORMALIZATION RULES IN FRONTEND
+======================================================================
+
+Before adding a typed name to pendingNames:
+
+1. Trim leading and trailing spaces
+2. Collapse repeated spaces to a single space
+3. Reject blank values
+4. Reject duplicates already in pendingNames
+
+Suggested duplicate comparison logic:
+- lowercase
+- treat spaces, hyphens, and underscores as equivalent separators
+
+Meaning these should count as duplicates in the modal:
+- Leaf miner
+- leaf-miner
+- leaf_miner
+
+But do NOT change the display name shown to the user.
+
+Keep:
+- "Leaf miner"
+
+Do NOT convert it in the frontend to:
+- "Leaf_miner"
+- "Leaf-miner"
+
+The backend generates the code automatically.
+
+======================================================================
+7. MODAL SAVE REQUEST
+======================================================================
+
+When user clicks Save in the modal:
+
+POST /api/farms/{farmId}/custom-species
+
+Example request for one item:
+{
+  "category": "PEST",
+  "names": ["Leaf miner"]
+}
+
+Example request for multiple items collected one-by-one in the modal:
+{
+  "category": "PEST",
+  "names": ["Leaf miner", "Aphid", "Two spotted mite"]
+}
+
+If save succeeds:
+- merge returned items into customSpeciesByCategory[category]
+- auto-select them in the current screen
+- close modal
+- clear modal state
+
+If save fails:
+- keep modal open
+- keep pendingNames
+- show the error message
+
+======================================================================
+8. SESSION PLANNING SCREEN BEHAVIOR
+======================================================================
+
+In the planner, there are two kinds of species:
+
+1. built-in species
+2. custom saved species
+
+BUILT-IN species go in:
+- surveySpeciesCodes
+
+CUSTOM species go in:
+- customSurveySpeciesIds
+
+Important rule:
+If the planner wants scouts to use custom pests or diseases or beneficial insects,
+the corresponding built-in OTHER item must remain selected too.
+
+Mapping:
+- PEST -> PEST_OTHER
+- DISEASE -> DISEASE_OTHER
+- BENEFICIAL -> BENEFICIAL_OTHER
+
+Example session payload:
+{
+  "surveySpeciesCodes": [
+    "THRIPS",
+    "PEST_OTHER",
+    "DISEASE_OTHER",
+    "BENEFICIAL_OTHER"
+  ],
+  "customSurveySpeciesIds": [
+    "8aa6b6d2-1111-4444-9999-111111111111",
+    "8aa6b6d2-2222-4444-9999-222222222222"
+  ]
+}
+
+WHAT TO DO AFTER THE MODAL CREATES NEW CUSTOM ITEMS
+
+If the modal was opened from session planning:
+
+1. Merge returned items into the options list
+2. Add each returned id to customSurveySpeciesIds
+3. Ensure matching OTHER built-in code is in surveySpeciesCodes
+4. Show these new items as selected immediately
+
+The user should NOT need to:
+- reopen the picker
+- search again
+- manually select the newly created item
+
+======================================================================
+9. OBSERVATION ENTRY SCREEN BEHAVIOR
+======================================================================
+
+In the observation screen, the user usually chooses one current species at a time.
+
+There are two valid save modes:
+
+BUILT-IN save:
+{
+  "speciesCode": "THRIPS"
+}
+
+CUSTOM save:
+{
+  "customSpeciesId": "8aa6b6d2-1111-4444-9999-111111111111"
+}
+
+Do NOT send both at the same time.
+
+Important rule:
+Do NOT save the observation as:
+- PEST_OTHER
+- DISEASE_OTHER
+- BENEFICIAL_OTHER
+
+Those built-in OTHER values are only there to allow custom category usage in the session.
+
+The actual saved observation must use the returned customSpeciesId.
+
+FULL CUSTOM OBSERVATION EXAMPLE
+
+{
+  "sessionId": "session-uuid",
+  "sessionTargetId": "target-uuid",
+  "customSpeciesId": "8aa6b6d2-1111-4444-9999-111111111111",
+  "bayIndex": 1,
+  "bayTag": "Bay-1",
+  "benchIndex": 1,
+  "benchTag": "Bed-1",
+  "spotIndex": 1,
+  "count": 3,
+  "notes": "Observed on lower leaves"
+}
+
+WHAT TO DO AFTER THE MODAL CREATES NEW CUSTOM ITEMS
+
+If the modal was opened from observation entry:
+
+1. Merge returned items into the options list for that category
+2. Automatically set the current selection to the newly created item
+3. Keep user on the same screen
+4. Let the user continue entering count, notes, photo, etc.
+
+Recommended behavior:
+- if user created multiple items in one modal save, auto-select the last one added
+
+======================================================================
+10. HOW TO DISPLAY OPTIONS
+======================================================================
+
+For each custom item:
+- show the name prominently
+- optionally show the code in smaller text
+
+Example UI:
+- Leaf miner
+  LEAF_MINER
+
+or inline:
+- Leaf miner (LEAF_MINER)
+
+Use:
+- id for saving
+- name for labels
+- code for display/reference only
+
+======================================================================
+11. RECOMMENDED COMPONENT STRUCTURE
+======================================================================
+
+Recommended reusable components:
+
+1. CustomSpeciesModal
+Props:
+- farmId
+- category
+- open
+- onClose
+- onCreated(createdItems)
+
+2. BuiltInAndCustomSpeciesSelector
+Props:
+- builtInOptions
+- customOptions
+- selectedBuiltInCodes
+- selectedCustomIds
+- onBuiltInChange
+- onCustomChange
+- onOpenCustomModal
+
+3. ObservationSpeciesPicker
+Props:
+- builtInOptions
+- customOptions
+- currentSelection
+- onChange
+- onOpenCustomModal
+
+======================================================================
+12. EXACT FRONTEND FLOW FOR SESSION PLANNING
+======================================================================
+
+Step-by-step:
+
+1. Page loads
+2. Load built-in pests/diseases/beneficials
+3. Load custom pests/diseases/beneficials for the farm
+4. Render built-in options
+5. Render custom options below them
+6. User clicks "Other pest"
+7. Open modal with category PEST
+8. User types "Leaf miner"
+9. User clicks Add
+10. Frontend stores "Leaf miner" in pendingNames
+11. User clicks Save
+12. Frontend posts:
+    {
+      "category": "PEST",
+      "names": ["Leaf miner"]
+    }
+13. Backend returns:
+    [
+      {
+        "id": "uuid",
+        "category": "PEST",
+        "name": "Leaf miner",
+        "code": "LEAF_MINER"
+      }
+    ]
+14. Frontend merges that into custom pest options
+15. Frontend adds returned id to customSurveySpeciesIds
+16. Frontend ensures surveySpeciesCodes contains PEST_OTHER
+17. Frontend marks this new custom pest selected immediately
+18. Frontend closes the modal
+
+======================================================================
+13. EXACT FRONTEND FLOW FOR OBSERVATION ENTRY
+======================================================================
+
+Step-by-step:
+
+1. Observation screen loads
+2. Load built-in options
+3. Load custom options for the farm
+4. User clicks "Other disease"
+5. Modal opens with category DISEASE
+6. User types "Stem rot"
+7. User clicks Add
+8. Frontend stores "Stem rot" in pendingNames
+9. User clicks Save
+10. Frontend posts:
+    {
+      "category": "DISEASE",
+      "names": ["Stem rot"]
+    }
+11. Backend returns:
+    [
+      {
+        "id": "uuid",
+        "category": "DISEASE",
+        "name": "Stem rot",
+        "code": "STEM_ROT"
+      }
+    ]
+12. Frontend merges that into custom disease options
+13. Frontend immediately sets current selection to:
+    {
+      type: "custom",
+      customSpeciesId: "uuid"
+    }
+14. User enters count and notes
+15. Frontend saves observation using customSpeciesId
+
+======================================================================
+14. RECOMMENDED FRONTEND HELPERS
+======================================================================
+
+Suggested helper functions:
+
+normalizeDisplayName(value)
+- trim
+- collapse repeated spaces
+
+duplicateKey(value)
+- lowercase
+- replace spaces, hyphens, underscores with one separator
+
+dedupeById(items)
+- remove duplicates by id after merge
+
+ensureOtherCode(selectedCodes, category)
+- add PEST_OTHER / DISEASE_OTHER / BENEFICIAL_OTHER if missing
+
+mergeCreatedCustomSpecies(existing, created)
+- merge returned items into current options
+
+======================================================================
+15. SAMPLE REACT-LIKE PSEUDOCODE
+======================================================================
+
+LOAD
+
+async function loadCustomSpecies(farmId) {
+  const [pests, diseases, beneficials] = await Promise.all([
+    fetchJson(`/api/farms/${farmId}/custom-species?category=PEST`),
+    fetchJson(`/api/farms/${farmId}/custom-species?category=DISEASE`),
+    fetchJson(`/api/farms/${farmId}/custom-species?category=BENEFICIAL`)
+  ]);
+
+  setCustomSpeciesByCategory({
+    PEST: pests,
+    DISEASE: diseases,
+    BENEFICIAL: beneficials
+  });
+}
+
+ADD TO MODAL LIST
+
+function onAddPendingName() {
+  const cleaned = normalizeDisplayName(modal.inputValue);
+  if (!cleaned) return;
+
+  const exists = modal.pendingNames.some(name => duplicateKey(name) === duplicateKey(cleaned));
+  if (exists) return;
+
+  setModal(prev => ({
+    ...prev,
+    pendingNames: [...prev.pendingNames, cleaned],
+    inputValue: ""
+  }));
+}
+
+SAVE MODAL
+
+async function saveCustomSpeciesFromModal() {
+  if (!modal.category || modal.pendingNames.length === 0) return;
+
+  setModal(prev => ({ ...prev, saving: true, errorMessage: null }));
+
+  try {
+    const created = await fetchJson(`/api/farms/${farmId}/custom-species`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: modal.category,
+        names: modal.pendingNames
+      })
+    });
+
+    mergeCreatedIntoLocalCache(modal.category, created);
+
+    if (context === "planner") {
+      applyCreatedToPlanner(modal.category, created);
+    }
+
+    if (context === "observation") {
+      applyCreatedToObservation(modal.category, created);
+    }
+
+    closeModal();
+  } catch (error) {
+    setModal(prev => ({
+      ...prev,
+      saving: false,
+      errorMessage: "Could not save custom items."
+    }));
+  }
+}
+
+PLANNER APPLY
+
+function applyCreatedToPlanner(category, created) {
+  setPlannerState(prev => ({
+    surveySpeciesCodes: ensureOtherCode(prev.surveySpeciesCodes, category),
+    customSurveySpeciesIds: dedupeIds([
+      ...prev.customSurveySpeciesIds,
+      ...created.map(item => item.id)
+    ])
+  }));
+}
+
+OBSERVATION APPLY
+
+function applyCreatedToObservation(category, created) {
+  const newest = created[created.length - 1];
+  setCurrentSelection({
+    type: "custom",
+    customSpeciesId: newest.id
+  });
+}
+
+======================================================================
+16. WHAT THE FRONTEND MUST NOT DO
+======================================================================
+
+Do NOT:
+- ask the user to type comma-separated pests or diseases
+- ask the user to type JSON
+- save an observation using PEST_OTHER or DISEASE_OTHER as the real observation species
+- require the user to reopen the selector after creating a custom item
+- save by code instead of id
+
+======================================================================
+17. FINAL CHECKLIST
+======================================================================
+
+Frontend is complete only if all of these are true:
+
+[ ] Existing custom pests load when screen opens
+[ ] Existing custom diseases load when screen opens
+[ ] Existing custom beneficial insects load when screen opens
+[ ] Clicking Other opens a modal
+[ ] Modal allows entering one name at a time
+[ ] Modal can collect multiple names
+[ ] Save sends names array to backend
+[ ] Returned custom items are merged into current options
+[ ] Newly created custom items are auto-selected immediately
+[ ] Planner stores them in customSurveySpeciesIds
+[ ] Planner keeps PEST_OTHER / DISEASE_OTHER / BENEFICIAL_OTHER selected
+[ ] Observation screen saves customSpeciesId for custom items
+[ ] UI shows name and can optionally show code
+
+END OF INSTRUCTIONS

@@ -279,6 +279,34 @@ class AuthControllerTest {
     }
 
     @Test
+    @WithMockUser
+    @DisplayName("POST /api/auth/users/{userId}/temporary-password resets a user password with a temporary password")
+    void resetUserTemporaryPassword_WithAuthenticatedSuperAdmin_ReturnsOk() throws Exception {
+        UUID targetUserId = UUID.randomUUID();
+        AdminResetUserPasswordRequest request = new AdminResetUserPasswordRequest("TempPass123");
+
+        UserDto updatedUser = UserDto.builder()
+                .id(targetUserId)
+                .email("target@example.com")
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .build();
+
+        when(authService.resetUserTemporaryPassword(any(UUID.class), any(AdminResetUserPasswordRequest.class), any(UUID.class)))
+                .thenReturn(updatedUser);
+
+        mockMvc.perform(post("/api/auth/users/{userId}/temporary-password", targetUserId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("target@example.com"))
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true));
+    }
+
+    @Test
     @DisplayName("POST /api/auth/reset-password accepts compatibility payload")
     void resetPassword_WithCompatibilityPayload_ReturnsNoContent() throws Exception {
         mockMvc.perform(post("/api/auth/reset-password")
@@ -359,6 +387,37 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(userDto.getEmail()))
                 .andExpect(jsonPath("$.role").value(userDto.getRole().name()));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /api/auth/me updates the authenticated user's profile")
+    void updateCurrentUser_WithValidData_ReturnsUpdatedUser() throws Exception {
+        UpdateUserRequest updateRequest = UpdateUserRequest.builder()
+                .firstName("Updated")
+                .phoneNumber("5551234")
+                .build();
+
+        UserDto updatedUser = UserDto.builder()
+                .id(userId)
+                .email(userDto.getEmail())
+                .firstName("Updated")
+                .phoneNumber("5551234")
+                .role(userDto.getRole())
+                .isEnabled(true)
+                .build();
+
+        when(userService.updateUser(eq(userId), any(UpdateUserRequest.class), eq(userId)))
+                .thenReturn(updatedUser);
+
+        mockMvc.perform(put("/api/auth/me")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest))
+                        .requestAttr("userId", userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("Updated"))
+                .andExpect(jsonPath("$.phoneNumber").value("5551234"));
     }
 
     @Test

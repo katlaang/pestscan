@@ -365,6 +365,63 @@ class ScoutingSessionControllerTest {
     }
 
     @Test
+    void updatesObservation() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID observationId = UUID.randomUUID();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                sessionId,
+                UUID.randomUUID(),
+                null,
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                8,
+                "Edited value",
+                UUID.randomUUID(),
+                1L
+        );
+
+        ScoutingObservationDto observation = new ScoutingObservationDto(
+                observationId,
+                2L,
+                sessionId,
+                request.sessionTargetId(),
+                UUID.randomUUID(),
+                null,
+                mofo.com.pestscout.scouting.model.SpeciesCode.THRIPS,
+                null,
+                "Thrips",
+                "CODE:THRIPS",
+                mofo.com.pestscout.scouting.model.ObservationCategory.PEST,
+                request.bayIndex(),
+                request.bayTag(),
+                request.benchIndex(),
+                request.benchTag(),
+                request.spotIndex(),
+                request.count(),
+                request.notes(),
+                LocalDateTime.now(),
+                SyncStatus.PENDING_UPLOAD,
+                false,
+                null,
+                request.clientRequestId()
+        );
+
+        when(sessionService.updateObservation(sessionId, observationId, request)).thenReturn(observation);
+
+        mockMvc.perform(put("/api/scouting/sessions/{sessionId}/observations/{observationId}", sessionId, observationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(observationId.toString()))
+                .andExpect(jsonPath("$.count").value(8))
+                .andExpect(jsonPath("$.notes").value("Edited value"));
+    }
+
+    @Test
     void downloadsSessionReportCsv() throws Exception {
         UUID sessionId = UUID.randomUUID();
         byte[] content = "session_id,status\n123,COMPLETED\n".getBytes();

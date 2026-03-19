@@ -44,6 +44,7 @@ public class ScoutingSessionService {
 
     private final ScoutingSessionRepository sessionRepository;
     private final ScoutingObservationRepository observationRepository;
+    private final ScoutingObservationDraftRepository observationDraftRepository;
     private final ScoutingSessionTargetRepository sessionTargetRepository;
     private final SessionAuditEventRepository auditEventRepository;
     private final FarmRepository farmRepository;
@@ -134,6 +135,10 @@ public class ScoutingSessionService {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
+        if (farmAccessService.getCurrentUserRole() == Role.SCOUT) {
+            return updateSessionAsScout(session, request);
+        }
+
         farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
         ensureSessionEditableForMetadata(session);
 
@@ -210,6 +215,38 @@ public class ScoutingSessionService {
         sessionAuditService.record(saved, SessionAuditAction.SESSION_EDITED, request.comment(),
                 request.deviceId(), request.deviceType(), request.location(), request.actorName());
         cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
+        return mapToDetailDto(saved);
+    }
+
+    private ScoutingSessionDetailDto updateSessionAsScout(ScoutingSession session, UpdateScoutingSessionRequest request) {
+        enforceSessionVisibility(session);
+        enforceScoutOwnsSession(session);
+        ensureScoutCanEdit(session);
+        assertScoutOnlyRuntimeChanges(request);
+        assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
+
+        if (request.temperatureCelsius() != null) {
+            session.setTemperatureCelsius(request.temperatureCelsius());
+        }
+        if (request.relativeHumidityPercent() != null) {
+            session.setRelativeHumidityPercent(request.relativeHumidityPercent());
+        }
+        if (request.observationTime() != null) {
+            session.setObservationTime(request.observationTime());
+        }
+        if (request.weatherNotes() != null) {
+            session.setWeatherNotes(request.weatherNotes());
+        }
+        if (request.notes() != null) {
+            session.setNotes(request.notes());
+        }
+
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        ScoutingSession saved = sessionRepository.save(session);
+        log.info("Updated scouting session {} runtime fields as scout", saved.getId());
+        sessionAuditService.record(saved, SessionAuditAction.SESSION_EDITED, request.comment(),
+                request.deviceId(), request.deviceType(), request.location(), request.actorName());
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), session.getId());
         return mapToDetailDto(saved);
     }
 
@@ -406,6 +443,7 @@ public class ScoutingSessionService {
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
+        promoteDraftObservationsToCommitted(session);
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.COMPLETED, role);
         session.markCompleted(true);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
@@ -433,6 +471,7 @@ public class ScoutingSessionService {
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.REOPENED, farmAccessService.getCurrentUserRole());
         session.markReopened(request != null ? request.comment() : null);
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        seedDraftObservationsFromCommitted(session);
 
         ScoutingSession saved = sessionRepository.save(session);
         sessionAuditService.record(saved, SessionAuditAction.SESSION_REOPENED,
@@ -457,12 +496,97 @@ public class ScoutingSessionService {
         requireScoutRole("Only the assigned scout can record scouting observations.");
         enforceScoutOwnsSession(session);
         ensureScoutCanEdit(session);
-        return upsertObservationInternal(session, request);
+        ScoutingObservationDto observation = upsertObservationInternal(session, request);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
+        return observation;
+    }
+
+    @Transactional
+    public ScoutingObservationDto updateObservation(UUID sessionId, UUID observationId, UpsertObservationRequest request) {
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
+
+        requireScoutRole("Only the assigned scout can record scouting observations.");
+        enforceScoutOwnsSession(session);
+        ensureScoutCanEdit(session);
+        ensureSessionEditableForObservations(session);
+        ensureDraftWorkspaceInitialized(session);
+
+        ScoutingObservationDraft observation = observationDraftRepository.findByIdAndSessionId(observationId, sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservationDraft", "id", observationId));
+
+        UUID clientRequestId = request.clientRequestId();
+        if (clientRequestId != null) {
+            Optional<ScoutingObservationDraft> existingByKey = observationDraftRepository.findByClientRequestId(clientRequestId);
+            if (existingByKey.isPresent() && !Objects.equals(existingByKey.get().getId(), observationId)) {
+                throw new ConflictException("Idempotency key already used for another observation");
+            }
+        }
+
+        if (observation.isDeleted()) {
+            observation.restore();
+        } else {
+            assertNotStale(request.version(), observation.getVersion(), "Observation");
+        }
+
+        ScoutingSessionTarget target = request.sessionTargetId() != null
+                ? resolveObservationTarget(session, request)
+                : observation.getSessionTarget();
+        int spotIndex = request.spotIndex() != null
+                ? request.spotIndex()
+                : Optional.ofNullable(observation.getSpotIndex()).orElse(1);
+        ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request, observation);
+        String bayTag = request.bayTag() != null ? request.bayTag() : observation.getBayLabel();
+        String benchTag = request.benchTag() != null ? request.benchTag() : observation.getBenchLabel();
+
+        assertTargetSelectionsAllowCell(target, bayTag, benchTag);
+        assertSpeciesAllowed(session, resolvedSpecies);
+
+        ScoutingObservationDraft conflictingObservation = observationDraftRepository
+                .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                        session.getId(),
+                        target.getId(),
+                        request.bayIndex(),
+                        request.benchIndex(),
+                        spotIndex,
+                        resolvedSpecies.identifier()
+                )
+                .orElse(null);
+
+        ScoutingObservationDraft observationToSave = observation;
+        if (conflictingObservation != null && !Objects.equals(conflictingObservation.getId(), observation.getId())) {
+            if (conflictingObservation.isDeleted()) {
+                conflictingObservation.restore();
+            }
+            observation.markDeleted();
+            observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+            observationDraftRepository.save(observation);
+            observationToSave = conflictingObservation;
+        }
+
+        applyObservationDraftValues(
+                observationToSave,
+                session,
+                target,
+                resolvedSpecies,
+                request.bayIndex(),
+                bayTag,
+                request.benchIndex(),
+                benchTag,
+                spotIndex,
+                request.count(),
+                request.notes(),
+                clientRequestId
+        );
+
+        ScoutingObservationDraft saved = observationDraftRepository.save(observationToSave);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), sessionId);
+        return mapToObservationDto(saved);
     }
 
     @Transactional
     public List<ScoutingObservationDto> bulkUpsertObservations(UUID sessionId, BulkUpsertObservationsRequest request) {
-        if (!sessionId.equals(request.sessionId())) {
+        if (request.sessionId() != null && !sessionId.equals(request.sessionId())) {
             throw new BadRequestException("Bulk payload does not match session.");
         }
 
@@ -484,46 +608,47 @@ public class ScoutingSessionService {
 
     private ScoutingObservationDto upsertObservationInternal(ScoutingSession session,
                                                              UpsertObservationRequest request) {
+        assertObservationSessionMatches(session.getId(), request);
+        ensureDraftWorkspaceInitialized(session);
 
         UUID clientRequestId = request.clientRequestId();
         if (clientRequestId != null) {
-            Optional<ScoutingObservation> existingByKey =
-                    observationRepository.findByClientRequestId(clientRequestId);
+            Optional<ScoutingObservationDraft> existingByKey =
+                    observationDraftRepository.findByClientRequestId(clientRequestId);
 
             if (existingByKey.isPresent()) {
-                ScoutingObservation obs = existingByKey.get();
+                ScoutingObservationDraft obs = existingByKey.get();
 
                 if (!obs.getSession().getId().equals(session.getId())) {
                     throw new ConflictException("Idempotency key already used for another session");
                 }
 
                 // Same session, idempotent replay
-                return mapToObservationDto(obs, false);
+                return mapToObservationDto(obs);
             }
         }
 
-        ScoutingSessionTarget target = sessionTargetRepository
-                .findByIdAndSessionId(request.sessionTargetId(), session.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Session target not found"));
+        ScoutingSessionTarget target = resolveObservationTarget(session, request);
+        int spotIndex = resolveSpotIndex(request);
 
         ensureSessionEditableForObservations(session);
         assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
         ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request);
         assertSpeciesAllowed(session, resolvedSpecies);
 
-        ScoutingObservation observation = observationRepository
+        ScoutingObservationDraft observation = observationDraftRepository
                 .findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
                         session.getId(),
                         target.getId(),
                         request.bayIndex(),
                         request.benchIndex(),
-                        request.spotIndex(),
+                        spotIndex,
                         resolvedSpecies.identifier()
                 )
                 .orElse(null);
 
         if (observation == null) {
-            observation = ScoutingObservation.builder()
+            observation = ScoutingObservationDraft.builder()
                     .session(session)
                     .sessionTarget(target)
                     .speciesCode(resolvedSpecies.speciesCode())
@@ -533,28 +658,37 @@ public class ScoutingSessionService {
                     .bayLabel(request.bayTag())
                     .benchIndex(request.benchIndex())
                     .benchLabel(request.benchTag())
-                    .spotIndex(request.spotIndex())
+                    .spotIndex(spotIndex)
                     .build();
-            session.addObservation(observation);
         } else {
-            Long requestVersion = request.version();
-            Long currentVersion = observation.getVersion();
-            if (requestVersion != null && !requestVersion.equals(currentVersion)) {
-                throw new ConflictException("Observation has changed on the server");
+            if (observation.isDeleted()) {
+                observation.restore();
+            } else {
+                Long requestVersion = request.version();
+                Long currentVersion = observation.getVersion();
+                if (requestVersion != null && !requestVersion.equals(currentVersion)) {
+                    throw new ConflictException("Observation has changed on the server");
+                }
             }
         }
 
-        observation.setSpeciesCode(resolvedSpecies.speciesCode());
-        observation.setCustomSpecies(resolvedSpecies.customSpecies());
-        observation.setSpeciesIdentifier(resolvedSpecies.identifier());
-        observation.setCount(request.count());
-        observation.setNotes(request.notes());
-        observation.setClientRequestId(clientRequestId);
-        observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
-        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        applyObservationDraftValues(
+                observation,
+                session,
+                target,
+                resolvedSpecies,
+                request.bayIndex(),
+                request.bayTag(),
+                request.benchIndex(),
+                request.benchTag(),
+                spotIndex,
+                request.count(),
+                request.notes(),
+                clientRequestId
+        );
 
-        ScoutingObservation saved = observationRepository.save(observation);
-        return mapToObservationDto(saved, false);
+        ScoutingObservationDraft saved = observationDraftRepository.save(observation);
+        return mapToObservationDto(saved);
     }
 
 
@@ -563,19 +697,26 @@ public class ScoutingSessionService {
      */
     @Transactional
     public void deleteObservation(UUID sessionId, UUID observationId) {
-        ScoutingObservation observation = observationRepository
-                .findByIdAndSessionId(observationId, sessionId)
-                .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservation", "id", observationId));
+        ScoutingSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         requireScoutRole("Only the assigned scout can record scouting observations.");
-        enforceScoutOwnsSession(observation.getSession());
-        ensureScoutCanEdit(observation.getSession());
-        ensureSessionEditableForObservations(observation.getSession());
+        enforceScoutOwnsSession(session);
+        ensureScoutCanEdit(session);
+        ensureSessionEditableForObservations(session);
+        ensureDraftWorkspaceInitialized(session);
+
+        ScoutingObservationDraft observation = observationDraftRepository
+                .findByIdAndSessionId(observationId, sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("ScoutingObservationDraft", "id", observationId));
+
         observation.markDeleted();
         observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
-        observation.getSession().setSyncStatus(SyncStatus.PENDING_UPLOAD);
-        observationRepository.save(observation);
-        cacheService.evictSessionCachesAfterCommit(observation.getSession().getFarm().getId(), observation.getSession().getId());
+        observationDraftRepository.save(observation);
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        session.setUpdatedAt(LocalDateTime.now());
+        sessionRepository.save(session);
+        cacheService.evictSessionCachesAfterCommit(session.getFarm().getId(), session.getId());
     }
 
     /**
@@ -665,9 +806,9 @@ public class ScoutingSessionService {
                     .map(ScoutingSession::getId)
                     .toList();
 
-            List<ScoutingObservation> changedObservations = farmSessionIds.isEmpty()
+            List<ScoutingObservationDraft> changedObservations = farmSessionIds.isEmpty()
                     ? List.of()
-                    : observationRepository.findBySessionIdInAndUpdatedAtAfter(farmSessionIds, since);
+                    : observationDraftRepository.findBySessionIdInAndUpdatedAtAfter(farmSessionIds, since);
 
             Set<UUID> touchedSessionIds = new HashSet<>();
             updatedSessions.forEach(session -> touchedSessionIds.add(session.getId()));
@@ -727,9 +868,10 @@ public class ScoutingSessionService {
 
     @Transactional(readOnly = true)
     public List<ScoutingSessionAuditDto> listAuditTrail(UUID sessionId) {
+        farmAccessService.requireSuperAdmin();
+
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
-        enforceSessionOpenAccess(session);
 
         return auditEventRepository.findBySessionIdOrderByOccurredAtAsc(sessionId).stream()
                 .map(event -> new ScoutingSessionAuditDto(
@@ -780,6 +922,21 @@ public class ScoutingSessionService {
                 || session.getStatus() == SessionStatus.SUBMITTED
                 || session.getStatus() == SessionStatus.INCOMPLETE) {
             throw new BadRequestException("Locked sessions must be reopened before editing.");
+        }
+    }
+
+    private void assertScoutOnlyRuntimeChanges(UpdateScoutingSessionRequest request) {
+        if (request.sessionDate() != null
+                || request.weekNumber() != null
+                || request.targets() != null
+                || request.scoutId() != null
+                || request.crop() != null
+                || request.variety() != null
+                || request.surveySpeciesCodes() != null
+                || request.customSurveySpeciesIds() != null
+                || request.defaultPhotoSourceType() != null
+                || request.status() != null) {
+            throw new BadRequestException("Scouts can only update weather, observation time, and session notes.");
         }
     }
 
@@ -917,6 +1074,141 @@ public class ScoutingSessionService {
         if (!Objects.equals(requestedVersion, currentVersion)) {
             throw new ConflictException(entityName + " has changed on the server. Please sync and retry.");
         }
+    }
+
+    private void ensureDraftWorkspaceInitialized(ScoutingSession session) {
+        if (session.getStatus() == SessionStatus.COMPLETED || session.getStatus() == SessionStatus.CANCELLED) {
+            return;
+        }
+        if (observationDraftRepository.existsBySessionId(session.getId())) {
+            return;
+        }
+        if (session.getObservations() == null || session.getObservations().isEmpty()) {
+            return;
+        }
+
+        seedDraftObservationsFromCommitted(session);
+    }
+
+    private void seedDraftObservationsFromCommitted(ScoutingSession session) {
+        observationDraftRepository.deleteBySessionId(session.getId());
+
+        if (session.getObservations() == null || session.getObservations().isEmpty()) {
+            return;
+        }
+
+        List<ScoutingObservationDraft> drafts = session.getObservations().stream()
+                .filter(observation -> !observation.isDeleted())
+                .map(observation -> ScoutingObservationDraft.builder()
+                        .session(session)
+                        .sessionTarget(observation.getSessionTarget())
+                        .speciesCode(observation.getSpeciesCode())
+                        .customSpecies(observation.getCustomSpecies())
+                        .speciesIdentifier(observation.resolveSpeciesIdentifier())
+                        .bayIndex(observation.getBayIndex())
+                        .bayLabel(observation.getBayLabel())
+                        .benchIndex(observation.getBenchIndex())
+                        .benchLabel(observation.getBenchLabel())
+                        .spotIndex(observation.getSpotIndex())
+                        .count(observation.getCount())
+                        .notes(observation.getNotes())
+                        .clientRequestId(observation.getClientRequestId())
+                        .syncStatus(SyncStatus.PENDING_UPLOAD)
+                        .build())
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        if (!drafts.isEmpty()) {
+            observationDraftRepository.saveAll(drafts);
+        }
+    }
+
+    private void promoteDraftObservationsToCommitted(ScoutingSession session) {
+        List<ScoutingObservationDraft> drafts = observationDraftRepository.findBySessionId(session.getId()).stream()
+                .filter(draft -> !draft.isDeleted())
+                .toList();
+
+        if (session.getObservations() != null && !session.getObservations().isEmpty()) {
+            List<ScoutingObservation> existingObservations = new ArrayList<>(session.getObservations());
+            existingObservations.forEach(session::removeObservation);
+            observationRepository.flush();
+        }
+
+        drafts.forEach(draft -> session.addObservation(
+                ScoutingObservation.builder()
+                        .session(session)
+                        .sessionTarget(draft.getSessionTarget())
+                        .speciesCode(draft.getSpeciesCode())
+                        .customSpecies(draft.getCustomSpecies())
+                        .speciesIdentifier(draft.resolveSpeciesIdentifier())
+                        .bayIndex(draft.getBayIndex())
+                        .bayLabel(draft.getBayLabel())
+                        .benchIndex(draft.getBenchIndex())
+                        .benchLabel(draft.getBenchLabel())
+                        .spotIndex(draft.getSpotIndex())
+                        .count(draft.getCount())
+                        .notes(draft.getNotes())
+                        .clientRequestId(draft.getClientRequestId())
+                        .syncStatus(SyncStatus.PENDING_UPLOAD)
+                        .build()
+        ));
+
+        observationDraftRepository.deleteBySessionId(session.getId());
+    }
+
+    private void assertObservationSessionMatches(UUID sessionId, UpsertObservationRequest request) {
+        if (request.sessionId() != null && !sessionId.equals(request.sessionId())) {
+            throw new BadRequestException("Observation payload does not match session.");
+        }
+    }
+
+    private ScoutingSessionTarget resolveObservationTarget(ScoutingSession session, UpsertObservationRequest request) {
+        if (request.sessionTargetId() != null) {
+            return sessionTargetRepository.findByIdAndSessionId(request.sessionTargetId(), session.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Session target not found"));
+        }
+
+        if (session.getTargets() != null && session.getTargets().size() == 1) {
+            return session.getTargets().getFirst();
+        }
+
+        throw new BadRequestException("sessionTargetId is required when the scouting session has multiple sections.");
+    }
+
+    private int resolveSpotIndex(UpsertObservationRequest request) {
+        return request.spotIndex() != null ? request.spotIndex() : 1;
+    }
+
+    private void applyObservationDraftValues(ScoutingObservationDraft observation,
+                                             ScoutingSession session,
+                                             ScoutingSessionTarget target,
+                                             ResolvedObservationSpecies resolvedSpecies,
+                                             Integer bayIndex,
+                                             String bayTag,
+                                             Integer benchIndex,
+                                             String benchTag,
+                                             Integer spotIndex,
+                                             Integer count,
+                                             String notes,
+                                             UUID clientRequestId) {
+        observation.setSession(session);
+        observation.setSessionTarget(target);
+        observation.setSpeciesCode(resolvedSpecies.speciesCode());
+        observation.setCustomSpecies(resolvedSpecies.customSpecies());
+        observation.setSpeciesIdentifier(resolvedSpecies.identifier());
+        observation.setBayIndex(bayIndex);
+        observation.setBayLabel(bayTag);
+        observation.setBenchIndex(benchIndex);
+        observation.setBenchLabel(benchTag);
+        observation.setSpotIndex(spotIndex);
+        observation.setCount(count);
+        observation.setNotes(notes);
+        observation.setClientRequestId(clientRequestId);
+        observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        if (observation.isDeleted()) {
+            observation.restore();
+        }
+        session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
+        session.setUpdatedAt(LocalDateTime.now());
     }
 
     private ScoutingObservation resolveObservationForUpsert(ScoutingSession session,
@@ -1203,9 +1495,7 @@ public class ScoutingSessionService {
     }
 
     private ScoutingSessionDetailDto mapToDetailDto(ScoutingSession session, boolean includeDeletedObservations) {
-        Map<UUID, List<ScoutingObservation>> observationsByTarget = session.getObservations().stream()
-                .filter(observation -> includeDeletedObservations || !observation.isDeleted())
-                .collect(Collectors.groupingBy(observation -> observation.getSessionTarget().getId()));
+        Map<UUID, List<ScoutingObservationDto>> observationsByTarget = resolveDisplayedObservationsByTarget(session, includeDeletedObservations);
 
         List<ScoutingSessionSectionDto> sectionDtos = session.getTargets().stream()
                 .sorted(Comparator.comparing(target -> {
@@ -1216,14 +1506,7 @@ public class ScoutingSessionService {
                 }, String.CASE_INSENSITIVE_ORDER))
                 .map(target -> {
                     List<ScoutingObservationDto> targetObservations = observationsByTarget
-                            .getOrDefault(target.getId(), List.of())
-                            .stream()
-                            .sorted(Comparator
-                                    .comparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Integer::compareTo))
-                                    .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
-                                    .thenComparing(ScoutingObservation::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
-                            .map(observation -> mapToObservationDto(observation, includeDeletedObservations))
-                            .toList();
+                            .getOrDefault(target.getId(), List.of());
 
                     UUID greenhouseId = target.getGreenhouse() != null ? target.getGreenhouse().getId() : null;
                     UUID fieldBlockId = target.getFieldBlock() != null ? target.getFieldBlock().getId() : null;
@@ -1289,6 +1572,41 @@ public class ScoutingSessionService {
         );
     }
 
+    private Map<UUID, List<ScoutingObservationDto>> resolveDisplayedObservationsByTarget(ScoutingSession session,
+                                                                                         boolean includeDeletedObservations) {
+        boolean useDrafts = shouldUseDraftObservations(session);
+        if (useDrafts) {
+            List<ScoutingObservationDraft> drafts = observationDraftRepository.findBySessionId(session.getId()).stream()
+                    .filter(draft -> includeDeletedObservations || !draft.isDeleted())
+                    .sorted(Comparator
+                            .comparing(ScoutingObservationDraft::getBayIndex, Comparator.nullsLast(Integer::compareTo))
+                            .thenComparing(ScoutingObservationDraft::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
+                            .thenComparing(ScoutingObservationDraft::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
+                    .toList();
+
+            if (!drafts.isEmpty()) {
+                return drafts.stream()
+                        .map(draft -> mapToObservationDto(draft, includeDeletedObservations))
+                        .collect(Collectors.groupingBy(ScoutingObservationDto::sessionTargetId));
+            }
+        }
+
+        return session.getObservations().stream()
+                .filter(observation -> includeDeletedObservations || !observation.isDeleted())
+                .sorted(Comparator
+                        .comparing(ScoutingObservation::getBayIndex, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(ScoutingObservation::getBenchIndex, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(ScoutingObservation::getSpotIndex, Comparator.nullsLast(Integer::compareTo)))
+                .map(observation -> mapToObservationDto(observation, includeDeletedObservations))
+                .collect(Collectors.groupingBy(ScoutingObservationDto::sessionTargetId));
+    }
+
+    private boolean shouldUseDraftObservations(ScoutingSession session) {
+        return farmAccessService.getCurrentUserRole() == Role.SCOUT
+                && session.getStatus() != SessionStatus.COMPLETED
+                && session.getStatus() != SessionStatus.CANCELLED;
+    }
+
     /**
      * Convert an observation entity into a DTO for the API.
      */
@@ -1323,6 +1641,44 @@ public class ScoutingSessionService {
                 observation.getSyncStatus(),
                 deleted,
                 observation.getDeletedAt(),
+                observation.getClientRequestId()
+        );
+    }
+
+    private ScoutingObservationDto mapToObservationDto(ScoutingObservationDraft observation) {
+        return mapToObservationDto(observation, false);
+    }
+
+    private ScoutingObservationDto mapToObservationDto(ScoutingObservationDraft observation, boolean includeDeleted) {
+        if (observation == null) {
+            throw new IllegalArgumentException("Observation draft must not be null");
+        }
+
+        boolean deleted = includeDeleted && observation.isDeleted();
+
+        return new ScoutingObservationDto(
+                observation.getId(),
+                observation.getVersion(),
+                observation.getSession().getId(),
+                observation.getSessionTarget().getId(),
+                observation.getSessionTarget().getGreenhouse() != null ? observation.getSessionTarget().getGreenhouse().getId() : null,
+                observation.getSessionTarget().getFieldBlock() != null ? observation.getSessionTarget().getFieldBlock().getId() : null,
+                observation.getSpeciesCode(),
+                observation.getCustomSpecies() != null ? observation.getCustomSpecies().getId() : null,
+                observation.getSpeciesDisplayName(),
+                observation.resolveSpeciesIdentifier(),
+                observation.getCategory(),
+                observation.getBayIndex(),
+                observation.getBayLabel(),
+                observation.getBenchIndex(),
+                observation.getBenchLabel(),
+                observation.getSpotIndex(),
+                observation.getCount() != null ? observation.getCount() : 0,
+                observation.getNotes(),
+                observation.getUpdatedAt(),
+                observation.getSyncStatus(),
+                deleted,
+                deleted ? observation.getDeletedAt() : null,
                 observation.getClientRequestId()
         );
     }
@@ -1478,6 +1834,21 @@ public class ScoutingSessionService {
                 customSpecies.getName(),
                 customSpecies.getCategory()
         );
+    }
+
+    private ResolvedObservationSpecies resolveObservationSpecies(ScoutingSession session,
+                                                                 UpsertObservationRequest request,
+                                                                 ScoutingObservationDraft existingObservation) {
+        if (request.speciesCode() == null && request.customSpeciesId() == null) {
+            return new ResolvedObservationSpecies(
+                    existingObservation.getSpeciesCode(),
+                    existingObservation.getCustomSpecies(),
+                    existingObservation.resolveSpeciesIdentifier(),
+                    existingObservation.getSpeciesDisplayName(),
+                    existingObservation.getCategory()
+            );
+        }
+        return resolveObservationSpecies(session, request);
     }
 
     private void assertSpeciesAllowed(ScoutingSession session, ResolvedObservationSpecies species) {

@@ -10,6 +10,7 @@ import mofo.com.pestscout.farm.service.AnalyticsService;
 import mofo.com.pestscout.scouting.dto.ScoutingSessionDetailDto;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingPhotoAnalysisRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.service.ScoutingSessionService;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,9 @@ class ReportingServiceTest {
 
     @Mock
     private ScoutingObservationRepository observationRepository;
+
+    @Mock
+    private ScoutingPhotoAnalysisRepository photoAnalysisRepository;
 
     @Mock
     private HeatmapService heatmapService;
@@ -286,10 +290,10 @@ class ReportingServiceTest {
     }
 
     /**
-     * Confirms scout performance aggregates observation counts, accuracy percentage, and duration formatting.
+     * Confirms scout performance uses reviewed cell-photo comparisons against the scout's recorded observation.
      */
     @Test
-    void getScoutPerformance_summarizesSessionsPerScout() {
+    void getScoutPerformance_usesReviewedPhotoAnalysesForAccuracy() {
         UUID farmId = UUID.randomUUID();
         ScoutingSession session = buildSession(farmId, UUID.randomUUID());
         allowAnalyticsAccess(farmId);
@@ -298,9 +302,34 @@ class ReportingServiceTest {
         session.setCompletedAt(session.getStartedAt().plus(Duration.ofMinutes(5)));
 
         ScoutingObservation observation = buildObservation(session, SpeciesCode.WHITEFLIES, 2);
+        ScoutingPhoto photo = ScoutingPhoto.builder()
+                .id(UUID.randomUUID())
+                .session(session)
+                .observation(observation)
+                .sessionTarget(observation.getSessionTarget())
+                .farmId(farmId)
+                .bayIndex(observation.getBayIndex())
+                .benchIndex(observation.getBenchIndex())
+                .spotIndex(observation.getSpotIndex())
+                .localPhotoId("photo-1")
+                .build();
+        ScoutingPhotoAnalysis analysis = ScoutingPhotoAnalysis.builder()
+                .id(UUID.randomUUID())
+                .photo(photo)
+                .farmId(farmId)
+                .provider("heuristic-local-v1")
+                .modelVersion("heuristic-local-v1")
+                .predictedSpeciesCode(SpeciesCode.WHITEFLIES)
+                .reviewedSpeciesCode(SpeciesCode.WHITEFLIES)
+                .reviewStatus(PhotoAnalysisReviewStatus.CONFIRMED)
+                .build();
 
         when(sessionRepository.findByFarmId(farmId)).thenReturn(List.of(session));
         when(observationRepository.findBySessionIdIn(List.of(session.getId()))).thenReturn(List.of(observation));
+        when(photoAnalysisRepository.findByFarmIdAndReviewStatusIn(
+                farmId,
+                List.of(PhotoAnalysisReviewStatus.CONFIRMED, PhotoAnalysisReviewStatus.CORRECTED)
+        )).thenReturn(List.of(analysis));
 
         var performance = reportingService.getScoutPerformance(farmId);
 
@@ -308,6 +337,29 @@ class ReportingServiceTest {
             assertThat(dto.observations()).isEqualTo(2);
             assertThat(dto.accuracy()).isEqualTo(100);
             assertThat(dto.avgTime()).endsWith("m");
+            assertThat(dto.reviewedComparisons()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void getScoutPerformance_withoutReviewedPhotoAnalyses_returnsZeroAccuracy() {
+        UUID farmId = UUID.randomUUID();
+        ScoutingSession session = buildSession(farmId, UUID.randomUUID());
+        allowAnalyticsAccess(farmId);
+        session.setStatus(SessionStatus.COMPLETED);
+
+        when(sessionRepository.findByFarmId(farmId)).thenReturn(List.of(session));
+        when(observationRepository.findBySessionIdIn(List.of(session.getId()))).thenReturn(List.of());
+        when(photoAnalysisRepository.findByFarmIdAndReviewStatusIn(
+                farmId,
+                List.of(PhotoAnalysisReviewStatus.CONFIRMED, PhotoAnalysisReviewStatus.CORRECTED)
+        )).thenReturn(List.of());
+
+        var performance = reportingService.getScoutPerformance(farmId);
+
+        assertThat(performance).singleElement().satisfies(dto -> {
+            assertThat(dto.accuracy()).isZero();
+            assertThat(dto.reviewedComparisons()).isZero();
         });
     }
 

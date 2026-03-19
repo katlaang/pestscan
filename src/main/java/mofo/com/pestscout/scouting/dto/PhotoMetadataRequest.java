@@ -10,6 +10,12 @@ import java.util.UUID;
 public record PhotoMetadataRequest(
         @NotNull UUID sessionId,
         UUID observationId,
+        UUID sessionTargetId,
+        Integer bayIndex,
+        String bayTag,
+        Integer benchIndex,
+        String benchTag,
+        Integer spotIndex,
         @NotBlank String localPhotoId,
         String purpose,
         PhotoSourceType sourceType,

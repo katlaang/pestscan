@@ -26,7 +26,7 @@ public class GreenhouseController {
     private final GreenhouseService greenhouseService;
 
     @GetMapping("/farms/{farmId}/greenhouses")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<List<GreenhouseDto>> listGreenhouses(@PathVariable UUID farmId) {
         LOGGER.info("GET /api/farms/{}/greenhouses - listing greenhouses", farmId);
         return ResponseEntity.ok(greenhouseService.listGreenhouses(farmId));

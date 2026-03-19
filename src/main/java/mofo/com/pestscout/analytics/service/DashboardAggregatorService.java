@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.analytics.dto.*;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,7 +13,6 @@ public class DashboardAggregatorService {
 
     private final AnalyticsAccessService analyticsAccessService;
     private final DashboardService dashboardService;       // your existing summary service
-    private final HeatmapService heatmapService;
     private final TrendAnalysisService trendService;
     private final ReportingService reportingService;
 
@@ -24,11 +22,8 @@ public class DashboardAggregatorService {
         // 1. Summary
         DashboardSummaryDto summary = dashboardService.getDashboard(farmId);
 
-        // 2. Weekly heatmap
-        LocalDate today = LocalDate.now();
-        int week = today.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear());
-        int year = today.getYear();
-        var heatmap = heatmapService.generateHeatmap(farmId, week, year);
+        // 2. Farm-level heatmap for the same week selected by the summary service
+        var heatmap = dashboardService.getDashboardHeatmap(farmId);
 
         // 3. Weekly pest trends (from trend service)
         List<WeeklyPestTrendDto> weeklyTrends = trendService.getWeeklyPestTrends(farmId);

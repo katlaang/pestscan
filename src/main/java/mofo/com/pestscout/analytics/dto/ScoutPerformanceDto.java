@@ -4,7 +4,8 @@ public record ScoutPerformanceDto(
         String scout,
         int observations,
         int accuracy,
-        String avgTime
+        String avgTime,
+        int reviewedComparisons
 ) {
 }
 

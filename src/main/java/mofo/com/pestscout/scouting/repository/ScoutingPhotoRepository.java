@@ -12,9 +12,23 @@ public interface ScoutingPhotoRepository extends JpaRepository<ScoutingPhoto, UU
 
     Optional<ScoutingPhoto> findByLocalPhotoId(String localPhotoId);
 
+    Optional<ScoutingPhoto> findByLocalPhotoIdAndDeletedFalse(String localPhotoId);
+
     List<ScoutingPhoto> findBySessionId(UUID sessionId);
 
+    List<ScoutingPhoto> findBySessionIdAndDeletedFalseOrderByCapturedAtAscCreatedAtAsc(UUID sessionId);
+
+    Optional<ScoutingPhoto> findByIdAndSessionId(UUID photoId, UUID sessionId);
+
     List<ScoutingPhoto> findByFarmId(UUID farmId);
+
+    long countBySessionIdAndSessionTarget_IdAndBayIndexAndBenchIndexAndSpotIndexAndDeletedFalse(
+            UUID sessionId,
+            UUID sessionTargetId,
+            Integer bayIndex,
+            Integer benchIndex,
+            Integer spotIndex
+    );
 
     long countBySyncStatus(SyncStatus syncStatus);
 }

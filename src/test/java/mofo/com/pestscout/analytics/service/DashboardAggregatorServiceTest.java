@@ -8,8 +8,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.LocalDate;
-import java.time.temporal.WeekFields;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,9 +26,6 @@ class DashboardAggregatorServiceTest {
 
     @Mock
     private DashboardService dashboardService;
-
-    @Mock
-    private HeatmapService heatmapService;
 
     @Mock
     private TrendAnalysisService trendAnalysisService;
@@ -60,15 +55,11 @@ class DashboardAggregatorServiceTest {
                 List.of()
         );
 
-        LocalDate today = LocalDate.now();
-        int week = today.get(WeekFields.ISO.weekOfWeekBasedYear());
-        int year = today.getYear();
-
         HeatmapResponse heatmap = HeatmapResponse.builder()
                 .farmId(farmId)
                 .farmName("Farm")
-                .week(week)
-                .year(year)
+                .week(11)
+                .year(2026)
                 .bayCount(1)
                 .benchesPerBay(1)
                 .cells(List.of(HeatmapCellResponse.builder()
@@ -89,14 +80,14 @@ class DashboardAggregatorServiceTest {
         SeverityTrendPointDto severityTrendPoint = new SeverityTrendPointDto("2024-W1", 1, 0, 0, 1, 0);
         PestDistributionItemDto pestDistribution = new PestDistributionItemDto("thrips", 10, 100.0, "medium");
         DiseaseDistributionItemDto diseaseDistribution = new DiseaseDistributionItemDto("powdery", 5, 50.0, "low");
-        AlertDto alert = new AlertDto("alert", "thrips", "HIGH", 1, today.toString());
-        RecommendationDto recommendation = new RecommendationDto("Scout", "Greenhouse 1", "apply", "high", "open", today.toString());
+        AlertDto alert = new AlertDto("alert", "thrips", "HIGH", 1, "2026-03-12");
+        RecommendationDto recommendation = new RecommendationDto("Scout", "Greenhouse 1", "apply", "high", "open", "2026-03-12");
         FarmComparisonDto farmComparison = new FarmComparisonDto("Farm", 2.0, 1, 3);
-        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 90, "5m");
+        ScoutPerformanceDto scoutPerformance = new ScoutPerformanceDto("Scout", 3, 90, "5m", 4);
 
         when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
         when(dashboardService.getDashboard(farmId)).thenReturn(summaryDto);
-        when(heatmapService.generateHeatmap(farmId, week, year)).thenReturn(heatmap);
+        when(dashboardService.getDashboardHeatmap(farmId)).thenReturn(heatmap);
         when(trendAnalysisService.getWeeklyPestTrends(farmId)).thenReturn(List.of(weeklyTrend));
         when(trendAnalysisService.getSeverityTrend(farmId)).thenReturn(List.of(severityTrendPoint));
         when(reportingService.getPestDistribution(farmId)).thenReturn(List.of(pestDistribution));

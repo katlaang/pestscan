@@ -38,7 +38,7 @@ public class ScoutingSessionController {
     }
 
     @PutMapping("/{sessionId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<ScoutingSessionDetailDto> updateSession(@PathVariable UUID sessionId,
                                                                  @Valid @RequestBody UpdateScoutingSessionRequest request) {
         LOGGER.info("PUT /api/scouting/sessions/{} — updating session", sessionId);
@@ -116,6 +116,15 @@ public class ScoutingSessionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(observation);
     }
 
+    @PutMapping("/{sessionId}/observations/{observationId}")
+    @PreAuthorize("hasRole('SCOUT')")
+    public ResponseEntity<ScoutingObservationDto> updateObservation(@PathVariable UUID sessionId,
+                                                                    @PathVariable UUID observationId,
+                                                                    @Valid @RequestBody UpsertObservationRequest request) {
+        LOGGER.info("PUT /api/scouting/sessions/{}/observations/{} - updating observation", sessionId, observationId);
+        return ResponseEntity.ok(sessionService.updateObservation(sessionId, observationId, request));
+    }
+
     @PostMapping("/{sessionId}/observations/bulk")
     @PreAuthorize("hasRole('SCOUT')")
     public ResponseEntity<List<ScoutingObservationDto>> bulkUpsertObservations(@PathVariable UUID sessionId,
@@ -164,7 +173,7 @@ public class ScoutingSessionController {
     }
 
     @GetMapping("/{sessionId}/audits")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<List<ScoutingSessionAuditDto>> listAuditTrail(@PathVariable UUID sessionId) {
         LOGGER.info("GET /api/scouting/sessions/{}/audits — listing audit trail", sessionId);
         return ResponseEntity.ok(sessionService.listAuditTrail(sessionId));

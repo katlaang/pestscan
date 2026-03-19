@@ -180,6 +180,22 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
+    @PostMapping("/users/{userId}/temporary-password")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Assign temporary password",
+            description = "Assign a new temporary password to an existing user as a super admin. The user must change it after the next login."
+    )
+    public ResponseEntity<UserDto> resetUserTemporaryPassword(
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminResetUserPasswordRequest request,
+            @RequestAttribute("userId") UUID requestingUserId) {
+
+        LOGGER.info("Temporary password reset request for user {} by {}", userId, requestingUserId);
+        UserDto user = authService.resetUserTemporaryPassword(userId, request, requestingUserId);
+        return ResponseEntity.ok(user);
+    }
+
     /**
      * Begin the password reset process.
      */
@@ -343,6 +359,19 @@ public class AuthController {
         LOGGER.info("Get current user request: {}", userId);
         UserDto user = authService.getCurrentUser(userId);
         return ResponseEntity.ok(user);
+    }
+
+    @PutMapping("/me")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Update current user profile",
+            description = "Update the authenticated user's profile details such as name, email, phone number, and country."
+    )
+    public ResponseEntity<UserDto> updateCurrentUser(
+            @Valid @RequestBody UpdateUserRequest request,
+            @RequestAttribute("userId") UUID userId) {
+        LOGGER.info("Update current user profile request: {}", userId);
+        return ResponseEntity.ok(userService.updateUser(userId, request, userId));
     }
 
     /**

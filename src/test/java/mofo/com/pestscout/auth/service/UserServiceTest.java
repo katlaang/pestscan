@@ -355,6 +355,7 @@ class UserServiceTest {
                 .password("secret")
                 .firstName("NewFirst")
                 .lastName("NewLast")
+                .phoneNumber("5551234")
                 .role(Role.FARM_ADMIN)
                 .isEnabled(false)
                 .build();
@@ -364,6 +365,7 @@ class UserServiceTest {
         assertThat(result.getEmail()).isEqualTo("new@example.com");
         assertThat(result.getFirstName()).isEqualTo("NewFirst");
         assertThat(result.getLastName()).isEqualTo("NewLast");
+        assertThat(result.getPhoneNumber()).isEqualTo("5551234");
         assertThat(result.getRole()).isEqualTo(Role.FARM_ADMIN);
         assertThat(result.getIsEnabled()).isFalse();
 

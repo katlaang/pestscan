@@ -26,7 +26,7 @@ public class FieldBlockController {
     private final FieldBlockService fieldBlockService;
 
     @GetMapping("/farms/{farmId}/field-blocks")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<List<FieldBlockDto>> listFieldBlocks(@PathVariable UUID farmId) {
         LOGGER.info("GET /api/farms/{}/field-blocks - listing field blocks", farmId);
         return ResponseEntity.ok(fieldBlockService.listFieldBlocks(farmId));
