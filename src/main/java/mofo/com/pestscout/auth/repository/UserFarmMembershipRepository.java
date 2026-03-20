@@ -18,7 +18,14 @@ import java.util.UUID;
 public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMembership, UUID> {
 
     /**
-     * All memberships for a given user (used after login to show farm list).
+     * Single membership row for a given user, regardless of active status.
+     * A user can be attached to only one farm.
+     */
+    Optional<UserFarmMembership> findFirstByUser_Id(UUID userId);
+
+    /**
+     * All memberships for a given user.
+     * Kept as a list for compatibility with callers that stream over the result.
      */
     List<UserFarmMembership> findByUser_Id(UUID userId);
 

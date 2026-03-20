@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * <p>
  * Handles CRUD operations for users with authorization rules:
  * - SUPER_ADMIN: full access to all users and farms.
- * - MANAGER / FARM_ADMIN: can access users that share at least one farm membership.
+ * - MANAGER / FARM_ADMIN: can access users attached to the same farm.
  * - SCOUT: can only access their own user record.
  */
 @Service
@@ -54,7 +54,7 @@ public class UserService {
      * This does not know which farm is in context. It only checks:
      * - SUPER_ADMIN: always allowed.
      * - SCOUT: only self.
-     * - MANAGER / FARM_ADMIN: allowed if they share at least one farm membership.
+     * - MANAGER / FARM_ADMIN: allowed if they are attached to the same farm.
      */
     private void validateAccess(User requester, User targetUser) {
         Role requesterRole = requester.getRole();

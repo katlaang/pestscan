@@ -125,7 +125,7 @@ public class FarmService {
     /**
      * Returns all farms visible to this user.
      * SUPER_ADMIN sees all.
-     * FARM_ADMIN/MANAGER sees farms they own or belong to through active memberships.
+     * FARM_ADMIN/MANAGER sees the farm they own or belong to through an active membership.
      * SCOUT sees only the farm they are assigned to.
      *
      * Cached per user role to improve performance.
@@ -679,12 +679,21 @@ public class FarmService {
             UserFarmMembership membership = existingMemberships.remove(userId);
 
             if (membership == null) {
+                membership = membershipRepository.findFirstByUser_Id(userId)
+                        .orElse(null);
+            }
+
+            User user = resolvedUsers.get(userId);
+            assertUserCanAttachToFarm(user, farm.getId(), membership);
+
+            if (membership == null) {
                 membership = UserFarmMembership.builder()
-                        .user(resolvedUsers.get(userId))
-                        .farm(farm)
+                        .user(user)
                         .build();
             }
 
+            membership.setUser(user);
+            membership.setFarm(farm);
             membership.setRole(role);
             membership.setIsActive(true);
             membershipRepository.save(membership);
@@ -707,6 +716,31 @@ public class FarmService {
             throw new BadRequestException("Farm members must be active users.");
         }
         return user;
+    }
+
+    private void assertUserCanAttachToFarm(User user, UUID targetFarmId, UserFarmMembership existingMembership) {
+        if (user == null) {
+            return;
+        }
+
+        if (existingMembership != null
+                && existingMembership.getFarm() != null
+                && !existingMembership.getFarm().getId().equals(targetFarmId)
+                && Boolean.TRUE.equals(existingMembership.getIsActive())) {
+            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
+        }
+
+        boolean ownsAnotherFarm = farmRepository.findByOwnerId(user.getId()).stream()
+                .anyMatch(existingFarm -> !existingFarm.getId().equals(targetFarmId));
+        if (ownsAnotherFarm) {
+            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
+        }
+
+        boolean scoutsAnotherFarm = farmRepository.findByScoutId(user.getId()).stream()
+                .anyMatch(existingFarm -> !existingFarm.getId().equals(targetFarmId));
+        if (scoutsAnotherFarm) {
+            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
+        }
     }
 
     private Role validateMembershipRole(User user, Role requestedRole) {

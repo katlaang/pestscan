@@ -192,8 +192,9 @@ logging:
     com.mofo.pestscout: DEBUG
     org.springframework.web: INFO
     org.springframework.security: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.hibernate.SQL: OFF
+    org.hibernate.orm.jdbc.bind: OFF
+    org.hibernate.type.descriptor.sql.BasicBinder: OFF
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -221,7 +222,7 @@ spring:
       on-profile: dev
 
   jpa:
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true

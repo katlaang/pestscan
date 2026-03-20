@@ -6,6 +6,7 @@ import mofo.com.pestscout.auth.model.UserFarmMembership;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.service.CustomerNumberService;
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
@@ -325,6 +326,77 @@ class FarmServiceTest {
         assertThat(response.latitude()).isEqualByComparingTo("43.1234567");
         assertThat(response.longitude()).isEqualByComparingTo("-80.1234567");
         verify(membershipRepository, times(3)).save(any(UserFarmMembership.class));
+    }
+
+    @Test
+    @DisplayName("Should reject assigning a user who is already attached to another farm")
+    void createFarm_WithUserAlreadyAttachedToAnotherFarm_ThrowsBadRequestException() {
+        Farm otherFarm = Farm.builder()
+                .id(UUID.randomUUID())
+                .name("Other Farm")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .licensedAreaHectares(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .build();
+
+        UserFarmMembership existingMembership = UserFarmMembership.builder()
+                .user(managerMember)
+                .farm(otherFarm)
+                .role(Role.MANAGER)
+                .isActive(true)
+                .build();
+
+        CreateFarmRequest request = new CreateFarmRequest(
+                "Conflicting Farm",
+                "Farm with duplicate member",
+                "123 Farm Road",
+                "Farmville",
+                "Ontario",
+                "N1N 1N1",
+                "Canada",
+                farmOwner.getId(),
+                scout.getId(),
+                "John Doe",
+                "john@example.com",
+                "555-1234",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.STANDARD,
+                "billing@example.com",
+                new BigDecimal("15.00"),
+                100,
+                new BigDecimal("5.00"),
+                FarmStructureType.GREENHOUSE,
+                5,
+                10,
+                3,
+                new ArrayList<>(),
+                new ArrayList<>(),
+                "America/Toronto",
+                LocalDate.now().plusYears(1),
+                true,
+                null,
+                null,
+                List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER))
+        );
+
+        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(userRepository.findById(managerMember.getId())).thenReturn(Optional.of(managerMember));
+        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
+            Farm farm = invocation.getArgument(0);
+            farm.setId(UUID.randomUUID());
+            return farm;
+        });
+        when(membershipRepository.findByFarmId(any())).thenReturn(List.of());
+        lenient().when(membershipRepository.findFirstByUser_Id(any(UUID.class))).thenReturn(Optional.empty());
+        when(membershipRepository.findFirstByUser_Id(managerMember.getId())).thenReturn(Optional.of(existingMembership));
+
+        assertThatThrownBy(() -> farmService.createFarm(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("already attached to another farm");
     }
 
     @Test
