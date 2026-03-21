@@ -30,6 +30,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: admin
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      # JWT secret used by the application (required by production profile).
+      # Must be at least 64 characters for the HMAC signing key. Replace this
+      # value with a secure secret or provide it via an external environment
+      # or Docker secret in production.
+      JWT_SECRET: "dev-local-jwt-secret-please-change-this-to-a-secure-64-char-minimum-xxxxxxxxxxxxxxxx"
     ports:
       - "${APP_PORT:-8080}:8080"
     # Uncomment to persist logs outside the container

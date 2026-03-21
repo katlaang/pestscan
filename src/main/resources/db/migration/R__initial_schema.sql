@@ -3,7 +3,7 @@
 -- ============================================================
 
 CREATE
-EXTENSION IF NOT EXISTS "uuid-ossp";
+EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 
 -- ============================================================
 --  TRIGGER SUPPORT
@@ -26,7 +26,7 @@ $$;
 
 CREATE TABLE users
 (
-    id              UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     email           VARCHAR(255)             NOT NULL,
     password        VARCHAR(255)             NOT NULL,
     first_name      VARCHAR(255),
@@ -66,7 +66,7 @@ CREATE TRIGGER trg_users_updated
 
 CREATE TABLE user_password_history
 (
-    id                   UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version              BIGINT                   NOT NULL DEFAULT 0,
     user_id              UUID                     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     password_hash        VARCHAR(255)             NOT NULL,
@@ -92,7 +92,7 @@ CREATE TRIGGER trg_user_password_history_updated
 
 CREATE TABLE password_reset_tokens
 (
-    id                      UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                 BIGINT                   NOT NULL DEFAULT 0,
     user_id                 UUID                     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     performed_by_user_id    UUID                     REFERENCES users (id) ON DELETE SET NULL,
@@ -133,7 +133,7 @@ CREATE TRIGGER trg_prt_updated
 
 CREATE TABLE farms
 (
-    id                                  UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                             BIGINT                   NOT NULL DEFAULT 0,
     farm_tag                            VARCHAR(32)              NOT NULL,
     name                                VARCHAR(255)             NOT NULL,
@@ -232,7 +232,7 @@ CREATE TRIGGER trg_farms_updated
 
 CREATE TABLE user_farm_memberships
 (
-    id          UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version     BIGINT                   NOT NULL DEFAULT 0,
     user_id     UUID                     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     farm_id     UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
@@ -262,7 +262,7 @@ CREATE TRIGGER trg_ufm_updated
 
 CREATE TABLE greenhouses
 (
-    id                    UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version               BIGINT                   NOT NULL DEFAULT 0,
     farm_id               UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     name                  VARCHAR(255)             NOT NULL,
@@ -316,7 +316,7 @@ CREATE TABLE greenhouse_bench_tags
 
 CREATE TABLE field_blocks
 (
-    id                  UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version             BIGINT                   NOT NULL DEFAULT 0,
     farm_id             UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     name                VARCHAR(255)             NOT NULL,
@@ -360,7 +360,7 @@ CREATE TABLE field_block_bay_tags
 
 CREATE TABLE farm_feature_entitlements
 (
-    id          UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version     BIGINT                   NOT NULL DEFAULT 0,
     farm_id     UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     feature_key VARCHAR(64)              NOT NULL,
@@ -400,7 +400,7 @@ CREATE TRIGGER trg_farm_feature_entitlements_updated
 
 CREATE TABLE license_properties
 (
-    id                       UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                  BIGINT                   NOT NULL DEFAULT 0,
     property_name            VARCHAR(100)             NOT NULL,
     description              VARCHAR(500),
@@ -442,7 +442,7 @@ CREATE TRIGGER trg_license_properties_updated
 
 CREATE TABLE licenses
 (
-    id                               UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                          BIGINT                   NOT NULL DEFAULT 0,
     farm_id                          UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     license_property_id              UUID                     NOT NULL REFERENCES license_properties (id) ON DELETE RESTRICT,
@@ -534,7 +534,7 @@ CREATE INDEX idx_farms_current_license ON farms (current_license_id);
 
 CREATE TABLE farm_license_history
 (
-    id                               UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                          BIGINT                   NOT NULL DEFAULT 0,
     farm_id                          UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     license_id                       UUID                     REFERENCES licenses (id) ON DELETE SET NULL,
@@ -623,7 +623,7 @@ CREATE TRIGGER trg_farm_license_history_updated
 
 CREATE TABLE scouting_sessions
 (
-    id                        UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version                   BIGINT                   NOT NULL DEFAULT 0,
     farm_id                   UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     greenhouse_id             UUID                     REFERENCES greenhouses (id) ON DELETE SET NULL,
@@ -678,7 +678,7 @@ ALTER TABLE scouting_sessions
 
 CREATE TABLE session_audit_events
 (
-    id          UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version     BIGINT                   NOT NULL DEFAULT 0,
     session_id  UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
     farm_id     UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
@@ -734,7 +734,7 @@ CREATE TRIGGER trg_session_audit_updated
 
 CREATE TABLE scouting_session_targets
 (
-    id                  UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version             BIGINT                   NOT NULL DEFAULT 0,
     session_id          UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
     greenhouse_id       UUID                     REFERENCES greenhouses (id) ON DELETE SET NULL,
@@ -781,7 +781,7 @@ CREATE TABLE scouting_target_benches
 
 CREATE TABLE scouting_observations
 (
-    id                UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version           BIGINT                   NOT NULL DEFAULT 0,
     session_id        UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
     session_target_id UUID                     NOT NULL REFERENCES scouting_session_targets (id) ON DELETE CASCADE,
@@ -838,7 +838,7 @@ CREATE TRIGGER trg_obs_updated
 
 CREATE TABLE scouting_photos
 (
-    id             UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version        BIGINT                   NOT NULL DEFAULT 0,
     session_id     UUID                     NOT NULL REFERENCES scouting_sessions (id) ON DELETE CASCADE,
     observation_id UUID                     REFERENCES scouting_observations (id) ON DELETE SET NULL,
@@ -875,6 +875,8 @@ CREATE TABLE IF NOT EXISTS scouting_photo_analyses
     PRIMARY
     KEY
     DEFAULT
+    public
+    .
     uuid_generate_v4
 (
 ),
@@ -1010,7 +1012,7 @@ CREATE TRIGGER trg_recommendations_updated
 
 CREATE TABLE supply_order_requests
 (
-    id                   UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version              BIGINT                   NOT NULL DEFAULT 0,
     farm_id              UUID                     NOT NULL REFERENCES farms (id) ON DELETE CASCADE,
     requested_by_user_id UUID                     NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
@@ -1044,7 +1046,7 @@ CREATE TRIGGER trg_supply_order_requests_updated
 
 CREATE TABLE supply_order_items
 (
-    id                  UUID PRIMARY KEY                  DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT public.uuid_generate_v4(),
     version             BIGINT                   NOT NULL DEFAULT 0,
     order_request_id    UUID                     NOT NULL REFERENCES supply_order_requests (id) ON DELETE CASCADE,
     sku                 VARCHAR(100)             NOT NULL,
