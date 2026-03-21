@@ -3,8 +3,9 @@
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
-# Install dependencies using Gradle wrapper
-COPY gradlew gradle ./
+# Install dependencies using the Gradle wrapper
+COPY gradlew ./
+COPY gradle/wrapper ./gradle/wrapper
 RUN chmod +x gradlew
 COPY build.gradle settings.gradle ./
 COPY src ./src
@@ -23,12 +24,7 @@ COPY --from=build /app/build/libs/*.jar app.jar
 # Expose the application port
 EXPOSE 8080
 
-# Environment variables for overridable configuration
-ENV SPRING_PROFILES_ACTIVE=prod \
-    SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5433/pestscan_scouting" \
-    SPRING_DATASOURCE_USERNAME=postgres \
-    SPRING_DATASOURCE_PASSWORD=admin \
-    SPRING_DATA_REDIS_HOST=localhost \
-    SPRING_DATA_REDIS_PORT=6379
+# Default to the production profile and inject infrastructure values at runtime.
+ENV SPRING_PROFILES_ACTIVE=prod
 
 ENTRYPOINT ["java","-jar","/app/app.jar"]

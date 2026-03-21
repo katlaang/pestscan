@@ -69,7 +69,7 @@ spring:
 
 # Server Configuration
 server:
-  port: 8080
+  port: ${PORT:8080}
   compression:
     enabled: true
     mime-types: application/json,application/xml,text/html,text/xml,text/plain
@@ -240,31 +240,36 @@ logging:
 
 ---
 # Production Profile
-#spring:
-#  config:
-#    activate:
-#      on-profile: prod
-#
-#  jpa:
-#    show-sql: false
-#
-#  # Production database should use environment variables
-#  datasource:
-#    url: ${DATABASE_URL}
-#    username: ${DATABASE_USERNAME}
-#    password: ${DATABASE_PASSWORD}
-#
-## Production S3 (real AWS)
-#aws:
-#  s3:
-#    endpoint: ""  # Empty for real AWS S3
-#    use-path-style-access: false
-#
-#logging:
-#  level:
-#    root: INFO
-#    com.mofo.pestscout: INFO
-#    org.springframework.web: WARN
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  jpa:
+    show-sql: false
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+server:
+  forward-headers-strategy: framework
+
+jwt:
+  secret: ${JWT_SECRET}
+
+# Production S3 (real AWS)
+aws:
+  s3:
+    endpoint: ${S3_ENDPOINT:}
+    use-path-style-access: false
+
+logging:
+  level:
+    root: INFO
+    com.mofo.pestscout: INFO
+    org.springframework.web: WARN
 
 ---
 # Test Profile
