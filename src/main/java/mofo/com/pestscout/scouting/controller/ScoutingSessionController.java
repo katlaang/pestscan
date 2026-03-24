@@ -117,7 +117,7 @@ public class ScoutingSessionController {
     }
 
     @PutMapping("/{sessionId}/observations/{observationId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('SCOUT')")
     public ResponseEntity<ScoutingObservationDto> updateObservation(@PathVariable UUID sessionId,
                                                                     @PathVariable UUID observationId,
                                                                     @Valid @RequestBody UpsertObservationRequest request) {
