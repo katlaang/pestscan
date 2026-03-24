@@ -91,11 +91,11 @@ public class ScoutingSessionController {
         return ResponseEntity.ok(sessionService.submitSession(sessionId, request));
     }
 
-    @PostMapping("/{sessionId}/complete")
-    @PreAuthorize("hasRole('SCOUT')")
-    public ResponseEntity<ScoutingSessionDetailDto> completeSession(@PathVariable UUID sessionId,
-                                                                   @Valid @RequestBody CompleteSessionRequest request) {
-        LOGGER.info("POST /api/scouting/sessions/{}/complete — completing session", sessionId);
+    @PostMapping({"/{sessionId}/accept", "/{sessionId}/complete"})
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<ScoutingSessionDetailDto> acceptSession(@PathVariable UUID sessionId,
+                                                                  @Valid @RequestBody AcceptSubmittedSessionRequest request) {
+        LOGGER.info("POST /api/scouting/sessions/{}/accept — accepting submitted session", sessionId);
         return ResponseEntity.ok(sessionService.completeSession(sessionId, request));
     }
 
@@ -117,7 +117,7 @@ public class ScoutingSessionController {
     }
 
     @PutMapping("/{sessionId}/observations/{observationId}")
-    @PreAuthorize("hasRole('SCOUT')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<ScoutingObservationDto> updateObservation(@PathVariable UUID sessionId,
                                                                     @PathVariable UUID observationId,
                                                                     @Valid @RequestBody UpsertObservationRequest request) {

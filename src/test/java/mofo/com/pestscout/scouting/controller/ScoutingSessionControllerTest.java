@@ -374,6 +374,95 @@ class ScoutingSessionControllerTest {
     }
 
     @Test
+    void acceptsSubmittedSession() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        AcceptSubmittedSessionRequest request = new AcceptSubmittedSessionRequest(1L, "Reviewed and accepted", null, null, null, "Manager User");
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                sessionId,
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 5),
+                10,
+                SessionStatus.COMPLETED,
+                SyncStatus.SYNCED,
+                null,
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                LocalDateTime.now().minusHours(2),
+                LocalDateTime.now().minusHours(1),
+                LocalDateTime.now(),
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                true,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.completeSession(sessionId, request)).thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions/{sessionId}/accept", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    @Test
+    void startsSession() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                sessionId,
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 5),
+                10,
+                SessionStatus.IN_PROGRESS,
+                SyncStatus.SYNCED,
+                null,
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                PhotoSourceType.SCOUT_HANDHELD,
+                LocalDateTime.now(),
+                null,
+                null,
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of()
+        );
+
+        when(sessionService.startSession(sessionId)).thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions/{sessionId}/start", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
+    @Test
     void deletesSession() throws Exception {
         UUID sessionId = UUID.randomUUID();
 

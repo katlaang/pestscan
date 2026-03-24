@@ -81,7 +81,7 @@ server:
 # JWT Configuration
 jwt:
   secret: ${JWT_SECRET:your-super-secret-jwt-key-change-this-in-production-minimum-64-characters}
-  expiration: 300000  # 5 minutes in milliseconds
+  expiration: 900000  # 15 minutes in milliseconds
   refresh-expiration: 2592000000  # 30 days in milliseconds
 
 # AWS S3 Configuration (can use MinIO for local development)

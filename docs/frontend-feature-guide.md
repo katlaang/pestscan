@@ -136,8 +136,10 @@ This document distills what the PestScout backend expects from the web/mobile cl
     request for the assigned scout.
   - `POST /{id}/accept-remote-start` is scout-only. The scout may also ignore the request and use the normal
     `POST /{id}/start` action instead.
-  - `POST /{id}/submit` is scout-only.
-  - `POST /{id}/complete` is scout-only and requires confirmation before completion.
+  - `POST /{id}/submit` is scout-only and is the final scout action after data capture.
+  - `POST /{id}/accept` is for `MANAGER`, `FARM_ADMIN`, or `SUPER_ADMIN` and moves a submitted session to `COMPLETED`.
+  - `POST /{id}/complete` is still accepted as a backward-compatible alias for admin acceptance, but new UI should use
+    `POST /{id}/accept`.
   - `POST /{id}/reopen` is admin-only and is only valid for completed sessions.
 - **Observations** (scout only):
   - Single upsert: `POST /api/scouting/sessions/{id}/observations`
@@ -166,7 +168,7 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - `SCOUT` sees assigned sessions only.
   - `SCOUT` should not see `DRAFT`.
   - `SCOUT` can see assigned sessions in `NEW`, `IN_PROGRESS`, `SUBMITTED`, `REOPENED`, `INCOMPLETE`, and `COMPLETED`.
-  - `SCOUT` is the only role that should see data-entry actions for observations, photos, submit, and complete.
+  - `SCOUT` is the only role that should see data-entry actions for observations, photos, start, and submit.
   - `SUPER_ADMIN` must first select a farm on the dashboard before loading sessions for that farm.
   - `SUPER_ADMIN` should only surface the per-farm planning and post-work states: `DRAFT`, `NEW`, `COMPLETED`,
     `INCOMPLETE`, and `REOPENED`.
@@ -174,14 +176,19 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - `FARM_ADMIN` and `MANAGER` must not get cross-farm analytics, sessions, or farm values.
   - `FARM_ADMIN` and `MANAGER` can see `IN_PROGRESS` in the list, but the row should be greyed out and not openable.
   - `FARM_ADMIN` and `MANAGER` can create new scouting sessions but cannot start them.
+  - `FARM_ADMIN` and `MANAGER` should see an `Accept Session` action only when the status is `SUBMITTED`.
 - Reopen UX:
   - Reopen is for admin roles after a session is completed.
   - Show the reopen actor in the audit trail UI by reading `GET /api/scouting/sessions/{id}/audits` and highlighting the
     `SESSION_REOPENED` event.
-- Completion UX:
-  - Before calling `POST /api/scouting/sessions/{id}/complete`, show a blocking warning modal that the session will
-    become non-editable once completed.
+- Submission and acceptance UX:
+  - When the scout finishes the session, show the confirmation modal before calling
+    `POST /api/scouting/sessions/{id}/submit`.
   - Send `confirmationAcknowledged: true` only after the scout explicitly confirms in that modal.
+  - After the session reaches `SUBMITTED`, remove scout editing controls and show a read-only waiting-for-approval
+    state.
+  - For manager/farm-admin review, show an `Accept Session` CTA that calls
+    `POST /api/scouting/sessions/{id}/accept` with at least `{ "version": <session.version>, "actorName": "<name>" }`.
 
 ## Discounts & billing context
 - Discount math is percentage-based: `applyDiscount(amount, quotaDiscountPercentage)` caps discounts between 0–100% and rounds to two decimals.
@@ -311,12 +318,12 @@ Frontend canvas
     - observations
     - scouting photos
     - submit
-    - complete
 - `SUPER_ADMIN`
   - Require farm selection first on the dashboard.
   - After farm selection, load sessions for that farm only.
   - Show only: `DRAFT`, `NEW`, `COMPLETED`, `INCOMPLETE`, `REOPENED`.
   - Show `Request Remote Start`.
+  - Show `Accept Session` when status is `SUBMITTED`.
   - Show `Reopen Session`.
 - `FARM_ADMIN` and `MANAGER`
   - Load sessions and analytics for their own farms only.
@@ -326,6 +333,7 @@ Frontend canvas
   - Do not allow opening `IN_PROGRESS`.
   - Allow create/view/reopen actions for the other visible session states.
   - Do not allow `Start Session`.
+  - Show `Accept Session` when status is `SUBMITTED`.
 
 4. Remote start
 
@@ -338,11 +346,14 @@ Frontend canvas
 - If the scout ignores the remote-start request and starts normally, call:
   `POST /api/scouting/sessions/{id}/start`
 
-5. Completion warning
+5. Submission and acceptance
 
-- Before calling `POST /api/scouting/sessions/{id}/complete`, show a blocking modal:
-  `Are you sure you want to complete this scouting session? You will not be able to edit it afterward.`
-- Only call complete after the scout confirms.
+- Before calling `POST /api/scouting/sessions/{id}/submit`, show a blocking modal:
+  `Are you sure you want to submit this scouting session for approval? You will not be able to edit it afterward.`
+- Only call submit after the scout confirms.
+- After submission, show a waiting-for-approval state for the scout.
+- Manager/farm-admin accept action should call:
+  `POST /api/scouting/sessions/{id}/accept`
 
 6. Reopen audit trail
 

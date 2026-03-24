@@ -27,7 +27,7 @@ public final class SessionStateMachine {
             case NEW -> ADMIN_ROLES.contains(role) && from == SessionStatus.DRAFT;
             case IN_PROGRESS -> canStart(from, role);
             case SUBMITTED -> role == Role.SCOUT
-                    && EnumSet.of(SessionStatus.NEW, SessionStatus.DRAFT, SessionStatus.IN_PROGRESS, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
+                    && EnumSet.of(SessionStatus.IN_PROGRESS, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
             case COMPLETED -> canComplete(from, role);
             case REOPENED -> ADMIN_ROLES.contains(role)
                     && from == SessionStatus.COMPLETED;
@@ -45,8 +45,8 @@ public final class SessionStateMachine {
     }
 
     private static boolean canComplete(SessionStatus from, Role role) {
-        if (role == Role.SCOUT) {
-            return EnumSet.of(SessionStatus.IN_PROGRESS, SessionStatus.SUBMITTED, SessionStatus.REOPENED, SessionStatus.INCOMPLETE).contains(from);
+        if (ADMIN_ROLES.contains(role)) {
+            return from == SessionStatus.SUBMITTED;
         }
 
         return false;

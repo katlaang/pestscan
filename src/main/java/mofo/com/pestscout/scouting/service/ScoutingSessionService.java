@@ -407,10 +407,15 @@ public class ScoutingSessionService {
 
         assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
 
+        if (!Boolean.TRUE.equals(request.confirmationAcknowledged())) {
+            throw new BadRequestException("Please confirm all information is correct before submitting the session.");
+        }
+
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
 
+        promoteDraftObservationsToCommitted(session);
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.SUBMITTED, role);
         session.markSubmitted(Boolean.TRUE.equals(request.confirmationAcknowledged()));
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
@@ -422,44 +427,37 @@ public class ScoutingSessionService {
     }
 
     /**
-     * Complete a session after the scout confirms the data is correct.
+     * Accept a submitted session and mark it complete.
      * Once completed, editing observations is blocked until the session is reopened.
      */
     @Transactional
-    public ScoutingSessionDetailDto completeSession(UUID sessionId, CompleteSessionRequest request) {
+    public ScoutingSessionDetailDto completeSession(UUID sessionId, AcceptSubmittedSessionRequest request) {
         ScoutingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSession", "id", sessionId));
 
         Role role = farmAccessService.getCurrentUserRole();
-        if (role != Role.SCOUT) {
-            throw new ForbiddenException("Only the assigned scout can complete a scouting session.");
+        if (role != Role.SUPER_ADMIN && role != Role.FARM_ADMIN && role != Role.MANAGER) {
+            throw new ForbiddenException("Only a super admin, farm admin, or manager can accept a submitted scouting session.");
         }
 
-        enforceScoutOwnsSession(session);
+        farmAccessService.requireAdminOrSuperAdmin(session.getFarm());
 
         if (session.getStatus() == SessionStatus.COMPLETED) {
             throw new BadRequestException("Session is already completed.");
         }
 
-        if (session.getStatus() != SessionStatus.IN_PROGRESS
-                && session.getStatus() != SessionStatus.SUBMITTED
-                && session.getStatus() != SessionStatus.REOPENED
-                && session.getStatus() != SessionStatus.INCOMPLETE) {
-            throw new BadRequestException("Scout can only complete an in-progress, submitted, reopened, or incomplete session.");
+        if (session.getStatus() != SessionStatus.SUBMITTED) {
+            throw new BadRequestException("Only submitted sessions can be accepted.");
         }
 
         assertNotStale(request.version(), session.getVersion(), "ScoutingSession");
 
-        if (request == null || !Boolean.TRUE.equals(request.confirmationAcknowledged())) {
-            throw new BadRequestException("Please confirm all information is correct before completing the session.");
-        }
-
         if (session.getStartedAt() == null) {
             session.setStartedAt(LocalDateTime.now());
         }
-        promoteDraftObservationsToCommitted(session);
+
         SessionStateMachine.assertTransition(session.getStatus(), SessionStatus.COMPLETED, role);
-        session.markCompleted(true);
+        session.markCompleted(session.isConfirmationAcknowledged());
         session.setSyncStatus(SyncStatus.PENDING_UPLOAD);
 
         ScoutingSession saved = sessionRepository.save(session);

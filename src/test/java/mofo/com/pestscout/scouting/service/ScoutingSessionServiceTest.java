@@ -1262,70 +1262,49 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
-    @DisplayName("Should complete session with acknowledgment")
-    void completeSession_WithAcknowledgment_CompletesSession() {
-        // Arrange
-        testSession.setStatus(SessionStatus.SUBMITTED);
-        testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Scout User");
-
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.SCOUT);
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(scout.getId());
-        when(sessionRepository.findById(testSession.getId()))
-                .thenReturn(Optional.of(testSession));
-        when(sessionRepository.save(any(ScoutingSession.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Act
-        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(
-                testSession.getId(),
-                request
-        );
-
-        // Assert
-        assertThat(result).isNotNull();
-        verify(sessionRepository).save(argThat(session ->
-                session.getStatus() == SessionStatus.COMPLETED &&
-                        session.getCompletedAt() != null &&
-                        session.isConfirmationAcknowledged()
-        ));
-    }
-
-    @Test
-    @DisplayName("Should allow assigned scout to complete an in-progress session")
-    void completeSession_WithAssignedScout_CompletesSession() {
+    @DisplayName("Should submit session with acknowledgment")
+    void submitSession_WithAcknowledgment_SubmitsSession() {
         testSession.setStatus(SessionStatus.IN_PROGRESS);
         testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Scout User");
+        SubmitSessionRequest request = new SubmitSessionRequest(1L, true, "Scout User", null, null, null, null);
 
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.SCOUT);
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(scout.getId());
-        when(sessionRepository.findById(testSession.getId()))
-                .thenReturn(Optional.of(testSession));
-        when(sessionRepository.save(any(ScoutingSession.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(observationDraftRepository.findBySessionId(testSession.getId())).thenReturn(List.of());
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(
-                testSession.getId(),
-                request
-        );
+        ScoutingSessionDetailDto result = scoutingSessionService.submitSession(testSession.getId(), request);
 
-        assertThat(result).isNotNull();
+        assertThat(result.status()).isEqualTo(SessionStatus.SUBMITTED);
         verify(sessionRepository).save(argThat(session ->
-                session.getStatus() == SessionStatus.COMPLETED &&
-                        session.getCompletedAt() != null &&
-                        session.isConfirmationAcknowledged()
+                session.getStatus() == SessionStatus.SUBMITTED
+                        && session.getSubmittedAt() != null
+                        && session.isConfirmationAcknowledged()
         ));
-        verify(farmAccessService, never()).requireAdminOrSuperAdmin(any());
     }
 
     @Test
-    @DisplayName("Should commit persisted draft observations when completing a session")
-    void completeSession_WithDraftObservations_PromotesDraftsToCommitted() {
+    @DisplayName("Should reject submitting a session that has not started")
+    void submitSession_WithNewStatus_ThrowsBadRequestException() {
+        testSession.setStatus(SessionStatus.NEW);
+        testSession.setVersion(1L);
+        SubmitSessionRequest request = new SubmitSessionRequest(1L, true, "Scout User", null, null, null, null);
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.submitSession(testSession.getId(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Invalid session transition");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should commit persisted draft observations when submitting a session")
+    void submitSession_WithDraftObservations_PromotesDraftsToCommitted() {
         testSession.setStatus(SessionStatus.IN_PROGRESS);
         testSession.setVersion(3L);
 
@@ -1374,12 +1353,12 @@ class ScoutingSessionServiceTest {
         when(observationDraftRepository.findBySessionId(testSession.getId())).thenReturn(List.of(draftObservation));
         when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(
+        ScoutingSessionDetailDto result = scoutingSessionService.submitSession(
                 testSession.getId(),
-                new CompleteSessionRequest(3L, true, "Complete session", null, null, null, "Scout User")
+                new SubmitSessionRequest(3L, true, "Scout User", "Submit session", null, null, null)
         );
 
-        assertThat(result.status()).isEqualTo(SessionStatus.COMPLETED);
+        assertThat(result.status()).isEqualTo(SessionStatus.SUBMITTED);
         assertThat(result.sections()).hasSize(1);
         assertThat(result.sections().getFirst().observations()).hasSize(1);
         assertThat(result.sections().getFirst().observations().getFirst().count()).isEqualTo(9);
@@ -1390,44 +1369,74 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
-    @DisplayName("Should reject manager from completing a session")
-    void completeSession_WithManagerRole_ThrowsForbiddenException() {
+    @DisplayName("Should allow manager to accept a submitted session")
+    void completeSession_WithManagerRole_CompletesSubmittedSession() {
         testSession.setStatus(SessionStatus.SUBMITTED);
         testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, true, null, null, null, null, "Manager User");
+        testSession.setConfirmationAcknowledged(true);
+        AcceptSubmittedSessionRequest request = new AcceptSubmittedSessionRequest(1L, null, null, null, null, "Manager User");
 
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.MANAGER);
-        when(sessionRepository.findById(testSession.getId()))
-                .thenReturn(Optional.of(testSession));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.completeSession(testSession.getId(), request);
+
+        assertThat(result.status()).isEqualTo(SessionStatus.COMPLETED);
+        verify(sessionRepository).save(argThat(session ->
+                session.getStatus() == SessionStatus.COMPLETED
+                        && session.getCompletedAt() != null
+                        && session.isConfirmationAcknowledged()
+        ));
+        verify(farmAccessService).requireAdminOrSuperAdmin(testSession.getFarm());
+    }
+
+    @Test
+    @DisplayName("Should reject scout from accepting a submitted session")
+    void completeSession_WithScoutRole_ThrowsForbiddenException() {
+        testSession.setStatus(SessionStatus.SUBMITTED);
+        testSession.setVersion(1L);
+        AcceptSubmittedSessionRequest request = new AcceptSubmittedSessionRequest(1L, null, null, null, null, "Scout User");
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
 
         assertThatThrownBy(() -> scoutingSessionService.completeSession(testSession.getId(), request))
                 .isInstanceOf(ForbiddenException.class)
-                .hasMessageContaining("assigned scout can complete");
+                .hasMessageContaining("farm admin, or manager can accept");
 
         verify(sessionRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("Should throw BadRequestException when completing without acknowledgment")
-    void completeSession_WithoutAcknowledgment_ThrowsBadRequestException() {
-        // Arrange
-        testSession.setStatus(SessionStatus.SUBMITTED);
+    @DisplayName("Should reject accepting a non-submitted session")
+    void completeSession_WithInProgressSession_ThrowsBadRequestException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
         testSession.setVersion(1L);
-        CompleteSessionRequest request = new CompleteSessionRequest(1L, false, null, null, null, null, "Scout User");
+        AcceptSubmittedSessionRequest request = new AcceptSubmittedSessionRequest(1L, null, null, null, null, "Manager User");
 
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.SCOUT);
-        when(currentUserService.getCurrentUserId())
-                .thenReturn(scout.getId());
-        when(sessionRepository.findById(testSession.getId()))
-                .thenReturn(Optional.of(testSession));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
 
-        // Act & Assert
-        assertThatThrownBy(() -> scoutingSessionService.completeSession(
-                testSession.getId(),
-                request
-        ))
+        assertThatThrownBy(() -> scoutingSessionService.completeSession(testSession.getId(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Only submitted sessions can be accepted");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should throw BadRequestException when submitting without acknowledgment")
+    void submitSession_WithoutAcknowledgment_ThrowsBadRequestException() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+        testSession.setVersion(1L);
+        SubmitSessionRequest request = new SubmitSessionRequest(1L, false, "Scout User", null, null, null, null);
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.submitSession(testSession.getId(), request))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("confirm");
 
