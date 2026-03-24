@@ -1,0 +1,59 @@
+Scouting session approval workflow change
+Date: 2026-03-23
+
+Summary
+- Scout no longer completes a session directly.
+- Scout finishes work by submitting the session.
+- Manager, farm admin, or super admin accepts the submitted session.
+- Acceptance changes the status to COMPLETED.
+- Admin roles can still reopen a completed session.
+
+Backend behavior
+- Scout action:
+  POST /api/scouting/sessions/{sessionId}/submit
+- Admin acceptance action:
+  POST /api/scouting/sessions/{sessionId}/accept
+- Backward-compatible alias still accepted:
+  POST /api/scouting/sessions/{sessionId}/complete
+- Reopen action:
+  POST /api/scouting/sessions/{sessionId}/reopen
+
+Status flow
+- DRAFT -> NEW
+- NEW -> IN_PROGRESS
+- IN_PROGRESS -> SUBMITTED
+- REOPENED -> SUBMITTED
+- INCOMPLETE -> SUBMITTED
+- SUBMITTED -> COMPLETED
+- COMPLETED -> REOPENED
+
+Rules
+- Only the assigned scout can start and submit.
+- Submit requires confirmationAcknowledged = true.
+- Submit now promotes draft observations into committed observations so reviewers see the submitted data.
+- Only submitted sessions can be accepted.
+- Only SUPER_ADMIN, FARM_ADMIN, or MANAGER can accept a submitted session.
+- Only completed sessions can be reopened.
+
+Frontend changes
+- Replace the scout "Complete Session" button with "Submit Session".
+- Keep the scout confirmation modal, but call /submit instead of /complete.
+- After submit, show the scout a read-only waiting-for-approval state.
+- Show "Accept Session" for manager/farm admin/super admin only when status is SUBMITTED.
+- The accept action should call:
+  POST /api/scouting/sessions/{sessionId}/accept
+- Keep reopen available for admin roles after completion.
+
+Payload guidance
+- Scout submit payload:
+  {
+    "version": <session.version>,
+    "confirmationAcknowledged": true,
+    "actorName": "<scout name>"
+  }
+
+- Admin accept payload:
+  {
+    "version": <session.version>,
+    "actorName": "<manager or admin name>"
+  }
