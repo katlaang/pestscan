@@ -16,7 +16,6 @@ import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.exception.UnauthorizedException;
 import mofo.com.pestscout.common.service.CacheService;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,11 +102,11 @@ public class UserService {
      * Get a single user by ID with authorization.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "users",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "users",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null"
+//    )
     public UserDto getUserById(UUID userId, UUID requestingUserId) {
         User requester = userRepository.findById(requestingUserId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));

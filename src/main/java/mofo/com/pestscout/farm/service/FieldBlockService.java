@@ -11,7 +11,6 @@ import mofo.com.pestscout.farm.model.FieldBlock;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.FieldBlockRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -105,11 +104,11 @@ public class FieldBlockService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "field-blocks",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "field-blocks",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null"
+//    )
     public FieldBlockDto getFieldBlock(UUID fieldBlockId) {
         FieldBlock block = fieldBlockRepository.findById(fieldBlockId)
                 .orElseThrow(() -> new ResourceNotFoundException("FieldBlock", "id", fieldBlockId));
@@ -119,11 +118,11 @@ public class FieldBlockService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "field-blocks",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.isEmpty()"
-    )
+//    @Cacheable(
+//            value = "field-blocks",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.isEmpty()"
+//    )
     public List<FieldBlockDto> listFieldBlocks(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));

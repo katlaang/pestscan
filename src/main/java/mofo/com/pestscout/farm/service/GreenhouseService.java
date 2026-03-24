@@ -11,7 +11,6 @@ import mofo.com.pestscout.farm.model.GreenhouseBayDefinition;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
 import mofo.com.pestscout.farm.security.FarmAccessService;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -124,11 +123,11 @@ public class GreenhouseService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "greenhouses",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "greenhouses",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null"
+//    )
     public GreenhouseDto getGreenhouse(UUID greenhouseId) {
         Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
                 .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
@@ -138,11 +137,11 @@ public class GreenhouseService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "greenhouses",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.isEmpty()"
-    )
+//    @Cacheable(
+//            value = "greenhouses",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.isEmpty()"
+//    )
     public List<GreenhouseDto> listGreenhouses(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));

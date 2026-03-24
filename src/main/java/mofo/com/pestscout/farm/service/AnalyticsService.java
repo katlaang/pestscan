@@ -10,7 +10,6 @@ import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,11 +35,11 @@ public class AnalyticsService {
      * Cache key includes farmId, week, and year to ensure correct data per time period.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "analytics",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.totalObservations() == 0"
-    )
+//    @Cacheable(
+//            value = "analytics",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.totalObservations() == 0"
+//    )
     public FarmWeeklyAnalyticsDto computeWeeklyAnalytics(UUID farmId, int week, int year) {
         LOGGER.info("Computing weekly analytics for farm {} week {} year {}", farmId, week, year);
 

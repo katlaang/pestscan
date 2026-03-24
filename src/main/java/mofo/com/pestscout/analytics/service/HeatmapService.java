@@ -13,7 +13,6 @@ import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionTargetRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,11 +50,11 @@ public class HeatmapService {
      * Cached for 15 minutes since heatmap calculation is expensive
      * but must reflect recent observation data.
      */
-    @Cacheable(
-            value = "heatmap",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.cells().isEmpty()"
-    )
+//    @Cacheable(
+//            value = "heatmap",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.cells().isEmpty()"
+//    )
     @Transactional(readOnly = true)
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {
         LOGGER.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);

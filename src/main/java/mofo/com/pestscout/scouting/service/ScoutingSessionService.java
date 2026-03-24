@@ -25,7 +25,6 @@ import mofo.com.pestscout.farm.service.LicenseService;
 import mofo.com.pestscout.scouting.dto.*;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.*;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -735,11 +734,11 @@ public class ScoutingSessionService {
      * Load one session with all its observations and recommendations.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "session-detail",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "session-detail",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null"
+//    )
     public ScoutingSessionDetailDto getSession(UUID sessionId) {
         return getSessionInternal(sessionId, null, null, null, null, false);
     }
@@ -768,11 +767,11 @@ public class ScoutingSessionService {
      * List all sessions for a farm, newest first.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "sessions-list",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.isEmpty()"
-    )
+//    @Cacheable(
+//            value = "sessions-list",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.isEmpty()"
+//    )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
         Role role = farmAccessService.getCurrentUserRole();
 
