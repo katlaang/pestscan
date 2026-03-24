@@ -59,7 +59,12 @@ public record ScoutingSessionDetailDto(
         String reopenComment,
 
         List<ScoutingSessionSectionDto> sections,
-        List<RecommendationEntryDto> recommendations
+        List<RecommendationEntryDto> recommendations,
+        String farmName,
+        Integer weekYear,
+        String weekKey,
+        boolean openRestricted,
+        String observationTimezone
 ) {
     public ScoutingSessionDetailDto(
             UUID id,
@@ -122,7 +127,12 @@ public record ScoutingSessionDetailDto(
                 confirmationAcknowledged,
                 reopenComment,
                 sections,
-                recommendations
+                recommendations,
+                null,
+                null,
+                null,
+                false,
+                null
         );
     }
 
@@ -186,7 +196,87 @@ public record ScoutingSessionDetailDto(
                 confirmationAcknowledged,
                 reopenComment,
                 sections,
-                recommendations
+                recommendations,
+                null,
+                null,
+                null,
+                false,
+                null
+        );
+    }
+
+    public ScoutingSessionDetailDto(
+            UUID id,
+            Long version,
+            UUID farmId,
+            LocalDate sessionDate,
+            Integer weekNumber,
+            SessionStatus status,
+            SyncStatus syncStatus,
+            UUID managerId,
+            UUID scoutId,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            List<SpeciesCode> surveySpeciesCodes,
+            List<CustomSpeciesDto> customSurveySpecies,
+            PhotoSourceType defaultPhotoSourceType,
+            LocalDateTime startedAt,
+            LocalDateTime submittedAt,
+            LocalDateTime completedAt,
+            boolean remoteStartConsentRequired,
+            LocalDateTime remoteStartRequestedAt,
+            String remoteStartRequestedByName,
+            LocalDateTime updatedAt,
+            boolean confirmationAcknowledged,
+            String reopenComment,
+            List<ScoutingSessionSectionDto> sections,
+            List<RecommendationEntryDto> recommendations,
+            String farmName,
+            Integer weekYear,
+            String weekKey,
+            boolean openRestricted
+    ) {
+        this(
+                id,
+                version,
+                farmId,
+                sessionDate,
+                weekNumber,
+                status,
+                syncStatus,
+                managerId,
+                scoutId,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                surveySpeciesCodes,
+                customSurveySpecies,
+                defaultPhotoSourceType,
+                startedAt,
+                submittedAt,
+                completedAt,
+                remoteStartConsentRequired,
+                remoteStartRequestedAt,
+                remoteStartRequestedByName,
+                updatedAt,
+                confirmationAcknowledged,
+                reopenComment,
+                sections,
+                recommendations,
+                farmName,
+                weekYear,
+                weekKey,
+                openRestricted,
+                null
         );
     }
 }

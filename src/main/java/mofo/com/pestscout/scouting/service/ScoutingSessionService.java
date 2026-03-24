@@ -30,7 +30,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -79,6 +83,8 @@ public class ScoutingSessionService {
         User manager = resolveManager(farm);
         User scout = resolveScout(request, farm);
         List<CustomSpeciesDefinition> customSurveySpecies = resolveCustomSurveySpecies(farm, request.customSurveySpeciesIds());
+        String observationTimezone = resolveObservationTimezone(request.observationTimezone(), farm);
+        LocalTime observationTime = resolveObservationTime(request.observationTime(), observationTimezone);
 
         SessionStatus initialStatus = request.status() == null ? SessionStatus.DRAFT : request.status();
         if (initialStatus != SessionStatus.DRAFT && initialStatus != SessionStatus.NEW) {
@@ -95,7 +101,8 @@ public class ScoutingSessionService {
                 .cropVariety(request.variety())
                 .temperatureCelsius(request.temperatureCelsius())
                 .relativeHumidityPercent(request.relativeHumidityPercent())
-                .observationTime(request.observationTime())
+                .observationTime(observationTime)
+                .observationTimezone(observationTimezone)
                 .weatherNotes(request.weatherNotes())
                 .notes(request.notes())
                 .surveySpecies(normalizeSurveySpecies(request.surveySpeciesCodes()))
@@ -169,6 +176,9 @@ public class ScoutingSessionService {
         if (request.observationTime() != null) {
             session.setObservationTime(request.observationTime());
         }
+        if (request.observationTimezone() != null) {
+            session.setObservationTimezone(resolveObservationTimezone(request.observationTimezone(), session.getFarm()));
+        }
         if (request.weatherNotes() != null) {
             session.setWeatherNotes(request.weatherNotes());
         }
@@ -234,6 +244,9 @@ public class ScoutingSessionService {
         if (request.observationTime() != null) {
             session.setObservationTime(request.observationTime());
         }
+        if (request.observationTimezone() != null) {
+            session.setObservationTimezone(resolveObservationTimezone(request.observationTimezone(), session.getFarm()));
+        }
         if (request.weatherNotes() != null) {
             session.setWeatherNotes(request.weatherNotes());
         }
@@ -287,6 +300,7 @@ public class ScoutingSessionService {
                 .cropType(sourceSession.getCropType())
                 .cropVariety(sourceSession.getCropVariety())
                 .notes(sourceSession.getNotes())
+                .observationTimezone(resolveObservationTimezone(sourceSession.getObservationTimezone(), farm))
                 .surveySpecies(new ArrayList<>(normalizeSurveySpecies(sourceSession.getSurveySpecies())))
                 .customSurveySpecies(new ArrayList<>(sourceSession.getCustomSurveySpecies()))
                 .defaultPhotoSourceType(sourceSession.getDefaultPhotoSourceType())
@@ -762,9 +776,23 @@ public class ScoutingSessionService {
             unless = "#result == null || #result.isEmpty()"
     )
     public List<ScoutingSessionDetailDto> listSessions(UUID farmId) {
+        Role role = farmAccessService.getCurrentUserRole();
+
+        if (farmId == null) {
+            if (role != Role.SUPER_ADMIN) {
+                throw new BadRequestException("Parameter 'farmId' is required unless the current user is a super admin.");
+            }
+
+            return sessionRepository.findAll().stream()
+                    .sorted(Comparator
+                            .comparing(ScoutingSession::getSessionDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                            .thenComparing(session -> session.getFarm() != null ? session.getFarm().getName() : "", String.CASE_INSENSITIVE_ORDER))
+                    .map(this::mapToViewerDetailDto)
+                    .collect(Collectors.toList());
+        }
+
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
-        Role role = farmAccessService.getCurrentUserRole();
 
         if (role == Role.SCOUT) {
             UUID currentUserId = currentUserService.getCurrentUserId();
@@ -779,7 +807,6 @@ public class ScoutingSessionService {
         requireSessionViewerAccess(farm);
 
         return sessionRepository.findByFarmId(farmId).stream()
-                .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
                 .sorted(Comparator.comparing(ScoutingSession::getSessionDate).reversed())
                 .map(this::mapToViewerDetailDto)
                 .collect(Collectors.toList());
@@ -847,13 +874,12 @@ public class ScoutingSessionService {
         List<ScoutingSessionDetailDto> sessionDtos = touchedSessionIds.isEmpty()
                 ? List.of()
                 : sessionRepository.findAllById(touchedSessionIds).stream()
-                .filter(session -> role != Role.SUPER_ADMIN || isVisibleToSuperAdmin(session))
                 .map(session -> mapToViewerDetailDto(session, includeDeleted))
                 .toList();
 
         Set<UUID> restrictedSessionIds = changedObservations.stream()
                 .map(ScoutingObservation::getSession)
-                .filter(this::isRestrictedInProgressForFarmViewer)
+                .filter(this::isRestrictedInProgressForViewer)
                 .map(ScoutingSession::getId)
                 .collect(Collectors.toSet());
 
@@ -936,7 +962,7 @@ public class ScoutingSessionService {
                 || request.customSurveySpeciesIds() != null
                 || request.defaultPhotoSourceType() != null
                 || request.status() != null) {
-            throw new BadRequestException("Scouts can only update weather, observation time, and session notes.");
+            throw new BadRequestException("Scouts can only update weather, observation time, observation timezone, and session notes.");
         }
     }
 
@@ -1043,9 +1069,9 @@ public class ScoutingSessionService {
         ).contains(session.getStatus());
     }
 
-    private boolean isRestrictedInProgressForFarmViewer(ScoutingSession session) {
+    private boolean isRestrictedInProgressForViewer(ScoutingSession session) {
         Role role = farmAccessService.getCurrentUserRole();
-        return (role == Role.FARM_ADMIN || role == Role.MANAGER)
+        return (role == Role.SUPER_ADMIN || role == Role.FARM_ADMIN || role == Role.MANAGER)
                 && session.getStatus() == SessionStatus.IN_PROGRESS;
     }
 
@@ -1400,7 +1426,7 @@ public class ScoutingSessionService {
 
     private void enforceSessionOpenAccess(ScoutingSession session) {
         enforceSessionVisibility(session);
-        if (isRestrictedInProgressForFarmViewer(session)) {
+        if (isRestrictedInProgressForViewer(session)) {
             throw new ForbiddenException("In-progress sessions are visible in the list but can only be opened by the assigned scout.");
         }
     }
@@ -1413,7 +1439,7 @@ public class ScoutingSessionService {
 
         UUID currentUserId = currentUserService.getCurrentUserId();
         boolean isOwner = farm.getOwner() != null && farm.getOwner().getId().equals(currentUserId);
-        boolean isMember = membershipRepository.existsByUser_IdAndFarmId(currentUserId, farm.getId());
+        boolean isMember = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(currentUserId, farm.getId());
 
         if (role == Role.FARM_ADMIN || role == Role.MANAGER) {
             if (isOwner || isMember) {
@@ -1450,7 +1476,7 @@ public class ScoutingSessionService {
     }
 
     private ScoutingSessionDetailDto mapToViewerDetailDto(ScoutingSession session, boolean includeDeletedObservations) {
-        if (isRestrictedInProgressForFarmViewer(session)) {
+        if (isRestrictedInProgressForViewer(session)) {
             return mapToRestrictedInProgressDto(session);
         }
         return mapToDetailDto(session, includeDeletedObservations);
@@ -1490,7 +1516,12 @@ public class ScoutingSessionService {
                 false,
                 null,
                 List.of(),
-                List.of()
+                List.of(),
+                session.getFarm() != null ? session.getFarm().getName() : null,
+                resolveWeekYear(session),
+                resolveWeekKey(session),
+                true,
+                null
         );
     }
 
@@ -1568,8 +1599,29 @@ public class ScoutingSessionService {
                 session.isConfirmationAcknowledged(),
                 session.getReopenComment(),
                 sectionDtos,
-                recommendationDtos
+                recommendationDtos,
+                session.getFarm() != null ? session.getFarm().getName() : null,
+                resolveWeekYear(session),
+                resolveWeekKey(session),
+                false,
+                session.getObservationTimezone()
         );
+    }
+
+    private Integer resolveWeekYear(ScoutingSession session) {
+        if (session == null || session.getSessionDate() == null) {
+            return null;
+        }
+        return session.getSessionDate().get(WeekFields.ISO.weekBasedYear());
+    }
+
+    private String resolveWeekKey(ScoutingSession session) {
+        Integer weekYear = resolveWeekYear(session);
+        Integer weekNumber = session != null ? session.getWeekNumber() : null;
+        if (weekYear == null || weekNumber == null) {
+            return null;
+        }
+        return "%04d-W%02d".formatted(weekYear, weekNumber);
     }
 
     private Map<UUID, List<ScoutingObservationDto>> resolveDisplayedObservationsByTarget(ScoutingSession session,
@@ -2082,6 +2134,53 @@ public class ScoutingSessionService {
             String displayName,
             ObservationCategory category
     ) {
+    }
+
+    private String resolveObservationTimezone(String requestedTimezone, Farm farm) {
+        String normalizedRequestedTimezone = normalizeTimezone(requestedTimezone);
+        if (normalizedRequestedTimezone != null) {
+            return normalizedRequestedTimezone;
+        }
+
+        String farmTimezone = farm != null ? normalizeTimezoneOrNull(farm.getTimezone()) : null;
+        if (farmTimezone != null) {
+            return farmTimezone;
+        }
+
+        return ZoneId.systemDefault().getId();
+    }
+
+    private String normalizeTimezone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return null;
+        }
+
+        try {
+            return ZoneId.of(timezone.trim()).getId();
+        } catch (DateTimeException ex) {
+            throw new BadRequestException("Invalid observation timezone. Use a valid IANA time zone such as Africa/Nairobi.");
+        }
+    }
+
+    private String normalizeTimezoneOrNull(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return null;
+        }
+
+        try {
+            return ZoneId.of(timezone.trim()).getId();
+        } catch (DateTimeException ex) {
+            log.warn("Ignoring invalid farm timezone '{}' while resolving scouting session observation timezone", timezone);
+            return null;
+        }
+    }
+
+    private LocalTime resolveObservationTime(LocalTime requestedTime, String timezone) {
+        if (requestedTime != null) {
+            return requestedTime;
+        }
+
+        return LocalTime.now(ZoneId.of(timezone)).truncatedTo(ChronoUnit.MINUTES);
     }
 
     private int resolveWeekNumber(java.time.LocalDate date, Integer requestedWeek) {

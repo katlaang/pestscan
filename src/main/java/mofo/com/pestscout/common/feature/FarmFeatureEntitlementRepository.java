@@ -14,4 +14,6 @@ public interface FarmFeatureEntitlementRepository extends JpaRepository<FarmFeat
     List<FarmFeatureEntitlement> findByFarmId(UUID farmId);
 
     Optional<FarmFeatureEntitlement> findByFarmIdAndFeatureKey(UUID farmId, FeatureKey featureKey);
+
+    void deleteByFarmId(UUID farmId);
 }

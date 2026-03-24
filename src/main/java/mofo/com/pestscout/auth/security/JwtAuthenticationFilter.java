@@ -265,6 +265,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String requestSessionId = request.getHeader(ClientSessionHeaders.CLIENT_SESSION_ID);
-        return !StringUtils.hasText(requestSessionId) || !activeClientSessionId.equals(requestSessionId);
+        if (!StringUtils.hasText(requestSessionId)) {
+            return false;
+        }
+
+        return !activeClientSessionId.equals(requestSessionId.trim());
     }
 }

@@ -42,7 +42,8 @@ public record UpdateScoutingSessionRequest(
         String deviceType,
         String location,
         String comment,
-        String actorName
+        String actorName,
+        String observationTimezone
 ) {
     public UpdateScoutingSessionRequest(
             LocalDate sessionDate,
@@ -86,7 +87,57 @@ public record UpdateScoutingSessionRequest(
                 deviceType,
                 location,
                 comment,
-                actorName
+                actorName,
+                null
+        );
+    }
+
+    public UpdateScoutingSessionRequest(
+            LocalDate sessionDate,
+            Integer weekNumber,
+            List<SessionTargetRequest> targets,
+            UUID scoutId,
+            String crop,
+            String variety,
+            BigDecimal temperatureCelsius,
+            BigDecimal relativeHumidityPercent,
+            LocalTime observationTime,
+            String weatherNotes,
+            String notes,
+            List<SpeciesCode> surveySpeciesCodes,
+            List<UUID> customSurveySpeciesIds,
+            PhotoSourceType defaultPhotoSourceType,
+            SessionStatus status,
+            Long version,
+            String deviceId,
+            String deviceType,
+            String location,
+            String comment,
+            String actorName
+    ) {
+        this(
+                sessionDate,
+                weekNumber,
+                targets,
+                scoutId,
+                crop,
+                variety,
+                temperatureCelsius,
+                relativeHumidityPercent,
+                observationTime,
+                weatherNotes,
+                notes,
+                surveySpeciesCodes,
+                customSurveySpeciesIds,
+                defaultPhotoSourceType,
+                status,
+                version,
+                deviceId,
+                deviceType,
+                location,
+                comment,
+                actorName,
+                null
         );
     }
 }

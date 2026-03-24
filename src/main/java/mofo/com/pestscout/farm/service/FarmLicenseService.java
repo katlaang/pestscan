@@ -110,15 +110,10 @@ public class FarmLicenseService {
         if (request.licenseGracePeriodEnd() != null) {
             farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
         }
-        if (request.licenseArchivedDate() != null) {
-            farm.setLicenseArchivedDate(request.licenseArchivedDate());
-        }
         if (request.autoRenewEnabled() != null) {
             farm.setAutoRenewEnabled(request.autoRenewEnabled());
         }
-        if (request.isArchived() != null) {
-            farm.setIsArchived(request.isArchived());
-        }
+        applyArchivedState(farm, request.isArchived(), request.licenseArchivedDate());
         if (commercialPolicyChanged || request.subscriptionStatus() != null) {
             farm.setLicenseExpiryNotificationSentAt(null);
         }
@@ -156,6 +151,22 @@ public class FarmLicenseService {
         }
         if (graceEnd != null && archivedDate != null && archivedDate.isBefore(graceEnd)) {
             throw new BadRequestException("License archived date cannot be before the grace period end date.");
+        }
+    }
+
+    private void applyArchivedState(Farm farm, Boolean requestedArchivedState, LocalDate requestedArchivedDate) {
+        if (requestedArchivedDate != null) {
+            farm.setLicenseArchivedDate(requestedArchivedDate);
+        }
+        if (requestedArchivedState == null) {
+            return;
+        }
+
+        boolean wasArchived = Boolean.TRUE.equals(farm.getIsArchived());
+        farm.setIsArchived(requestedArchivedState);
+
+        if (requestedArchivedState && (!wasArchived || farm.getLicenseArchivedDate() == null) && requestedArchivedDate == null) {
+            farm.setLicenseArchivedDate(LocalDate.now());
         }
     }
 

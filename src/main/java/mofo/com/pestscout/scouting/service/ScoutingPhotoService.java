@@ -47,7 +47,7 @@ public class ScoutingPhotoService {
         enforceAssignedScout(session);
         ensureSessionAllowsPhotoChanges(session);
 
-        CellPhotoContext context = null;
+        PhotoAttachmentContext context = null;
         ScoutingObservation observation = null;
         if (request.observationId() != null) {
             observation = observationRepository.findById(request.observationId())
@@ -55,7 +55,7 @@ public class ScoutingPhotoService {
             if (!observation.getSession().getId().equals(session.getId())) {
                 throw new BadRequestException("Observation does not belong to the session");
             }
-            context = CellPhotoContext.fromObservation(observation);
+            context = PhotoAttachmentContext.fromObservation(observation);
         }
 
         if (context == null) {
@@ -165,7 +165,16 @@ public class ScoutingPhotoService {
         }
     }
 
-    private CellPhotoContext resolveContextFromRequest(ScoutingSession session, PhotoMetadataRequest request) {
+    private PhotoAttachmentContext resolveContextFromRequest(ScoutingSession session, PhotoMetadataRequest request) {
+        boolean hasAnyCellFields = request.sessionTargetId() != null
+                || request.bayIndex() != null
+                || request.benchIndex() != null
+                || request.spotIndex() != null;
+
+        if (!hasAnyCellFields) {
+            return PhotoAttachmentContext.sessionRemark();
+        }
+
         if (request.sessionTargetId() == null
                 || request.bayIndex() == null
                 || request.benchIndex() == null
@@ -176,7 +185,7 @@ public class ScoutingPhotoService {
         ScoutingSessionTarget target = sessionTargetRepository.findByIdAndSessionId(request.sessionTargetId(), session.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("ScoutingSessionTarget", "id", request.sessionTargetId()));
 
-        return new CellPhotoContext(
+        return new PhotoAttachmentContext(
                 target,
                 request.bayIndex(),
                 request.bayTag(),
@@ -186,9 +195,13 @@ public class ScoutingPhotoService {
         );
     }
 
-    private void assertPhotoLimitNotExceeded(UUID sessionId, String localPhotoId, CellPhotoContext context) {
+    private void assertPhotoLimitNotExceeded(UUID sessionId, String localPhotoId, PhotoAttachmentContext context) {
         Optional<ScoutingPhoto> existing = photoRepository.findByLocalPhotoIdAndDeletedFalse(localPhotoId);
         if (existing.isPresent()) {
+            return;
+        }
+
+        if (!context.isCellScoped()) {
             return;
         }
 
@@ -244,7 +257,7 @@ public class ScoutingPhotoService {
         );
     }
 
-    private record CellPhotoContext(
+    private record PhotoAttachmentContext(
             ScoutingSessionTarget sessionTarget,
             Integer bayIndex,
             String bayTag,
@@ -252,8 +265,8 @@ public class ScoutingPhotoService {
             String benchTag,
             Integer spotIndex
     ) {
-        private static CellPhotoContext fromObservation(ScoutingObservation observation) {
-            return new CellPhotoContext(
+        private static PhotoAttachmentContext fromObservation(ScoutingObservation observation) {
+            return new PhotoAttachmentContext(
                     observation.getSessionTarget(),
                     observation.getBayIndex(),
                     observation.getBayLabel(),
@@ -261,6 +274,14 @@ public class ScoutingPhotoService {
                     observation.getBenchLabel(),
                     observation.getSpotIndex()
             );
+        }
+
+        private static PhotoAttachmentContext sessionRemark() {
+            return new PhotoAttachmentContext(null, null, null, null, null, null);
+        }
+
+        private boolean isCellScoped() {
+            return sessionTarget != null && bayIndex != null && benchIndex != null && spotIndex != null;
         }
     }
 }

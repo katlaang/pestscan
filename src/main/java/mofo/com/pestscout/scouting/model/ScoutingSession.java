@@ -84,6 +84,9 @@ public class ScoutingSession extends BaseEntity {
     @Column(name = "observation_time")
     private LocalTime observationTime;
 
+    @Column(name = "observation_timezone", length = 100)
+    private String observationTimezone;
+
     @Column(name = "weather_notes", length = 2000)
     private String weatherNotes;
 

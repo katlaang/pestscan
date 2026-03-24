@@ -1,6 +1,8 @@
 package mofo.com.pestscout.auth.security;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,6 +28,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CorsConfigurationSource corsConfigurationSource;
@@ -55,6 +58,7 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        LOGGER.info("JWT FILTER EXECUTED");
         http
                 // Disable CSRF (using JWT tokens)
                 .csrf(AbstractHttpConfigurer::disable)

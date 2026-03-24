@@ -35,7 +35,7 @@ public class ScoutingAnalysisAccessService {
         }
 
         boolean isOwner = farm.getOwner() != null && farm.getOwner().getId().equals(currentUser.getId());
-        boolean isMember = membershipRepository.existsByUser_IdAndFarmId(currentUser.getId(), farmId);
+        boolean isMember = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(currentUser.getId(), farmId);
         boolean isAssignedScout = farm.getScout() != null && farm.getScout().getId().equals(currentUser.getId());
 
         if ((role == Role.FARM_ADMIN || role == Role.MANAGER) && (isOwner || isMember)) {
@@ -62,7 +62,7 @@ public class ScoutingAnalysisAccessService {
         }
 
         boolean isOwner = farm.getOwner() != null && farm.getOwner().getId().equals(currentUser.getId());
-        boolean isMember = membershipRepository.existsByUser_IdAndFarmId(currentUser.getId(), farmId);
+        boolean isMember = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(currentUser.getId(), farmId);
 
         if ((role == Role.FARM_ADMIN || role == Role.MANAGER) && (isOwner || isMember)) {
             licenseService.assertOperationalAccess(farm);

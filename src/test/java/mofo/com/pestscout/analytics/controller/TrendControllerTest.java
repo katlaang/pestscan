@@ -1,6 +1,7 @@
 package mofo.com.pestscout.analytics.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import mofo.com.pestscout.analytics.dto.GreenhouseWeeklyCountDto;
 import mofo.com.pestscout.analytics.dto.PestTrendResponse;
 import mofo.com.pestscout.analytics.dto.TrendPointDto;
 import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
@@ -46,6 +47,7 @@ class TrendControllerTest {
     private UUID farmId;
     private PestTrendResponse trendResponse;
     private List<WeeklyPestTrendDto> weeklyTrends;
+    private List<GreenhouseWeeklyCountDto> greenhouseWeeklyCounts;
 
     @BeforeEach
     void setUp() {
@@ -66,8 +68,12 @@ class TrendControllerTest {
 
         // Setup weekly trends
         weeklyTrends = Arrays.asList(
-                new WeeklyPestTrendDto("W1", 5, 3, 2, 1, 0, 0, 0),
-                new WeeklyPestTrendDto("W2", 8, 4, 1, 2, 1, 0, 0)
+                new WeeklyPestTrendDto("2024-W01", 5, 3, 2, 1, 0, 0, 0, 1, 2024),
+                new WeeklyPestTrendDto("2024-W02", 8, 4, 1, 2, 1, 0, 0, 2, 2024)
+        );
+
+        greenhouseWeeklyCounts = List.of(
+                new GreenhouseWeeklyCountDto(UUID.randomUUID(), "House A", 1, 2024, "2024-W01", "THRIPS", 5)
         );
     }
 
@@ -188,10 +194,12 @@ class TrendControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].week").value("W1"))
+                .andExpect(jsonPath("$[0].week").value("2024-W01"))
+                .andExpect(jsonPath("$[0].weekNumber").value(1))
+                .andExpect(jsonPath("$[0].year").value(2024))
                 .andExpect(jsonPath("$[0].thrips").value(5))
                 .andExpect(jsonPath("$[0].redSpider").value(3))
-                .andExpect(jsonPath("$[1].week").value("W2"))
+                .andExpect(jsonPath("$[1].week").value("2024-W02"))
                 .andExpect(jsonPath("$[1].thrips").value(8));
 
         verify(trendAnalysisService).getWeeklyPestTrends(farmId);
@@ -335,5 +343,24 @@ class TrendControllerTest {
 
         verify(trendAnalysisService, times(pestTypes.length))
                 .getPestTrend(any(UUID.class), anyString(), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/analytics/trend/greenhouse-weekly - Success")
+    void getGreenhouseWeeklyCounts_WithValidParams_ReturnsSeries() throws Exception {
+        when(trendAnalysisService.getGreenhouseWeeklyCounts(farmId, 2024, "THRIPS"))
+                .thenReturn(greenhouseWeeklyCounts);
+
+        mockMvc.perform(get("/api/analytics/trend/greenhouse-weekly")
+                        .param("farmId", farmId.toString())
+                        .param("year", "2024")
+                        .param("species", "THRIPS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].greenhouseName").value("House A"))
+                .andExpect(jsonPath("$[0].weekKey").value("2024-W01"))
+                .andExpect(jsonPath("$[0].totalCount").value(5));
+
+        verify(trendAnalysisService).getGreenhouseWeeklyCounts(farmId, 2024, "THRIPS");
     }
 }

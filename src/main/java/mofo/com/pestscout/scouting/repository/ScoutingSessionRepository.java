@@ -1,14 +1,14 @@
 package mofo.com.pestscout.scouting.repository;
 
+import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.model.ScoutingSession;
 import mofo.com.pestscout.scouting.model.SessionStatus;
-import mofo.com.pestscout.common.model.SyncStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +17,8 @@ import java.util.UUID;
  * Data access for scouting sessions.
  */
 public interface ScoutingSessionRepository extends JpaRepository<ScoutingSession, UUID> {
+
+    boolean existsByFarmId(UUID farmId);
 
     /**
      * Return all sessions for a farm.

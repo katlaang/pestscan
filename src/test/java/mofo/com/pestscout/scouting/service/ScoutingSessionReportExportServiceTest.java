@@ -97,6 +97,7 @@ class ScoutingSessionReportExportServiceTest {
                 "Warm day",
                 "Session summary",
                 List.of(SpeciesCode.THRIPS),
+                List.of(),
                 PhotoSourceType.SCOUT_HANDHELD,
                 LocalDateTime.of(2026, 3, 18, 8, 30),
                 LocalDateTime.of(2026, 3, 18, 10, 0),
@@ -108,7 +109,12 @@ class ScoutingSessionReportExportServiceTest {
                 true,
                 null,
                 List.of(section),
-                List.of(new RecommendationEntryDto(RecommendationType.CHEMICAL_SPRAYS, "Apply targeted control"))
+                List.of(new RecommendationEntryDto(RecommendationType.CHEMICAL_SPRAYS, "Apply targeted control")),
+                null,
+                null,
+                null,
+                false,
+                "Africa/Nairobi"
         );
 
         ScoutingSession session = ScoutingSession.builder()
@@ -143,6 +149,8 @@ class ScoutingSessionReportExportServiceTest {
         assertThat(csv).contains("\"GH-1\"");
         assertThat(csv).contains("\"Thrips\"");
         assertThat(csv).contains("\"CHEMICAL_SPRAYS: Apply targeted control\"");
+        assertThat(csv).contains("\"observation_timezone\"");
+        assertThat(csv).contains("\"Africa/Nairobi\"");
         assertThat(csv).contains("\"'=SUM(A1:A2)\"");
     }
 }

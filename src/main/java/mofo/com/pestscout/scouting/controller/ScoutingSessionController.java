@@ -156,8 +156,8 @@ public class ScoutingSessionController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
-    public ResponseEntity<List<ScoutingSessionDetailDto>> listSessions(@RequestParam UUID farmId) {
-        LOGGER.info("GET /api/scouting/sessions — listing sessions for farm {}", farmId);
+    public ResponseEntity<List<ScoutingSessionDetailDto>> listSessions(@RequestParam(required = false) UUID farmId) {
+        LOGGER.info("GET /api/scouting/sessions — listing sessions for {}", farmId != null ? "farm " + farmId : "all visible farms");
         return ResponseEntity.ok(sessionService.listSessions(farmId));
     }
 

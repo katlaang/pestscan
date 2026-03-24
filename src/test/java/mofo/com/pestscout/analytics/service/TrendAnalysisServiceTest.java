@@ -1,9 +1,7 @@
 package mofo.com.pestscout.analytics.service;
 
-import mofo.com.pestscout.analytics.dto.PestTrendResponse;
-import mofo.com.pestscout.analytics.dto.SeverityTrendPointDto;
-import mofo.com.pestscout.analytics.dto.TrendPointDto;
-import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
+import mofo.com.pestscout.analytics.dto.*;
+import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.scouting.model.*;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -57,14 +55,17 @@ class TrendAnalysisServiceTest {
 
             WeekFields weekFields = WeekFields.ISO;
             int sessionWeek = session.getSessionDate().get(weekFields.weekOfWeekBasedYear());
+            int sessionYear = session.getSessionDate().get(weekFields.weekBasedYear());
             WeeklyPestTrendDto matchingWeek = result.stream()
-                    .filter(dto -> dto.week().equals("W" + sessionWeek))
+                    .filter(dto -> dto.week().equals("%04d-W%02d".formatted(sessionYear, sessionWeek)))
                     .findFirst()
                     .orElseThrow();
 
             assertThat(matchingWeek.thrips()).isEqualTo(3);
             assertThat(matchingWeek.redSpider()).isEqualTo(2);
             assertThat(matchingWeek.whiteflies()).isZero();
+            assertThat(matchingWeek.weekNumber()).isEqualTo(sessionWeek);
+            assertThat(matchingWeek.year()).isEqualTo(sessionYear);
         });
     }
 
@@ -92,14 +93,17 @@ class TrendAnalysisServiceTest {
             List<SeverityTrendPointDto> trend = service.getSeverityTrend(farmId);
             WeekFields weekFields = WeekFields.ISO;
             int weekNumber = session.getSessionDate().get(weekFields.weekOfWeekBasedYear());
+            int weekYear = session.getSessionDate().get(weekFields.weekBasedYear());
             SeverityTrendPointDto point = trend.stream()
-                    .filter(dto -> dto.week().equals("W" + weekNumber))
+                    .filter(dto -> dto.week().equals("%04d-W%02d".formatted(weekYear, weekNumber)))
                     .findFirst()
                     .orElseThrow();
 
             assertThat(point.low()).isEqualTo(1);
             assertThat(point.high()).isEqualTo(1);
             assertThat(point.medium()).isZero();
+            assertThat(point.weekNumber()).isEqualTo(weekNumber);
+            assertThat(point.year()).isEqualTo(weekYear);
         });
     }
 
@@ -132,6 +136,44 @@ class TrendAnalysisServiceTest {
         assertThat(points.getFirst().severity()).isEqualTo(4d);
         assertThat(points.get(1).severity()).isEqualTo(6d);
 
+    }
+
+    @Test
+    void aggregatesGreenhouseWeeklyCountsForSelectedPest() {
+        service = new TrendAnalysisService(sessionRepository, observationRepository, analyticsAccessService);
+        UUID farmId = UUID.randomUUID();
+        LocalDate sessionDate = LocalDate.of(2024, 6, 3);
+
+        Greenhouse greenhouse = Greenhouse.builder()
+                .id(UUID.randomUUID())
+                .name("House A")
+                .build();
+        ScoutingSession session = sessionOnDate(sessionDate);
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .greenhouse(greenhouse)
+                .build();
+
+        ScoutingObservation matchingObservation = observation(session, SpeciesCode.THRIPS, 7);
+        matchingObservation.setSessionTarget(target);
+        ScoutingObservation otherObservation = observation(session, SpeciesCode.WHITEFLIES, 3);
+        otherObservation.setSessionTarget(target);
+
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId)).thenReturn(null);
+        when(sessionRepository.findByFarmIdAndSessionDateBetween(Mockito.eq(farmId), Mockito.any(), Mockito.any()))
+                .thenReturn(List.of(session));
+        when(observationRepository.findBySessionIdIn(Mockito.any()))
+                .thenReturn(List.of(matchingObservation, otherObservation));
+
+        List<GreenhouseWeeklyCountDto> counts = service.getGreenhouseWeeklyCounts(farmId, 2024, "THRIPS");
+
+        assertThat(counts).singleElement().satisfies(item -> {
+            assertThat(item.greenhouseId()).isEqualTo(greenhouse.getId());
+            assertThat(item.greenhouseName()).isEqualTo("House A");
+            assertThat(item.weekKey()).isEqualTo("2024-W23");
+            assertThat(item.species()).isEqualTo("THRIPS");
+            assertThat(item.totalCount()).isEqualTo(7);
+        });
     }
 
     private ScoutingSession sessionOnDate(LocalDate date) {

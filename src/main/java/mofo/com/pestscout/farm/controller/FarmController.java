@@ -4,9 +4,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.auth.dto.UserDto;
 import mofo.com.pestscout.auth.service.UserService;
-import mofo.com.pestscout.farm.dto.CreateFarmRequest;
-import mofo.com.pestscout.farm.dto.FarmResponse;
-import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
+import mofo.com.pestscout.farm.dto.*;
+import mofo.com.pestscout.farm.service.FarmLayoutService;
 import mofo.com.pestscout.farm.service.FarmService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +25,7 @@ public class FarmController {
     private static final Logger LOGGER = LoggerFactory.getLogger(FarmController.class);
 
     private final FarmService farmService;
+    private final FarmLayoutService farmLayoutService;
     private final UserService userService;
 
     @PostMapping
@@ -64,5 +64,20 @@ public class FarmController {
                                                         @RequestAttribute("userId") UUID requestingUserId) {
         LOGGER.info("GET /api/farms/{}/members - listing farm members", farmId);
         return ResponseEntity.ok(userService.getUsersByFarm(farmId, requestingUserId));
+    }
+
+    @DeleteMapping("/{farmId}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<Void> deleteFarmPermanently(@PathVariable UUID farmId) {
+        LOGGER.info("DELETE /api/farms/{} - permanently deleting archived farm", farmId);
+        farmService.deleteFarmPermanently(farmId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/layout/preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<FarmLayoutPreviewResponse> previewFarmLayout(@Valid @RequestBody FarmLayoutPreviewRequest request) {
+        LOGGER.info("POST /api/farms/layout/preview - generating farm layout preview");
+        return ResponseEntity.ok(farmLayoutService.previewLayout(request));
     }
 }

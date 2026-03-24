@@ -1,7 +1,6 @@
 package mofo.com.pestscout.analytics.controller;
 
-import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
-import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
+import mofo.com.pestscout.analytics.dto.*;
 import mofo.com.pestscout.analytics.service.DashboardService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,5 +42,22 @@ class DashboardControllerTest {
         DashboardSummaryDto result = controller.getDashboard(farmId);
 
         assertThat(result).isEqualTo(summary);
+    }
+
+    @Test
+    void getDashboardOverviewDelegatesToService() {
+        DashboardOverviewDto overview = new DashboardOverviewDto(
+                1,
+                List.of(new DashboardFarmCardDto(UUID.randomUUID(), "US-ALPHA", "Alpha", LocalDate.now().plusDays(7), 7L, false)),
+                List.of(new LicenseAlertSummaryDto(UUID.randomUUID(), "Alpha", LocalDate.now().plusDays(7), 7L, "EXPIRING_SOON"))
+        );
+
+        when(dashboardService.getDashboardOverview()).thenReturn(overview);
+
+        DashboardController controller = new DashboardController(dashboardService);
+
+        DashboardOverviewDto result = controller.getDashboardOverview();
+
+        assertThat(result).isEqualTo(overview);
     }
 }

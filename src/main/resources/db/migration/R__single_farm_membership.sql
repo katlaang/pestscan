@@ -1,6 +1,5 @@
--- Enforce one farm membership row per user.
--- If duplicate rows already exist, keep the most relevant one and discard the rest
--- before adding the unique constraint.
+-- Allow users to hold memberships in multiple farms while still preventing
+-- duplicate membership rows for the same user/farm pair.
 
 DO
 $$
@@ -21,7 +20,7 @@ FROM user_farm_memberships membership USING (
         FROM (
             SELECT id,
                    row_number() OVER (
-                       PARTITION BY user_id
+                       PARTITION BY user_id, farm_id
                        ORDER BY
                            CASE WHEN is_active THEN 0 ELSE 1 END,
                            updated_at DESC,
@@ -48,7 +47,7 @@ CONSTRAINT uk_user_farm;
 END IF;
 
     IF
-NOT EXISTS (
+EXISTS (
         SELECT 1
         FROM information_schema.table_constraints
         WHERE table_schema = 'public'
@@ -56,6 +55,19 @@ NOT EXISTS (
           AND constraint_name = 'uk_user_membership'
     ) THEN
 ALTER TABLE user_farm_memberships
-    ADD CONSTRAINT uk_user_membership UNIQUE (user_id);
+DROP
+CONSTRAINT uk_user_membership;
+END IF;
+
+    IF
+NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = 'public'
+          AND table_name = 'user_farm_memberships'
+          AND constraint_name = 'uk_user_farm_membership_pair'
+    ) THEN
+ALTER TABLE user_farm_memberships
+    ADD CONSTRAINT uk_user_farm_membership_pair UNIQUE (user_id, farm_id);
 END IF;
 END $$;

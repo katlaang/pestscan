@@ -129,6 +129,7 @@ public class ReportingService {
                     HeatmapResponse response = heatmapService.generateHeatmap(farmId, weekNumber, year);
                     return new WeeklyHeatmapResponse(
                             weekNumber,
+                            year,
                             weekStart,
                             weekEnd,
                             response.sections()

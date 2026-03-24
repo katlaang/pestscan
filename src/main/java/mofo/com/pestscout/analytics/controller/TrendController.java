@@ -1,6 +1,7 @@
 package mofo.com.pestscout.analytics.controller;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.GreenhouseWeeklyCountDto;
 import mofo.com.pestscout.analytics.dto.PestTrendResponse;
 import mofo.com.pestscout.analytics.dto.SeverityTrendPointDto;
 import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
@@ -51,6 +52,16 @@ public class TrendController {
         List<SeverityTrendPointDto> trend =
                 trendAnalysisService.getSeverityTrend(farmId);
         return ResponseEntity.ok(trend);
+    }
+
+    @GetMapping("/greenhouse-weekly")
+    public ResponseEntity<List<GreenhouseWeeklyCountDto>> getGreenhouseWeeklyCounts(
+            @RequestParam UUID farmId,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(name = "species", required = false) String speciesCode
+    ) {
+        List<GreenhouseWeeklyCountDto> response = trendAnalysisService.getGreenhouseWeeklyCounts(farmId, year, speciesCode);
+        return ResponseEntity.ok(response);
     }
 }
 

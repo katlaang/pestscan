@@ -18,8 +18,8 @@ import java.util.UUID;
 public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMembership, UUID> {
 
     /**
-     * Single membership row for a given user, regardless of active status.
-     * A user can be attached to only one farm.
+     * First membership row for a given user, regardless of active status.
+     * Kept for compatibility with older callers that only need one farm context.
      */
     Optional<UserFarmMembership> findFirstByUser_Id(UUID userId);
 
@@ -41,6 +41,8 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
      */
     List<UserFarmMembership> findByFarmId(UUID farmId);
 
+    void deleteByFarmId(UUID farmId);
+
     /**
      * Membership for a given user and farm, if any.
      * Used to authorize a request in a specific farm context.
@@ -56,6 +58,13 @@ public interface UserFarmMembershipRepository extends JpaRepository<UserFarmMemb
      * Quick check if user belongs to a farm at all.
      */
     boolean existsByUser_IdAndFarmId(UUID userId, UUID farmId);
+
+    /**
+     * Quick check if user belongs to a farm with an active membership.
+     */
+    boolean existsByUser_IdAndFarmIdAndIsActiveTrue(UUID userId, UUID farmId);
+
+    Optional<UserFarmMembership> findByUser_IdAndFarmIdAndIsActiveTrue(UUID userId, UUID farmId);
 
     /**
      * Search active users in a given farm by name or email.

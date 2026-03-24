@@ -12,4 +12,6 @@ public interface FarmLicenseHistoryRepository extends JpaRepository<FarmLicenseH
     List<FarmLicenseHistory> findByFarmIdOrderByCreatedAtDesc(UUID farmId);
 
     Optional<FarmLicenseHistory> findFirstByFarmIdOrderByCreatedAtAsc(UUID farmId);
+
+    boolean existsByFarmId(UUID farmId);
 }

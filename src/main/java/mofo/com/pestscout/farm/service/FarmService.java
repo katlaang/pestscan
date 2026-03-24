@@ -11,20 +11,25 @@ import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.feature.FarmFeatureEntitlementRepository;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.*;
+import mofo.com.pestscout.farm.repository.FarmLicenseHistoryRepository;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.optional.repository.SupplyOrderRequestRepository;
+import mofo.com.pestscout.scouting.repository.CustomSpeciesDefinitionRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.Consumer;
@@ -45,6 +50,11 @@ public class FarmService {
     private final CustomerNumberService customerNumberService;
     private final CacheService cacheService;
     private final FarmAreaAllocationService farmAreaAllocationService;
+    private final FarmLicenseHistoryRepository farmLicenseHistoryRepository;
+    private final ScoutingSessionRepository scoutingSessionRepository;
+    private final FarmFeatureEntitlementRepository farmFeatureEntitlementRepository;
+    private final CustomSpeciesDefinitionRepository customSpeciesDefinitionRepository;
+    private final SupplyOrderRequestRepository supplyOrderRequestRepository;
 
     /**
      * SUPER_ADMIN ONLY.
@@ -131,11 +141,11 @@ public class FarmService {
      * Cached per user role to improve performance.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "farms-list",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null || #result.isEmpty()"
-    )
+//    @Cacheable(
+//            value = "farms-list",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null || #result.isEmpty()"
+//    )
     public List<FarmResponse> listFarms() {
         LOGGER.info("Listing farms for current user");
         List<Farm> farms;
@@ -158,17 +168,35 @@ public class FarmService {
      * Cached for 2 hours since farm metadata rarely changes.
      */
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "farms",
-            keyGenerator = "tenantAwareKeyGenerator",
-            unless = "#result == null"
-    )
+//    @Cacheable(
+//            value = "farms",
+//            keyGenerator = "tenantAwareKeyGenerator",
+//            unless = "#result == null"
+//    )
     public FarmResponse getFarm(UUID farmId) {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
         farmAccess.requireViewAccess(farm);
         return mapToResponse(farm);
+    }
+
+    @Transactional
+    public void deleteFarmPermanently(UUID farmId) {
+        farmAccess.requireSuperAdmin();
+
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+
+        assertEligibleForPermanentDeletion(farm);
+
+        farmFeatureEntitlementRepository.deleteByFarmId(farmId);
+        customSpeciesDefinitionRepository.deleteByFarmId(farmId);
+        membershipRepository.deleteByFarmId(farmId);
+        farmRepository.delete(farm);
+
+        cacheService.evictFarmCachesAfterCommit(farmId);
+        LOGGER.info("Permanently deleted farm {} ({})", farm.getName(), farmId);
     }
 
     // -------------------------------
@@ -275,18 +303,13 @@ public class FarmService {
             if (request.licenseGracePeriodEnd() != null) {
                 farm.setLicenseGracePeriodEnd(request.licenseGracePeriodEnd());
             }
-            if (request.licenseArchivedDate() != null) {
-                farm.setLicenseArchivedDate(request.licenseArchivedDate());
-            }
             if (request.autoRenewEnabled() != null) {
                 farm.setAutoRenewEnabled(request.autoRenewEnabled());
             }
             Boolean requestedArchivedState = request.isArchived() != null
                     ? request.isArchived()
                     : request.accessLocked();
-            if (requestedArchivedState != null) {
-                farm.setIsArchived(requestedArchivedState);
-            }
+            applyArchivedState(farm, requestedArchivedState, request.licenseArchivedDate());
             if (request.latitude() != null) {
                 farm.setLatitude(CoordinateFormatSupport.validateLatitude(request.latitude()));
             }
@@ -312,6 +335,55 @@ public class FarmService {
             return;
         }
         setter.accept(normalizeNullableText(requestedValue));
+    }
+
+    private void applyArchivedState(Farm farm, Boolean requestedArchivedState, LocalDate requestedArchivedDate) {
+        if (requestedArchivedDate != null) {
+            farm.setLicenseArchivedDate(requestedArchivedDate);
+        }
+        if (requestedArchivedState == null) {
+            return;
+        }
+
+        boolean wasArchived = Boolean.TRUE.equals(farm.getIsArchived());
+        farm.setIsArchived(requestedArchivedState);
+
+        if (requestedArchivedState && (!wasArchived || farm.getLicenseArchivedDate() == null) && requestedArchivedDate == null) {
+            farm.setLicenseArchivedDate(LocalDate.now());
+        }
+    }
+
+    private void assertEligibleForPermanentDeletion(Farm farm) {
+        if (!Boolean.TRUE.equals(farm.getIsArchived())) {
+            throw new BadRequestException("Only archived farms can be permanently deleted.");
+        }
+
+        LocalDate archivedOn = resolveArchivedOn(farm);
+        LocalDate deleteEligibleOn = LocalDate.now().minusDays(21);
+        if (archivedOn == null || archivedOn.isAfter(deleteEligibleOn)) {
+            throw new BadRequestException("Farm can be permanently deleted only after it has been archived for at least 21 days.");
+        }
+
+        UUID farmId = farm.getId();
+        if (scoutingSessionRepository.existsByFarmId(farmId)) {
+            throw new BadRequestException("Farms with scouting sessions cannot be permanently deleted.");
+        }
+        if (farm.getLicenseReference() != null && !farm.getLicenseReference().isBlank()) {
+            throw new BadRequestException("Farms with generated license records cannot be permanently deleted.");
+        }
+        if (farmLicenseHistoryRepository.existsByFarmId(farmId)) {
+            throw new BadRequestException("Farms with license history cannot be permanently deleted.");
+        }
+        if (supplyOrderRequestRepository.existsByFarmId(farmId)) {
+            throw new BadRequestException("Farms with supply order requests cannot be permanently deleted.");
+        }
+    }
+
+    private LocalDate resolveArchivedOn(Farm farm) {
+        if (farm.getLicenseArchivedDate() != null) {
+            return farm.getLicenseArchivedDate();
+        }
+        return farm.getUpdatedAt() != null ? farm.getUpdatedAt().toLocalDate() : null;
     }
 
     private FarmResponse mapToResponse(Farm farm) {
@@ -678,13 +750,8 @@ public class FarmService {
             Role role = desiredMembership.getValue();
             UserFarmMembership membership = existingMemberships.remove(userId);
 
-            if (membership == null) {
-                membership = membershipRepository.findFirstByUser_Id(userId)
-                        .orElse(null);
-            }
-
             User user = resolvedUsers.get(userId);
-            assertUserCanAttachToFarm(user, farm.getId(), membership);
+            assertUserCanAttachToFarm(user, farm.getId(), role, membership);
 
             if (membership == null) {
                 membership = UserFarmMembership.builder()
@@ -718,28 +785,38 @@ public class FarmService {
         return user;
     }
 
-    private void assertUserCanAttachToFarm(User user, UUID targetFarmId, UserFarmMembership existingMembership) {
+    private void assertUserCanAttachToFarm(User user,
+                                           UUID targetFarmId,
+                                           Role requestedRole,
+                                           UserFarmMembership existingMembership) {
         if (user == null) {
             return;
+        }
+
+        if (requestedRole == Role.SCOUT) {
+            boolean activeScoutMembershipElsewhere = membershipRepository.findByUser_Id(user.getId()).stream()
+                    .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                    .filter(membership -> membership.getRole() == Role.SCOUT)
+                    .anyMatch(membership -> membership.getFarm() != null
+                            && !membership.getFarm().getId().equals(targetFarmId));
+
+            if (activeScoutMembershipElsewhere) {
+                throw new BadRequestException("Scouts can be assigned to only one farm at a time.");
+            }
+
+            boolean scoutsAnotherFarm = farmRepository.findByScoutId(user.getId()).stream()
+                    .anyMatch(existingFarm -> !existingFarm.getId().equals(targetFarmId));
+            if (scoutsAnotherFarm) {
+                throw new BadRequestException("Scouts can be assigned to only one farm at a time.");
+            }
         }
 
         if (existingMembership != null
                 && existingMembership.getFarm() != null
                 && !existingMembership.getFarm().getId().equals(targetFarmId)
-                && Boolean.TRUE.equals(existingMembership.getIsActive())) {
-            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
-        }
-
-        boolean ownsAnotherFarm = farmRepository.findByOwnerId(user.getId()).stream()
-                .anyMatch(existingFarm -> !existingFarm.getId().equals(targetFarmId));
-        if (ownsAnotherFarm) {
-            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
-        }
-
-        boolean scoutsAnotherFarm = farmRepository.findByScoutId(user.getId()).stream()
-                .anyMatch(existingFarm -> !existingFarm.getId().equals(targetFarmId));
-        if (scoutsAnotherFarm) {
-            throw new BadRequestException("User %s is already attached to another farm.".formatted(user.getEmail()));
+                && Boolean.TRUE.equals(existingMembership.getIsActive())
+                && existingMembership.getRole() == Role.SCOUT) {
+            throw new BadRequestException("Scouts can be assigned to only one farm at a time.");
         }
     }
 

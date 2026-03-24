@@ -24,4 +24,6 @@ public interface CustomSpeciesDefinitionRepository extends JpaRepository<CustomS
     boolean existsByFarmIdAndCategoryAndCode(UUID farmId, ObservationCategory category, String code);
 
     Optional<CustomSpeciesDefinition> findByIdAndFarmId(UUID id, UUID farmId);
+
+    void deleteByFarmId(UUID farmId);
 }

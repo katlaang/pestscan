@@ -6,6 +6,18 @@ public record SeverityTrendPointDto(
         int low,
         int medium,
         int high,
-        int critical
+        int critical,
+        Integer weekNumber,
+        Integer year
 ) {
+    public SeverityTrendPointDto(
+            String week,
+            int zero,
+            int low,
+            int medium,
+            int high,
+            int critical
+    ) {
+        this(week, zero, low, medium, high, critical, null, null);
+    }
 }

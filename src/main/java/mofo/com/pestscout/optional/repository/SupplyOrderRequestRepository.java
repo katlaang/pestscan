@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface SupplyOrderRequestRepository extends JpaRepository<SupplyOrderRequest, UUID> {
 
     List<SupplyOrderRequest> findByFarmIdOrderByCreatedAtDesc(UUID farmId);
+
+    boolean existsByFarmId(UUID farmId);
 }

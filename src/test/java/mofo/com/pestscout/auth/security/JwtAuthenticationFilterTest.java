@@ -270,6 +270,46 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void doFilterInternal_setsAuthenticationWhenClientSessionHeaderMissingButTokenSidMatches() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("active@example.com").password("pass").authorities("ROLE_MANAGER").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("active@example.com")
+                .activeClientSessionId("tab-b")
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getRequestURI()).thenReturn("/api/farms");
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("active@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(farmId);
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("MANAGER");
+        when(tokenProvider.getSessionIdFromToken(token)).thenReturn("tab-b");
+        when(userDetailsService.loadUserByUsername("active@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+        when(userSessionService.isIdleExpired(domainUser)).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication())
+                .isInstanceOf(UsernamePasswordAuthenticationToken.class);
+        verify(userSessionService).recordActivity(domainUser);
+        verify(request).setAttribute("userId", userId);
+        verify(request).setAttribute("farmId", farmId);
+        verify(request).setAttribute("userEmail", "active@example.com");
+        verify(request).setAttribute("userRole", "MANAGER");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
     void doFilterInternal_skipsAuthenticationWhenPasswordChangeRequiredForProtectedEndpoint() throws ServletException, IOException {
         String token = "token";
         UUID userId = UUID.randomUUID();

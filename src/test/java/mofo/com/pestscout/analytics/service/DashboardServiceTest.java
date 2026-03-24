@@ -3,7 +3,9 @@ package mofo.com.pestscout.analytics.service;
 import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.PestTrendResponse;
+import mofo.com.pestscout.farm.dto.FarmResponse;
 import mofo.com.pestscout.farm.model.Farm;
+import mofo.com.pestscout.farm.service.FarmService;
 import mofo.com.pestscout.scouting.model.ScoutingSession;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
@@ -40,6 +42,9 @@ class DashboardServiceTest {
 
     @Mock
     private TrendAnalysisService trendAnalysisService;
+
+    @Mock
+    private FarmService farmService;
 
     @InjectMocks
     private DashboardService dashboardService;
@@ -156,5 +161,87 @@ class DashboardServiceTest {
 
         assertThat(summary.currentWeekHeatmap()).hasSize(1);
         assertThat(summary.currentWeekHeatmap().getFirst().weekNumber()).isEqualTo(fallbackWeek);
+    }
+
+    @Test
+    void getDashboardOverview_returnsFarmCardsAndExpiryAlerts() {
+        FarmResponse expiringFarm = new FarmResponse(
+                UUID.randomUUID(),
+                "US-ALPHA",
+                "Alpha",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                mofo.com.pestscout.farm.model.SubscriptionStatus.ACTIVE,
+                mofo.com.pestscout.farm.model.SubscriptionTier.STANDARD,
+                null,
+                java.math.BigDecimal.ONE,
+                10,
+                null,
+                LocalDate.now().plusDays(10),
+                true,
+                false,
+                mofo.com.pestscout.farm.model.FarmStructureType.GREENHOUSE,
+                1,
+                1,
+                1,
+                null,
+                null,
+                "America/Chicago",
+                null,
+                null
+        );
+
+        FarmResponse healthyFarm = new FarmResponse(
+                UUID.randomUUID(),
+                "US-BETA",
+                "Beta",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                mofo.com.pestscout.farm.model.SubscriptionStatus.ACTIVE,
+                mofo.com.pestscout.farm.model.SubscriptionTier.STANDARD,
+                null,
+                java.math.BigDecimal.ONE,
+                10,
+                null,
+                LocalDate.now().plusDays(60),
+                true,
+                false,
+                mofo.com.pestscout.farm.model.FarmStructureType.GREENHOUSE,
+                1,
+                1,
+                1,
+                null,
+                null,
+                "America/Chicago",
+                null,
+                null
+        );
+
+        when(farmService.listFarms()).thenReturn(List.of(expiringFarm, healthyFarm));
+
+        var overview = dashboardService.getDashboardOverview();
+
+        assertThat(overview.farmCount()).isEqualTo(2);
+        assertThat(overview.farms()).hasSize(2);
+        assertThat(overview.licenseAlerts()).singleElement().satisfies(alert -> {
+            assertThat(alert.farmId()).isEqualTo(expiringFarm.id());
+            assertThat(alert.status()).isEqualTo("EXPIRING_SOON");
+        });
     }
 }

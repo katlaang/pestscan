@@ -1,10 +1,7 @@
 package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.analytics.dto.PestTrendResponse;
-import mofo.com.pestscout.analytics.dto.SeverityTrendPointDto;
-import mofo.com.pestscout.analytics.dto.TrendPointDto;
-import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
+import mofo.com.pestscout.analytics.dto.*;
 import mofo.com.pestscout.scouting.model.ObservationCategory;
 import mofo.com.pestscout.scouting.model.ScoutingObservation;
 import mofo.com.pestscout.scouting.model.SeverityLevel;
@@ -42,25 +39,28 @@ public class TrendAnalysisService {
             return List.of();
         }
 
-        Map<UUID, Integer> sessionWeek = sessions.stream()
+        Map<UUID, WeekBucketKey> sessionWeek = sessions.stream()
                 .collect(Collectors.toMap(
                         s -> s.getId(),
-                        s -> s.getSessionDate().get(weekFields.weekOfWeekBasedYear())
+                        s -> new WeekBucketKey(
+                                s.getSessionDate().get(weekFields.weekOfWeekBasedYear()),
+                                s.getSessionDate().get(weekFields.weekBasedYear())
+                        )
                 ));
 
         List<UUID> sessionIds = sessions.stream().map(s -> s.getId()).toList();
         List<ScoutingObservation> observations = obsRepo.findBySessionIdIn(sessionIds);
 
-        Map<Integer, PestWeekCounts> weekToCounts = new HashMap<>();
+        Map<WeekBucketKey, PestWeekCounts> weekToCounts = new HashMap<>();
         for (ScoutingObservation observation : observations) {
             if (observation.getCategory() != ObservationCategory.PEST) {
                 continue;
             }
 
-            Integer weekNumber = sessionWeek.get(observation.getSession().getId());
-            if (weekNumber == null) continue;
+            WeekBucketKey weekKey = sessionWeek.get(observation.getSession().getId());
+            if (weekKey == null) continue;
 
-            PestWeekCounts counts = weekToCounts.computeIfAbsent(weekNumber, k -> new PestWeekCounts());
+            PestWeekCounts counts = weekToCounts.computeIfAbsent(weekKey, k -> new PestWeekCounts());
             counts.apply(observation);
         }
 
@@ -68,16 +68,19 @@ public class TrendAnalysisService {
                 .mapToObj(offset -> {
                     LocalDate weekStart = windowStart.plusWeeks(offset);
                     int weekNumber = weekStart.get(weekFields.weekOfWeekBasedYear());
-                    PestWeekCounts counts = weekToCounts.getOrDefault(weekNumber, new PestWeekCounts());
+                    int weekYear = weekStart.get(weekFields.weekBasedYear());
+                    PestWeekCounts counts = weekToCounts.getOrDefault(new WeekBucketKey(weekNumber, weekYear), new PestWeekCounts());
                     return new WeeklyPestTrendDto(
-                            "W" + weekNumber,
+                            "%04d-W%02d".formatted(weekYear, weekNumber),
                             counts.thrips,
                             counts.redSpider,
                             counts.whiteflies,
                             counts.mealybugs,
                             counts.caterpillars,
                             counts.fcm,
-                            counts.otherPests
+                            counts.otherPests,
+                            weekNumber,
+                            weekYear
                     );
                 })
                 .toList();
@@ -97,26 +100,29 @@ public class TrendAnalysisService {
             return List.of();
         }
 
-        Map<UUID, Integer> sessionWeek = sessions.stream()
+        Map<UUID, WeekBucketKey> sessionWeek = sessions.stream()
                 .collect(Collectors.toMap(
                         s -> s.getId(),
-                        s -> s.getSessionDate().get(weekFields.weekOfWeekBasedYear())
+                        s -> new WeekBucketKey(
+                                s.getSessionDate().get(weekFields.weekOfWeekBasedYear()),
+                                s.getSessionDate().get(weekFields.weekBasedYear())
+                        )
                 ));
 
         List<UUID> sessionIds = sessions.stream().map(s -> s.getId()).toList();
         List<ScoutingObservation> observations = obsRepo.findBySessionIdIn(sessionIds);
 
-        Map<Integer, SeverityWeekCounts> weeklyBuckets = new HashMap<>();
+        Map<WeekBucketKey, SeverityWeekCounts> weeklyBuckets = new HashMap<>();
         for (ScoutingObservation observation : observations) {
             if (observation.getCategory() == ObservationCategory.BENEFICIAL) {
                 continue;
             }
 
-            Integer weekNumber = sessionWeek.get(observation.getSession().getId());
-            if (weekNumber == null) continue;
+            WeekBucketKey weekKey = sessionWeek.get(observation.getSession().getId());
+            if (weekKey == null) continue;
 
             SeverityLevel level = SeverityLevel.fromCount(Optional.ofNullable(observation.getCount()).orElse(0));
-            SeverityWeekCounts buckets = weeklyBuckets.computeIfAbsent(weekNumber, k -> new SeverityWeekCounts());
+            SeverityWeekCounts buckets = weeklyBuckets.computeIfAbsent(weekKey, k -> new SeverityWeekCounts());
             buckets.apply(level);
         }
 
@@ -124,16 +130,98 @@ public class TrendAnalysisService {
                 .mapToObj(offset -> {
                     LocalDate weekStart = windowStart.plusWeeks(offset);
                     int weekNumber = weekStart.get(weekFields.weekOfWeekBasedYear());
-                    SeverityWeekCounts buckets = weeklyBuckets.getOrDefault(weekNumber, new SeverityWeekCounts());
+                    int weekYear = weekStart.get(weekFields.weekBasedYear());
+                    SeverityWeekCounts buckets = weeklyBuckets.getOrDefault(new WeekBucketKey(weekNumber, weekYear), new SeverityWeekCounts());
                     return new SeverityTrendPointDto(
-                            "W" + weekNumber,
+                            "%04d-W%02d".formatted(weekYear, weekNumber),
                             buckets.zero,
                             buckets.low,
                             buckets.medium,
                             buckets.high,
-                            buckets.critical
+                            buckets.critical,
+                            weekNumber,
+                            weekYear
                     );
                 })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<GreenhouseWeeklyCountDto> getGreenhouseWeeklyCounts(
+            UUID farmId,
+            Integer requestedYear,
+            String speciesCode
+    ) {
+        analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
+
+        WeekFields weekFields = WeekFields.ISO;
+        int year = requestedYear != null ? requestedYear : LocalDate.now().get(weekFields.weekBasedYear());
+        LocalDate windowStart = LocalDate.of(year, 1, 4)
+                .with(weekFields.weekOfWeekBasedYear(), 1)
+                .with(weekFields.dayOfWeek(), 1);
+        LocalDate windowEnd = LocalDate.of(year, 12, 28)
+                .with(weekFields.dayOfWeek(), 7);
+
+        var sessions = sessionRepo.findByFarmIdAndSessionDateBetween(farmId, windowStart, windowEnd).stream()
+                .filter(session -> session.getSessionDate() != null)
+                .filter(session -> session.getSessionDate().get(weekFields.weekBasedYear()) == year)
+                .toList();
+        if (sessions.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, LocalDate> sessionDates = sessions.stream()
+                .collect(Collectors.toMap(
+                        session -> session.getId(),
+                        session -> session.getSessionDate()
+                ));
+
+        List<ScoutingObservation> observations = obsRepo.findBySessionIdIn(sessionDates.keySet());
+        Map<GreenhouseWeekKey, Integer> counts = new HashMap<>();
+        String resolvedSpecies = speciesCode == null || speciesCode.isBlank() ? "ALL_PESTS" : speciesCode;
+
+        for (ScoutingObservation observation : observations) {
+            if (observation.getCategory() != ObservationCategory.PEST) {
+                continue;
+            }
+            if (speciesCode != null && !speciesCode.isBlank() && !matchesSpeciesQuery(observation, speciesCode)) {
+                continue;
+            }
+
+            LocalDate sessionDate = sessionDates.get(observation.getSession().getId());
+            if (sessionDate == null) {
+                continue;
+            }
+
+            UUID greenhouseId = observation.getSessionTarget() != null && observation.getSessionTarget().getGreenhouse() != null
+                    ? observation.getSessionTarget().getGreenhouse().getId()
+                    : null;
+            String greenhouseName = observation.getSessionTarget() != null && observation.getSessionTarget().getGreenhouse() != null
+                    ? observation.getSessionTarget().getGreenhouse().getName()
+                    : null;
+
+            if (greenhouseId == null || greenhouseName == null) {
+                continue;
+            }
+
+            int weekNumber = sessionDate.get(weekFields.weekOfWeekBasedYear());
+            int count = Optional.ofNullable(observation.getCount()).orElse(0);
+            counts.merge(new GreenhouseWeekKey(greenhouseId, greenhouseName, weekNumber, year), count, Integer::sum);
+        }
+
+        return counts.entrySet().stream()
+                .sorted(Comparator
+                        .comparing((Map.Entry<GreenhouseWeekKey, Integer> entry) -> entry.getKey().greenhouseName(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(entry -> entry.getKey().weekNumber()))
+                .map(entry -> new GreenhouseWeeklyCountDto(
+                        entry.getKey().greenhouseId(),
+                        entry.getKey().greenhouseName(),
+                        entry.getKey().weekNumber(),
+                        entry.getKey().year(),
+                        "%04d-W%02d".formatted(entry.getKey().year(), entry.getKey().weekNumber()),
+                        resolvedSpecies,
+                        entry.getValue()
+                ))
                 .toList();
     }
 
@@ -230,5 +318,16 @@ public class TrendAnalysisService {
                 default -> otherPests += count;
             }
         }
+    }
+
+    private record WeekBucketKey(int weekNumber, int year) {
+    }
+
+    private record GreenhouseWeekKey(
+            UUID greenhouseId,
+            String greenhouseName,
+            int weekNumber,
+            int year
+    ) {
     }
 }

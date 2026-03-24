@@ -6,15 +6,15 @@ import mofo.com.pestscout.common.model.BaseEntity;
 import mofo.com.pestscout.farm.model.Farm;
 
 /**
- * Links a user to a single farm with a specific role.
+ * Links a user to a farm with a specific role.
  */
 @Entity
 @Table(
         name = "user_farm_memberships",
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_user_membership",
-                        columnNames = {"user_id"}
+                        name = "uk_user_farm_membership_pair",
+                        columnNames = {"user_id", "farm_id"}
                 )
         }
 )

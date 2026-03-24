@@ -143,7 +143,7 @@ public class UserService {
         }
 
         if (requesterRole != Role.SUPER_ADMIN) {
-            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
+            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(requester.getId(), farmId);
             if (!hasMembership) {
                 log.warn("User {} attempted to list users for unauthorized farm {}",
                         requestingUserId, farmId);
@@ -259,7 +259,7 @@ public class UserService {
         }
 
         if (requesterRole != Role.SUPER_ADMIN) {
-            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
+            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(requester.getId(), farmId);
             if (!hasMembership) {
                 log.warn("User {} attempted to list users by role for unauthorized farm {}",
                         requestingUserId, farmId);
@@ -313,7 +313,7 @@ public class UserService {
 
         // SUPER_ADMIN can search any farm
         if (requesterRole != Role.SUPER_ADMIN) {
-            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
+            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(requester.getId(), farmId);
             if (!hasMembership) {
                 log.warn("User {} attempted to search users for unauthorized farm {}",
                         requestingUserId, farmId);
@@ -349,7 +349,7 @@ public class UserService {
         }
 
         if (requesterRole != Role.SUPER_ADMIN) {
-            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
+            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(requester.getId(), farmId);
             if (!hasMembership) {
                 log.warn("User {} attempted to view stats for unauthorized farm {}",
                         requestingUserId, farmId);
@@ -385,7 +385,7 @@ public class UserService {
         }
 
         if (requesterRole != Role.SUPER_ADMIN) {
-            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmId(requester.getId(), farmId);
+            boolean hasMembership = membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(requester.getId(), farmId);
             if (!hasMembership) {
                 log.warn("User {} attempted to view active-user stats for unauthorized farm {}",
                         requestingUserId, farmId);

@@ -1,15 +1,16 @@
 package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
-import mofo.com.pestscout.analytics.dto.HeatmapResponse;
-import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
+import mofo.com.pestscout.analytics.dto.*;
+import mofo.com.pestscout.farm.dto.FarmResponse;
+import mofo.com.pestscout.farm.service.FarmService;
 import mofo.com.pestscout.scouting.model.ScoutingSession;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
 import java.util.Comparator;
 import java.util.List;
@@ -24,6 +25,31 @@ public class DashboardService {
     private final AnalyticsAccessService analyticsAccessService;
     private final HeatmapService heatmapService;
     private final TrendAnalysisService trendService;
+    private final FarmService farmService;
+
+    @Transactional(readOnly = true)
+    public DashboardOverviewDto getDashboardOverview() {
+        LocalDate today = LocalDate.now();
+        List<DashboardFarmCardDto> farms = farmService.listFarms().stream()
+                .map(farm -> toDashboardFarmCard(farm, today))
+                .toList();
+
+        List<LicenseAlertSummaryDto> licenseAlerts = farms.stream()
+                .filter(farm -> farm.licenseExpiryDate() != null)
+                .filter(farm -> farm.daysUntilLicenseExpiry() != null)
+                .filter(farm -> farm.daysUntilLicenseExpiry() <= 30)
+                .map(farm -> new LicenseAlertSummaryDto(
+                        farm.farmId(),
+                        farm.farmName(),
+                        farm.licenseExpiryDate(),
+                        farm.daysUntilLicenseExpiry(),
+                        farm.daysUntilLicenseExpiry() < 0 ? "EXPIRED" : "EXPIRING_SOON"
+                ))
+                .sorted(Comparator.comparingLong(LicenseAlertSummaryDto::daysUntilExpiry))
+                .toList();
+
+        return new DashboardOverviewDto(farms.size(), farms, licenseAlerts);
+    }
 
     @Transactional(readOnly = true)
     public DashboardSummaryDto getDashboard(UUID farmId) {
@@ -72,6 +98,7 @@ public class DashboardService {
                 treatmentsApplied,
                 List.of(new WeeklyHeatmapResponse(
                         weekNumber,
+                        weeklyHeatmap.year(),
                         weekStart,
                         today,
                         weeklyHeatmap.sections()
@@ -113,6 +140,21 @@ public class DashboardService {
 
     private boolean isEmptyHeatmap(HeatmapResponse heatmap) {
         return heatmap.cells().isEmpty() && heatmap.sections().isEmpty();
+    }
+
+    private DashboardFarmCardDto toDashboardFarmCard(FarmResponse farm, LocalDate today) {
+        Long daysUntilExpiry = farm.licenseExpiryDate() != null
+                ? ChronoUnit.DAYS.between(today, farm.licenseExpiryDate())
+                : null;
+
+        return new DashboardFarmCardDto(
+                farm.id(),
+                farm.farmTag(),
+                farm.name(),
+                farm.licenseExpiryDate(),
+                daysUntilExpiry,
+                farm.accessLocked()
+        );
     }
 
     private int countPestsDetected(UUID farmId, LocalDate start, LocalDate end) {

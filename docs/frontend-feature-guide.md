@@ -5,7 +5,12 @@ This document distills what the PestScout backend expects from the web/mobile cl
 ## Authentication & session management
 - Endpoints: `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`, `GET /api/auth/me`.
 - Store both **access** and **refresh** tokens; attach the access token as `Authorization: Bearer <token>` on every API call.
+- Persist `clientSessionId` from login/refresh responses in `sessionStorage` and send it as `X-Client-Session-Id` on
+  authenticated requests when available.
 - After login/refresh, hydrate the current user (`/api/auth/me`) to know the caller's role (super admin, farm admin/manager, scout) and gate UI accordingly.
+- On app bootstrap, if auth hydration/refresh fails with a `401` session error (`SESSION_INVALID`, `SESSION_EXPIRED`,
+  `SESSION_REPLACED`, or similar), clear stored auth state and redirect to the login screen instead of rendering a
+  protected page error.
 - The authenticated user payload includes `passwordExpiresAt`, `passwordExpired`, `passwordExpiryWarningRequired`,
   `passwordExpiryWarningDaysRemaining`, and `passwordExpiryWarningMessage`.
 - Show `passwordExpiryWarningMessage` immediately after login when it is present.
@@ -119,7 +124,12 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - If the UI allows explicit assignment, the assignee picker must contain `SCOUT` users only.
   - Use `GET /api/auth/users/role/SCOUT?farmId={farmId}` for that picker.
   - The backend rejects non-scout assignees and scouts from a different farm.
+  - The client should prefill session time fields from the device: local date, local time, and IANA timezone.
+  - New optional payload field: `observationTimezone` (example: `Africa/Nairobi`, `America/Chicago`).
+  - If `observationTime` or `observationTimezone` is omitted, the backend now falls back to `farm.timezone` and then the
+    server timezone.
 - **Update metadata**: `PUT /api/scouting/sessions/{sessionId}` (admins/managers). Status must not be `COMPLETED` unless reopened.
+  - Scouts may also update `observationTime` and `observationTimezone` while the session is active.
 - **Status transitions**:
   - `POST /{id}/start` is only for the assigned scout.
   - `POST /{id}/remote-start-request` is super-admin only. It does not start the session; it creates a pending consent
@@ -181,6 +191,84 @@ This document distills what the PestScout backend expects from the web/mobile cl
 - Role-aware navigation: hide license edit controls from non–super admins; hide pricing/billing panels from scouts.
 - Provide inline validation mirroring backend rules (required tags when include flags are false; non-negative hectares/discounts; mutually exclusive greenhouse/field block IDs).
 - Keep Swagger UI (`/swagger-ui.html`) available in dev to explore the full schemas as you build forms and clients.
+
+## Latest backend additions
+
+- Multi-farm memberships:
+  - `MANAGER` and `FARM_ADMIN` users can now belong to more than one farm.
+  - Build the farm switcher and farm dashboard cards from `GET /api/farms`.
+  - Do not assume a single farm on login/bootstrap for manager/admin users.
+- Dashboard overview:
+  - New endpoint: `GET /api/analytics/dashboard/overview`
+  - Response contains:
+    - `farmCount`
+    - `farms[]` with `farmId`, `farmTag`, `farmName`, `licenseExpiryDate`, `daysUntilLicenseExpiry`, `accessLocked`
+    - `licenseAlerts[]` with `farmId`, `farmName`, `licenseExpiryDate`, `daysUntilExpiry`, `status`
+  - Use this for the manager/admin landing dashboard that shows all attached farms and expiring-license alerts.
+- Farm coordinates and layout preview:
+  - Farm create/update already accepts `latitude` and `longitude`.
+  - New preview endpoint: `POST /api/farms/layout/preview`
+  - Request:
+    ```json
+    {
+      "latitude": "43.123456° N",
+      "longitude": "80.123456° W",
+      "greenhouseCount": 4,
+      "greenhouseNames": ["House 1", "House 2", "House 3", "House 4"]
+    }
+    ```
+  - Use the preview response polygons to render the generated farm layout before the farm is saved.
+- Session list behavior:
+  - `GET /api/scouting/sessions?farmId={farmId}` still lists one farm.
+  - `GET /api/scouting/sessions` without `farmId` is now valid for `SUPER_ADMIN` and returns sessions across all farms.
+  - Session list payloads now include:
+    - `farmName`
+    - `weekYear`
+    - `weekKey` (example: `2026-W12`)
+    - `openRestricted`
+  - For `SUPER_ADMIN`, `FARM_ADMIN`, and `MANAGER`, `IN_PROGRESS` sessions stay in the list but come back with
+    `openRestricted: true`; render those rows/cards greyed out and block navigation into the detail page.
+- Session remark / hotspot photos:
+  - `POST /api/scouting/photos/register` still supports observation/cell photos.
+  - It now also supports session-level remark photos by omitting `observationId`, `sessionTargetId`, `bayIndex`,
+    `benchIndex`, and `spotIndex`.
+  - Use this for hotspot/problem photos captured in the session remarks flow instead of forcing one photo per
+    observation.
+  - Suggested payload:
+    ```json
+    {
+      "sessionId": "<session-id>",
+      "localPhotoId": "remark-photo-1",
+      "purpose": "Hotspot in remarks",
+      "capturedAt": "2026-03-23T10:15:00"
+    }
+    ```
+- Session time defaults:
+  - Session payloads now include `observationTimezone`.
+  - On create/edit, initialize the timezone picker from `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+  - Initialize the time picker from the device clock.
+  - Leave both fields editable so the scout can override them before saving.
+- Analytics week/year and greenhouse weekly series:
+  - `GET /api/analytics/trend/weekly?farmId={farmId}` now returns week labels like `2026-W12` and includes
+    `weekNumber` + `year`.
+  - `GET /api/analytics/trend/severity?farmId={farmId}` now returns the same week-year metadata.
+  - New endpoint: `GET /api/analytics/trend/greenhouse-weekly?farmId={farmId}&year={year}&species={speciesCode}`
+  - Use the greenhouse-weekly endpoint to plot greenhouse lines/bars by ISO week for a selected pest.
+  - `pestDistribution[]` and `diseaseDistribution[]` now expose `count` as an alias for `value`; use `count` in UI
+    labels when showing totals by pest/disease.
+- Current frontend expectations from these additions:
+  - Manager/admin dashboard:
+    - load `GET /api/analytics/dashboard/overview`
+    - show one card per farm from `farms[]`
+    - show alert banners or tiles from `licenseAlerts[]`
+  - Super admin session board:
+    - call `GET /api/scouting/sessions` for the all-farm board
+    - allow optional farm filtering client-side or by switching to `GET /api/scouting/sessions?farmId=...`
+    - grey out any item with `openRestricted: true`
+  - Analytics:
+    - use `weekKey` / `year` / `weekNumber` for x-axis labels instead of raw `W{n}`
+    - use `GET /api/analytics/trend/greenhouse-weekly` for greenhouse-by-week charts
+    - use `pestDistribution[].count` for pest-count displays
 
 ## Copy Canvas
 

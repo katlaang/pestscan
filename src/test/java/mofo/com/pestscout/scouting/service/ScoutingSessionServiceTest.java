@@ -12,9 +12,7 @@ import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.common.service.CacheService;
-import mofo.com.pestscout.farm.model.Farm;
-import mofo.com.pestscout.farm.model.FieldBlock;
-import mofo.com.pestscout.farm.model.Greenhouse;
+import mofo.com.pestscout.farm.model.*;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.repository.FieldBlockRepository;
 import mofo.com.pestscout.farm.repository.GreenhouseRepository;
@@ -486,6 +484,196 @@ class ScoutingSessionServiceTest {
         assertThat(result.customSurveySpecies())
                 .extracting(CustomSpeciesDto::name)
                 .containsExactly("Leaf miner");
+    }
+
+    @Test
+    @DisplayName("Should persist explicit observation timezone on create")
+    void createSession_WithObservationTimezone_PersistsTimezone() {
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                scout.getId(),
+                List.of(new SessionTargetRequest(greenhouse.getId(), null, true, true, List.of(), List.of())),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Timezone test",
+                null,
+                null,
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "America/Chicago"
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin()).thenReturn(false);
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result.observationTimezone()).isEqualTo("America/Chicago");
+        assertThat(result.observationTime()).isEqualTo(LocalTime.of(10, 30));
+    }
+
+    @Test
+    @DisplayName("Should default missing observation time and timezone from the farm timezone")
+    void createSession_WithoutObservationTimeOrTimezone_DefaultsFromFarmTimezone() {
+        testFarm.setTimezone("Africa/Nairobi");
+
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                scout.getId(),
+                List.of(new SessionTargetRequest(greenhouse.getId(), null, true, true, List.of(), List.of())),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                null,
+                "Sunny and warm",
+                "Timezone default test",
+                null,
+                null,
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin()).thenReturn(false);
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.createSession(request);
+
+        assertThat(result.observationTimezone()).isEqualTo("Africa/Nairobi");
+        assertThat(result.observationTime()).isNotNull();
+        assertThat(result.observationTime().getSecond()).isZero();
+        assertThat(result.observationTime().getNano()).isZero();
+    }
+
+    @Test
+    @DisplayName("Should reject invalid observation timezone on create")
+    void createSession_WithInvalidObservationTimezone_ThrowsBadRequest() {
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                testFarm.getId(),
+                scout.getId(),
+                List.of(new SessionTargetRequest(greenhouse.getId(), null, true, true, List.of(), List.of())),
+                LocalDate.now(),
+                1,
+                "Tomato",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.of(10, 30),
+                "Sunny and warm",
+                "Invalid timezone test",
+                null,
+                null,
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "Mars/Phobos"
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmAccessService.isSuperAdmin()).thenReturn(false);
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(greenhouseRepository.findById(greenhouse.getId())).thenReturn(Optional.of(greenhouse));
+        when(licenseService.calculateSelectedAreaHectares(
+                greenhouse.getAreaHectares(),
+                greenhouse.resolvedBayCount(),
+                true,
+                greenhouse.resolvedBayCount(),
+                greenhouse.getName()
+        )).thenReturn(new BigDecimal("5.00"));
+
+        assertThatThrownBy(() -> scoutingSessionService.createSession(request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Invalid observation timezone");
+
+        verify(sessionRepository, never()).save(any(ScoutingSession.class));
+    }
+
+    @Test
+    @DisplayName("Should allow scout to update observation timezone and time")
+    void updateSession_AsScout_AllowsObservationTimezoneChange() {
+        testSession.setStatus(SessionStatus.NEW);
+
+        UpdateScoutingSessionRequest request = new UpdateScoutingSessionRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new BigDecimal("24.0"),
+                new BigDecimal("70.0"),
+                LocalTime.of(11, 15),
+                "Cloudy",
+                "Updated notes",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "America/Chicago"
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.save(any(ScoutingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingSessionDetailDto result = scoutingSessionService.updateSession(testSession.getId(), request);
+
+        assertThat(result.observationTimezone()).isEqualTo("America/Chicago");
+        assertThat(result.observationTime()).isEqualTo(LocalTime.of(11, 15));
+        assertThat(result.weatherNotes()).isEqualTo("Cloudy");
     }
 
     @Test
@@ -2205,8 +2393,6 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Role.MANAGER);
         when(currentUserService.getCurrentUserId())
                 .thenReturn(manager.getId());
-        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
-                .thenReturn(true);
         when(sessionRepository.findById(testSession.getId()))
                 .thenReturn(Optional.of(testSession));
 
@@ -2276,8 +2462,8 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
-    @DisplayName("Should hide live sessions from super admin list")
-    void listSessions_WithSuperAdmin_FiltersOutLiveSessions() {
+    @DisplayName("Should keep live sessions visible but redacted for super admin list")
+    void listSessions_WithSuperAdmin_RedactsLiveSessions() {
         ScoutingSession inProgressSession = ScoutingSession.builder()
                 .id(UUID.randomUUID())
                 .farm(testFarm)
@@ -2302,8 +2488,15 @@ class ScoutingSessionServiceTest {
 
         List<ScoutingSessionDetailDto> result = scoutingSessionService.listSessions(testFarm.getId());
 
-        assertThat(result).hasSize(1);
-        assertThat(result.getFirst().id()).isEqualTo(testSession.getId());
+        assertThat(result).hasSize(2);
+        ScoutingSessionDetailDto redacted = result.stream()
+                .filter(session -> session.id().equals(inProgressSession.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(redacted.status()).isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(redacted.notes()).isNull();
+        assertThat(redacted.sections()).isEmpty();
+        assertThat(redacted.openRestricted()).isTrue();
     }
 
     @Test
@@ -2329,8 +2522,6 @@ class ScoutingSessionServiceTest {
                 .thenReturn(Role.MANAGER);
         when(currentUserService.getCurrentUserId())
                 .thenReturn(manager.getId());
-        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId()))
-                .thenReturn(true);
         when(farmRepository.findById(testFarm.getId()))
                 .thenReturn(Optional.of(testFarm));
         when(sessionRepository.findByFarmId(testFarm.getId()))
@@ -2347,6 +2538,41 @@ class ScoutingSessionServiceTest {
         assertThat(redacted.notes()).isNull();
         assertThat(redacted.sections()).isEmpty();
         assertThat(redacted.recommendations()).isEmpty();
+        assertThat(redacted.openRestricted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Should list sessions across all farms for super admin when farmId is omitted")
+    void listSessions_WithNullFarmIdAndSuperAdmin_ReturnsAllFarmSessions() {
+        Farm otherFarm = Farm.builder()
+                .id(UUID.randomUUID())
+                .name("Other Farm")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .licensedAreaHectares(new BigDecimal("2.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .build();
+
+        ScoutingSession otherSession = ScoutingSession.builder()
+                .id(UUID.randomUUID())
+                .farm(otherFarm)
+                .manager(manager)
+                .sessionDate(LocalDate.now().minusDays(1))
+                .weekNumber(2)
+                .status(SessionStatus.COMPLETED)
+                .observations(new ArrayList<>())
+                .targets(new ArrayList<>())
+                .recommendations(new EnumMap<>(RecommendationType.class))
+                .build();
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+        when(sessionRepository.findAll()).thenReturn(List.of(testSession, otherSession));
+
+        List<ScoutingSessionDetailDto> result = scoutingSessionService.listSessions(null);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(ScoutingSessionDetailDto::farmName)
+                .contains("Test Farm", "Other Farm");
     }
 
     @Test
@@ -2371,7 +2597,6 @@ class ScoutingSessionServiceTest {
         when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
         when(farmAccessService.getCurrentUserRole()).thenReturn(Role.MANAGER);
         when(currentUserService.getCurrentUserId()).thenReturn(manager.getId());
-        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), testFarm.getId())).thenReturn(true);
         when(sessionRepository.findByFarmIdAndUpdatedAtAfter(testFarm.getId(), since)).thenReturn(List.of(testSession));
         when(sessionRepository.findByFarmId(testFarm.getId())).thenReturn(List.of(testSession));
         when(observationRepository.findBySessionIdInAndUpdatedAtAfter(anyList(), eq(since))).thenReturn(List.of(changedObs));

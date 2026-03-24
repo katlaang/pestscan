@@ -5,12 +5,11 @@ import mofo.com.pestscout.auth.dto.UserDto;
 import mofo.com.pestscout.auth.model.Role;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.auth.service.UserService;
-import mofo.com.pestscout.farm.dto.CreateFarmRequest;
-import mofo.com.pestscout.farm.dto.FarmResponse;
-import mofo.com.pestscout.farm.dto.UpdateFarmRequest;
+import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
+import mofo.com.pestscout.farm.service.FarmLayoutService;
 import mofo.com.pestscout.farm.service.FarmService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,6 +47,9 @@ class FarmControllerTest {
 
     @MockitoBean
     private FarmService farmService;
+
+    @MockitoBean
+    private FarmLayoutService farmLayoutService;
 
     @MockitoBean
     private UserService userService;
@@ -429,5 +431,60 @@ class FarmControllerTest {
                         .requestAttr("userId", userId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].email").value("member@example.com"));
+    }
+
+    @Test
+    void deletesFarmAndReturnsNoContent() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/farms/{farmId}", farmId))
+                .andExpect(status().isNoContent());
+
+        Mockito.verify(farmService).deleteFarmPermanently(farmId);
+    }
+
+    @Test
+    void previewsFarmLayout() throws Exception {
+        FarmLayoutPreviewResponse response = new FarmLayoutPreviewResponse(
+                2,
+                1,
+                2,
+                true,
+                "FARM_ANCHORED_GREENHOUSE_LAYOUT",
+                new BigDecimal("43.123456"),
+                new BigDecimal("-80.123456"),
+                List.of(
+                        new FarmLayoutStructureDto(
+                                "Greenhouse 1",
+                                1,
+                                43.1235,
+                                -80.1237,
+                                List.of(
+                                        List.of(-80.1240, 43.1238),
+                                        List.of(-80.1234, 43.1238),
+                                        List.of(-80.1234, 43.1232),
+                                        List.of(-80.1240, 43.1232),
+                                        List.of(-80.1240, 43.1238)
+                                )
+                        )
+                )
+        );
+
+        when(farmLayoutService.previewLayout(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/farms/layout/preview")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "latitude": "43.123456\u00b0 N",
+                                  "longitude": "80.123456\u00b0 W",
+                                  "greenhouseCount": 2,
+                                  "greenhouseNames": ["Greenhouse 1", "Greenhouse 2"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.greenhouseCount").value(2))
+                .andExpect(jsonPath("$.geoReferenced").value(true))
+                .andExpect(jsonPath("$.greenhouses[0].name").value("Greenhouse 1"));
     }
 }

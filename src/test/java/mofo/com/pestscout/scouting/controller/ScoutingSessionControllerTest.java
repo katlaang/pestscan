@@ -203,6 +203,83 @@ class ScoutingSessionControllerTest {
     }
 
     @Test
+    void createsSessionWithObservationTimezone() throws Exception {
+        UUID farmId = UUID.randomUUID();
+
+        CreateScoutingSessionRequest request = new CreateScoutingSessionRequest(
+                farmId,
+                UUID.randomUUID(),
+                null,
+                LocalDate.of(2024, 3, 5),
+                10,
+                "Tomatoes",
+                "Cherry",
+                new BigDecimal("22.5"),
+                new BigDecimal("65.0"),
+                LocalTime.NOON,
+                "Clear",
+                "Notes",
+                null,
+                null,
+                PhotoSourceType.SCOUT_HANDHELD,
+                SessionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "America/Chicago"
+        );
+
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                UUID.randomUUID(),
+                1L,
+                farmId,
+                request.sessionDate(),
+                request.weekNumber(),
+                SessionStatus.DRAFT,
+                SyncStatus.SYNCED,
+                null,
+                null,
+                request.crop(),
+                request.variety(),
+                request.temperatureCelsius(),
+                request.relativeHumidityPercent(),
+                request.observationTime(),
+                request.weatherNotes(),
+                request.notes(),
+                List.of(),
+                List.of(),
+                request.defaultPhotoSourceType(),
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                false,
+                request.observationTimezone()
+        );
+
+        when(sessionService.createSession(any(CreateScoutingSessionRequest.class)))
+                .thenReturn(detail);
+
+        mockMvc.perform(post("/api/scouting/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.observationTimezone").value("America/Chicago"));
+    }
+
+    @Test
     void requestsRemoteStart() throws Exception {
         UUID farmId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
@@ -362,6 +439,55 @@ class ScoutingSessionControllerTest {
                         .param("includeDeleted", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sessions").isArray());
+    }
+
+    @Test
+    void listsSessionsWithoutFarmIdForSuperAdminView() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+        ScoutingSessionDetailDto detail = new ScoutingSessionDetailDto(
+                sessionId,
+                1L,
+                farmId,
+                LocalDate.of(2024, 3, 5),
+                10,
+                SessionStatus.IN_PROGRESS,
+                SyncStatus.SYNCED,
+                null,
+                UUID.randomUUID(),
+                "Tomatoes",
+                "Cherry",
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                LocalDateTime.now(),
+                false,
+                null,
+                List.of(),
+                List.of(),
+                "Farm A",
+                2024,
+                "2024-W10",
+                true
+        );
+
+        when(sessionService.listSessions(null)).thenReturn(List.of(detail));
+
+        mockMvc.perform(get("/api/scouting/sessions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].farmName").value("Farm A"))
+                .andExpect(jsonPath("$[0].openRestricted").value(true));
     }
 
     @Test

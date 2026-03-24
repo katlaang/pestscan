@@ -1,6 +1,7 @@
 package mofo.com.pestscout.analytics.controller;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.DashboardOverviewDto;
 import mofo.com.pestscout.analytics.dto.DashboardSummaryDto;
 import mofo.com.pestscout.analytics.service.DashboardService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,5 +21,10 @@ public class DashboardController {
     @GetMapping
     public DashboardSummaryDto getDashboard(@RequestParam UUID farmId) {
         return dashboardService.getDashboard(farmId);
+    }
+
+    @GetMapping("/overview")
+    public DashboardOverviewDto getDashboardOverview() {
+        return dashboardService.getDashboardOverview();
     }
 }

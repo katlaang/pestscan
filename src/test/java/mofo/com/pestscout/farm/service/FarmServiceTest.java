@@ -10,15 +10,20 @@ import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ForbiddenException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
+import mofo.com.pestscout.common.feature.FarmFeatureEntitlementRepository;
 import mofo.com.pestscout.common.service.CacheService;
 import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
+import mofo.com.pestscout.farm.repository.FarmLicenseHistoryRepository;
 import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
+import mofo.com.pestscout.optional.repository.SupplyOrderRequestRepository;
+import mofo.com.pestscout.scouting.repository.CustomSpeciesDefinitionRepository;
+import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +68,21 @@ class FarmServiceTest {
 
     @Mock
     private FarmAreaAllocationService farmAreaAllocationService;
+
+    @Mock
+    private FarmLicenseHistoryRepository farmLicenseHistoryRepository;
+
+    @Mock
+    private ScoutingSessionRepository scoutingSessionRepository;
+
+    @Mock
+    private FarmFeatureEntitlementRepository farmFeatureEntitlementRepository;
+
+    @Mock
+    private CustomSpeciesDefinitionRepository customSpeciesDefinitionRepository;
+
+    @Mock
+    private SupplyOrderRequestRepository supplyOrderRequestRepository;
 
     @InjectMocks
     private FarmService farmService;
@@ -329,8 +349,8 @@ class FarmServiceTest {
     }
 
     @Test
-    @DisplayName("Should reject assigning a user who is already attached to another farm")
-    void createFarm_WithUserAlreadyAttachedToAnotherFarm_ThrowsBadRequestException() {
+    @DisplayName("Should allow assigning a manager who is already attached to another farm")
+    void createFarm_WithManagerAttachedToAnotherFarm_AllowsMultiFarmMembership() {
         Farm otherFarm = Farm.builder()
                 .id(UUID.randomUUID())
                 .name("Other Farm")
@@ -391,12 +411,50 @@ class FarmServiceTest {
             return farm;
         });
         when(membershipRepository.findByFarmId(any())).thenReturn(List.of());
-        lenient().when(membershipRepository.findFirstByUser_Id(any(UUID.class))).thenReturn(Optional.empty());
-        when(membershipRepository.findFirstByUser_Id(managerMember.getId())).thenReturn(Optional.of(existingMembership));
+        lenient().when(membershipRepository.findByUser_Id(any(UUID.class))).thenReturn(List.of());
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
 
-        assertThatThrownBy(() -> farmService.createFarm(request))
+        FarmResponse response = farmService.createFarm(request);
+
+        assertThat(response).isNotNull();
+        verify(membershipRepository, times(3)).save(any(UserFarmMembership.class));
+    }
+
+    @Test
+    @DisplayName("Should reject assigning a scout who is already attached to another farm")
+    void createFarm_WithScoutAttachedToAnotherFarm_ThrowsBadRequestException() {
+        Farm otherFarm = Farm.builder()
+                .id(UUID.randomUUID())
+                .name("Other Farm")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .licensedAreaHectares(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .build();
+
+        UserFarmMembership existingMembership = UserFarmMembership.builder()
+                .user(scout)
+                .farm(otherFarm)
+                .role(Role.SCOUT)
+                .isActive(true)
+                .build();
+
+        when(customerNumberService.normalizeCountryCode(createRequest.country())).thenReturn("CA");
+        when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(farmRepository.findByNameIgnoreCase(createRequest.name())).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
+            Farm farm = invocation.getArgument(0);
+            farm.setId(UUID.randomUUID());
+            return farm;
+        });
+        when(membershipRepository.findByFarmId(any())).thenReturn(List.of());
+        lenient().when(membershipRepository.findByUser_Id(any(UUID.class))).thenReturn(List.of());
+        when(membershipRepository.findByUser_Id(scout.getId())).thenReturn(List.of(existingMembership));
+
+        assertThatThrownBy(() -> farmService.createFarm(createRequest))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("already attached to another farm");
+                .hasMessageContaining("Scouts can be assigned to only one farm");
     }
 
     @Test
@@ -763,6 +821,107 @@ class FarmServiceTest {
 
         // Assert
         assertThat(response.licensedAreaHectares()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("SuperAdmin can permanently delete archived farms after 21 days when they have no historical records")
+    void deleteFarmPermanently_WhenEligible_DeletesFarmAndConfigRows() {
+        testFarm.setIsArchived(true);
+        testFarm.setLicenseArchivedDate(LocalDate.now().minusDays(22));
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(scoutingSessionRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+        when(farmLicenseHistoryRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+        when(supplyOrderRequestRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+
+        farmService.deleteFarmPermanently(testFarm.getId());
+
+        verify(farmAccessService).requireSuperAdmin();
+        verify(farmFeatureEntitlementRepository).deleteByFarmId(testFarm.getId());
+        verify(customSpeciesDefinitionRepository).deleteByFarmId(testFarm.getId());
+        verify(membershipRepository).deleteByFarmId(testFarm.getId());
+        verify(farmRepository).delete(testFarm);
+        verify(cacheService).evictFarmCachesAfterCommit(testFarm.getId());
+    }
+
+    @Test
+    @DisplayName("Permanent delete rejects farms that are not archived")
+    void deleteFarmPermanently_WhenFarmNotArchived_ThrowsBadRequestException() {
+        testFarm.setIsArchived(false);
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+
+        assertThatThrownBy(() -> farmService.deleteFarmPermanently(testFarm.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Only archived farms");
+
+        verify(farmRepository, never()).delete(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("Permanent delete rejects farms archived less than 21 days ago")
+    void deleteFarmPermanently_WhenArchivedTooRecently_ThrowsBadRequestException() {
+        testFarm.setIsArchived(true);
+        testFarm.setLicenseArchivedDate(LocalDate.now().minusDays(20));
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+
+        assertThatThrownBy(() -> farmService.deleteFarmPermanently(testFarm.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("at least 21 days");
+
+        verify(farmRepository, never()).delete(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("Permanent delete rejects farms with sessions")
+    void deleteFarmPermanently_WhenSessionsExist_ThrowsBadRequestException() {
+        testFarm.setIsArchived(true);
+        testFarm.setLicenseArchivedDate(LocalDate.now().minusDays(30));
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(scoutingSessionRepository.existsByFarmId(testFarm.getId())).thenReturn(true);
+
+        assertThatThrownBy(() -> farmService.deleteFarmPermanently(testFarm.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("scouting sessions");
+
+        verify(farmRepository, never()).delete(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("Permanent delete rejects farms with generated license records")
+    void deleteFarmPermanently_WhenLicenseReferenceExists_ThrowsBadRequestException() {
+        testFarm.setIsArchived(true);
+        testFarm.setLicenseArchivedDate(LocalDate.now().minusDays(30));
+        testFarm.setLicenseReference("LIC-EXAMPLE");
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(scoutingSessionRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+
+        assertThatThrownBy(() -> farmService.deleteFarmPermanently(testFarm.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("generated license records");
+
+        verify(farmRepository, never()).delete(any(Farm.class));
+    }
+
+    @Test
+    @DisplayName("Permanent delete rejects farms with supply order requests")
+    void deleteFarmPermanently_WhenSupplyOrdersExist_ThrowsBadRequestException() {
+        testFarm.setIsArchived(true);
+        testFarm.setLicenseArchivedDate(LocalDate.now().minusDays(30));
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(scoutingSessionRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+        when(farmLicenseHistoryRepository.existsByFarmId(testFarm.getId())).thenReturn(false);
+        when(supplyOrderRequestRepository.existsByFarmId(testFarm.getId())).thenReturn(true);
+
+        assertThatThrownBy(() -> farmService.deleteFarmPermanently(testFarm.getId()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("supply order requests");
+
+        verify(farmRepository, never()).delete(any(Farm.class));
     }
 
     @Test

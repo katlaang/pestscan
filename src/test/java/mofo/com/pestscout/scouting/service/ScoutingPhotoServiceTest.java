@@ -146,6 +146,44 @@ class ScoutingPhotoServiceTest {
     }
 
     @Test
+    void registerMetadata_WithSessionRemarkPhoto_CreatesPhotoWithoutCellContext() {
+        PhotoMetadataRequest request = new PhotoMetadataRequest(
+                session.getId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "photo-remark-1",
+                "Hotspot in remarks",
+                null,
+                LocalDateTime.now()
+        );
+
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SCOUT);
+        when(currentUserService.getCurrentUserId()).thenReturn(scout.getId());
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(photoRepository.findByLocalPhotoIdAndDeletedFalse("photo-remark-1")).thenReturn(Optional.empty());
+        when(photoRepository.save(any(ScoutingPhoto.class))).thenAnswer(invocation -> {
+            ScoutingPhoto photo = invocation.getArgument(0);
+            photo.setId(UUID.randomUUID());
+            return photo;
+        });
+
+        ScoutingPhotoDto result = scoutingPhotoService.registerMetadata(request);
+
+        assertThat(result).isNotNull();
+        assertThat(result.localPhotoId()).isEqualTo("photo-remark-1");
+        assertThat(result.sessionTargetId()).isNull();
+        assertThat(result.bayIndex()).isNull();
+        assertThat(result.benchIndex()).isNull();
+        assertThat(result.spotIndex()).isNull();
+        assertThat(result.purpose()).isEqualTo("Hotspot in remarks");
+    }
+
+    @Test
     void registerMetadata_WithManagerRole_ThrowsForbiddenException() {
         PhotoMetadataRequest request = new PhotoMetadataRequest(
                 session.getId(),
