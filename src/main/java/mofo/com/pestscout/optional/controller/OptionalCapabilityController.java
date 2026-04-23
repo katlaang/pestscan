@@ -2,6 +2,7 @@ package mofo.com.pestscout.optional.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.optional.dto.OptionalCapabilityDtos.*;
 import mofo.com.pestscout.optional.dto.SupplyOrderingDtos.CreateSupplyOrderFromDraftRequest;
 import mofo.com.pestscout.optional.dto.SupplyOrderingDtos.SupplyOrderDraftResponse;
@@ -52,9 +53,15 @@ public class OptionalCapabilityController {
     public ResponseEntity<GisHeatmapResponse> getGisLayers(
             @RequestParam UUID farmId,
             @RequestParam(required = false) Integer week,
-            @RequestParam(required = false) Integer year
+            @RequestParam(required = false) Integer year,
+            @RequestParam(defaultValue = "all") String mode
     ) {
-        return ResponseEntity.ok(optionalCapabilityService.getGisHeatmapLayers(farmId, week, year));
+        return ResponseEntity.ok(optionalCapabilityService.getGisHeatmapLayers(
+                farmId,
+                week,
+                year,
+                HeatmapLayerMode.fromValue(mode)
+        ));
     }
 
     @GetMapping("/automated-treatment-recommendations")

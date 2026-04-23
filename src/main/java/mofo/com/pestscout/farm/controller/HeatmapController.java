@@ -1,6 +1,7 @@
 package mofo.com.pestscout.farm.controller;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.service.HeatmapService;
 import org.slf4j.Logger;
@@ -24,10 +25,10 @@ public class HeatmapController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER','SCOUT')")
     public ResponseEntity<HeatmapResponse> getHeatmap(@PathVariable UUID farmId,
                                                        @RequestParam int week,
-                                                       @RequestParam int year) {
-        // Farm access and licence read-only behaviour are enforced inside HeatmapService
-        // so the controller only validates authentication and logs the request.
-        LOGGER.info("GET /api/farms/{}/heatmap — week {}, year {}", farmId, week, year);
-        return ResponseEntity.ok(heatmapService.generateHeatmap(farmId, week, year));
+                                                      @RequestParam int year,
+                                                      @RequestParam(defaultValue = "all") String mode) {
+        HeatmapLayerMode layerMode = HeatmapLayerMode.fromValue(mode);
+        LOGGER.info("GET /api/farms/{}/heatmap - week {}, year {}, mode {}", farmId, week, year, layerMode.apiValue());
+        return ResponseEntity.ok(heatmapService.generateHeatmap(farmId, week, year, layerMode));
     }
 }

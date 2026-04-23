@@ -1,5 +1,6 @@
 package mofo.com.pestscout.analytics.service;
 
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.farm.model.Farm;
@@ -302,6 +303,58 @@ class HeatmapServiceTest {
         assertThat(response.cells()).hasSize(2);
         assertThat(response.cells().get(0).severityLevel()).isEqualTo(SeverityLevel.LOW);
         assertThat(response.cells().get(1).severityLevel()).isEqualTo(SeverityLevel.HIGH);
+    }
+
+    @Test
+    @DisplayName("Should filter heatmap totals by requested layer mode")
+    void generateHeatmap_WithDiseaseMode_UsesOnlyDiseaseCounts() {
+        int week = 1;
+        int year = 2025;
+
+        ScoutingObservation pestOnly = ScoutingObservation.builder()
+                .session(session)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.THRIPS)
+                .bayIndex(1)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(7)
+                .build();
+
+        ScoutingObservation diseaseOnly = ScoutingObservation.builder()
+                .session(session)
+                .sessionTarget(target)
+                .speciesCode(SpeciesCode.BOTRYTIS)
+                .bayIndex(2)
+                .benchIndex(1)
+                .spotIndex(1)
+                .count(4)
+                .build();
+
+        when(analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(testFarm.getId()))
+                .thenReturn(testFarm);
+        when(sessionRepository.findByFarmIdAndSessionDateBetween(
+                any(), any(LocalDate.class), any(LocalDate.class)
+        )).thenReturn(List.of(session));
+        when(targetRepository.findBySessionIdIn(anyList()))
+                .thenReturn(List.of(target));
+        when(observationRepository.findBySessionIdIn(anyList()))
+                .thenReturn(List.of(pestOnly, diseaseOnly));
+
+        HeatmapResponse response = heatmapService.generateHeatmap(
+                testFarm.getId(),
+                week,
+                year,
+                HeatmapLayerMode.DISEASES
+        );
+
+        assertThat(response.layerMode()).isEqualTo("diseases");
+        assertThat(response.cells()).hasSize(1);
+        assertThat(response.cells().getFirst().bayIndex()).isEqualTo(2);
+        assertThat(response.cells().getFirst().totalCount()).isEqualTo(4);
+        assertThat(response.cells().getFirst().diseaseCount()).isEqualTo(4);
+        assertThat(response.sections()).hasSize(1);
+        assertThat(response.sections().getFirst().cells()).hasSize(1);
     }
 
     @Test

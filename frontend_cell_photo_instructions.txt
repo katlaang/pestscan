@@ -13,6 +13,15 @@ Important backend rule
   - bayIndex
   - benchIndex
   - spotIndex
+- Observation rows for that same cell can now also carry:
+  - localObservationId
+  - observationType
+  - lifecycleStatus
+  - latitude
+  - longitude
+  - geometry
+- The backend does not generate geometry for the cell.
+- If the frontend captures a GPS point, map pin, or drawn area, it must include that data in the observation save payload.
 - If the frontend does not expose spots yet, always send:
   - spotIndex = 1
 
@@ -102,6 +111,12 @@ type CellObservation = {
   spotIndex: number
   speciesCode?: string | null
   customSpeciesId?: string | null
+  localObservationId?: string | null
+  observationType?: string | null
+  lifecycleStatus?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  geometry?: string | null
   count?: number | null
   notes?: string | null
 }
@@ -181,13 +196,55 @@ Example create/update payload:
   "spotIndex": 1,
   "count": 4,
   "notes": "Observed on lower leaves",
-  "version": 1
+  "version": 1,
+  "localObservationId": "LOCAL-OBS-001",
+  "observationType": "SUSPECTED_PEST",
+  "lifecycleStatus": "CAPTURED_OFFLINE",
+  "latitude": 1.2345678,
+  "longitude": 36.1234567,
+  "geometry": "{\"type\":\"Point\",\"coordinates\":[36.1234567,1.2345678]}"
+}
+
+Type-only observation example for the same cell:
+
+{
+  "sessionTargetId": "target-uuid",
+  "bayIndex": 1,
+  "bayTag": "Bay-1",
+  "benchIndex": 1,
+  "benchTag": "Bed-1",
+  "spotIndex": 1,
+  "count": 1,
+  "notes": "Unknown crop damage near irrigation line",
+  "localObservationId": "LOCAL-OBS-002",
+  "observationType": "CROP_DAMAGE",
+  "lifecycleStatus": "DRAFT"
 }
 
 Frontend rule:
 - save the count when the user pauses typing, leaves the field, or clicks Save inside the modal
 - do not hard-delete the cell value just because the input becomes temporarily blank while typing
 - only send the latest value
+- keep localObservationId stable for that row while the session remains open
+- if device location is available, also send:
+  - latitude
+  - longitude
+  - geometry when available
+- if geometry is GeoJSON, use coordinate order:
+  - [longitude, latitude]
+
+Geometry capture rule for the cell modal
+- Field session:
+  - request device GPS when the scout opens or saves the cell if permission exists
+  - send latitude and longitude with the count payload
+  - send geometry as a serialized GeoJSON Point when a precise point is available
+- Greenhouse session:
+  - keep sessionTargetId + bayIndex + benchIndex + spotIndex as the main locator
+  - send geometry only when the UI has a map pin, drawn area, or preconfigured structure geometry
+- Drawn affected zones may be sent as serialized GeoJSON Polygon strings.
+- Example Point geometry string:
+  - {"type":"Point","coordinates":[36.1234567,1.2345678]}
+- The backend stores the geometry string and does not create it from the cell coordinates.
 
 If the value is cleared intentionally:
 - use the existing delete observation flow if your UI supports explicit clear/delete
@@ -416,6 +473,8 @@ When cell modal opens:
 - determine sessionTargetId, bayIndex, benchIndex, spotIndex
 - load existing draft count from local sheet state
 - load existing photos from cellPhotoMap[cellKey]
+- for field sessions, attempt location capture if product wants point-level mapping
+- for greenhouse sessions, do not block count entry on missing GPS
 
 When user edits count:
 - update local modal state immediately
@@ -480,4 +539,3 @@ Recommended:
 - show AI result per photo
 - manager review UI for photo analysis
 - retry UI for failed upload or failed analysis
-

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.farm.config.LicensePolicyProperties;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.service.LicenseService;
+import mofo.com.pestscout.scouting.model.ObservationCategory;
 import mofo.com.pestscout.scouting.model.ScoutingObservation;
 import mofo.com.pestscout.scouting.model.ScoutingSession;
 import mofo.com.pestscout.scouting.repository.ScoutingObservationRepository;
@@ -87,10 +88,11 @@ public class RawDataPdfExportService {
             lines.add("No observations were found for this farm.");
         } else {
             for (ScoutingObservation observation : observations) {
+                ObservationCategory category = observation.getCategory();
                 lines.add(
                         safe(observation.getSession().getSessionDate())
                                 + " | " + safe(observation.getSpeciesDisplayName())
-                                + " | category=" + observation.getCategory().name()
+                                + " | category=" + safe(category != null ? category.name() : observation.getObservationType())
                                 + " | count=" + safe(observation.getCount())
                                 + " | bay=" + safe(observation.getBayLabel(), observation.getBayIndex())
                                 + " | bench=" + safe(observation.getBenchLabel(), observation.getBenchIndex())

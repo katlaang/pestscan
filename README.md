@@ -258,12 +258,29 @@ An observation is a row-level record of what was seen at a specific grid cell.
 
 It stores:
 
-- species code
+- species code or a type-only suspicious condition
 - derived category
+- explicit `observationType`
+- workflow `lifecycleStatus`
+- frontend-generated `localObservationId`
 - bay, bench, and spot coordinates
+- optional per-observation latitude and longitude
+- optional serialized geometry for point or shape capture
 - count and notes
 - optimistic locking version
 - optional `clientRequestId` for idempotent sync
+
+Important observation-model rules:
+
+- the frontend may submit a species-based observation using `speciesCode` or `customSpeciesId`
+- the frontend may also submit a type-only observation when the scout cannot yet identify the species
+- `latitude` and `longitude` must be sent together when location capture is available
+- geometry is stored as the serialized payload sent by the frontend; the backend does not derive it from bay/bench/spot
+  indices
+- field clients should prefer a GeoJSON Point from device GPS or a map pin, while greenhouse clients should treat the
+  grid cell as the primary locator until structure geometry exists
+- `localObservationId` is intended for offline reconciliation before the client has a stable server id
+- lifecycle state is tracked separately from transport-level `syncStatus`
 
 ### ScoutingPhoto
 
@@ -449,11 +466,12 @@ The optional capability framework supports deployment-wide rollout plus per-farm
 
 | Capability                               | Feature key                           | Global default | Default tiers                  | Primary endpoint(s)                                                                                                                                                       |
 |------------------------------------------|---------------------------------------|----------------|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Drone or aerial image processing         | `drone-image-processing`              | Off            | `PREMIUM`                      | `POST /api/optional-capabilities/drone-image-processing/analyze`                                                                                                          |
-| Predictive modeling                      | `predictive-modeling`                 | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/predictive-modeling/forecast`                                                                                                             |
+| AI pest identification compatibility API | `ai-pest-identification`              | On             | `PREMIUM`                      | `GET /api/optional-capabilities/ai-pest-identification/photos/{photoId}`                                                                                                  |
+| Drone or aerial image processing         | `drone-image-processing`              | On             | `PREMIUM`                      | `POST /api/optional-capabilities/drone-image-processing/analyze`                                                                                                          |
+| Predictive modeling                      | `predictive-modeling`                 | On             | `PREMIUM`                      | `GET /api/optional-capabilities/predictive-modeling/forecast`                                                                                                             |
 | Automated PDF reports                    | `automated-pdf-reports`               | On             | `BASIC`, `STANDARD`, `PREMIUM` | `POST /api/analytics/reports/export`                                                                                                                                      |
-| GIS heatmaps or advanced mapping layers  | `gis-heatmaps`                        | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/gis-heatmaps/layers`                                                                                                                      |
-| Automated treatment recommendations      | `automated-treatment-recommendations` | Off            | `STANDARD`, `PREMIUM`          | `GET /api/optional-capabilities/automated-treatment-recommendations`                                                                                                      |
+| GIS heatmaps or advanced mapping layers  | `gis-heatmaps`                        | On             | `PREMIUM`                      | `GET /api/optional-capabilities/gis-heatmaps/layers`                                                                                                                      |
+| Automated treatment recommendations      | `automated-treatment-recommendations` | On             | `STANDARD`, `PREMIUM`          | `GET /api/optional-capabilities/automated-treatment-recommendations`                                                                                                      |
 | Integrated purchasing or supply ordering | `supply-ordering`                     | Off            | `PREMIUM`                      | `GET /api/optional-capabilities/supply-ordering/draft`, `POST /api/optional-capabilities/supply-ordering/orders`, `GET /api/optional-capabilities/supply-ordering/orders` |
 
 General scouting photo analysis is part of the core scouting workflow and is exposed under `/api/scouting/photos`.
@@ -1207,6 +1225,10 @@ The system supports:
 - offline-safe updates
 - idempotent client request keys
 - soft-delete semantics for sync
+- explicit observation types for suspected pest, disease symptom, crop damage, or other suspicious conditions
+- local observation ids for frontend/offline reconciliation
+- observation workflow states such as `DRAFT`, `CAPTURED_OFFLINE`, `SYNCED`, `ANALYZED`, `ESCALATED`, and `CLOSED`
+- per-observation coordinates and optional geometry payloads
 
 ### 5. Manager reviews and completes the session
 
@@ -1332,6 +1354,7 @@ Important session operations:
 - add observations
 - bulk add observations
 - delete observations
+- fetch session detail with nested observation payloads
 - set the default photo source type for the session
 - run photo analysis
 - review photo analysis
@@ -1384,6 +1407,15 @@ Swagger UI is available at:
 OpenAPI JSON is exposed at:
 
 - `/api-docs`
+
+Milestone 1 observation and sync payloads are now documented in Swagger for:
+
+- `POST /api/scouting/sessions/{sessionId}/observations`
+- `PUT /api/scouting/sessions/{sessionId}/observations/{observationId}`
+- `POST /api/scouting/sessions/{sessionId}/observations/bulk`
+- `GET /api/scouting/sessions/{sessionId}`
+- `GET /api/scouting/sessions/sync`
+- `POST /api/cloud/sync/sessions`
 
 ## Configuration
 
@@ -1612,6 +1644,7 @@ The `docs/` folder contains deeper design notes for specific subsystems:
 - `heatmap_changes.md`: heatmap implementation notes
 - `exception-handling.md`: API error behavior
 - `frontend-feature-guide.md`: frontend-facing expectations
+- `frontend_implementation_notepad.txt`: current frontend implementation contract and milestone notes
 
 ## Known limitations and current implementation notes
 

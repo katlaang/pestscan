@@ -19,13 +19,13 @@ import java.util.Set;
 @Setter
 public class FeatureProperties {
 
-    private FeatureSetting aiPestIdentification = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM));
-    private FeatureSetting droneImageProcessing = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM));
-    private FeatureSetting predictiveModeling = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM));
+    private FeatureSetting aiPestIdentification = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM), true);
+    private FeatureSetting droneImageProcessing = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM), true);
+    private FeatureSetting predictiveModeling = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM), true);
     private FeatureSetting automatedPdfReports = new FeatureSetting(EnumSet.allOf(SubscriptionTier.class), true);
-    private FeatureSetting gisHeatmaps = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM));
+    private FeatureSetting gisHeatmaps = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM), true);
     private FeatureSetting automatedTreatmentRecommendations =
-            new FeatureSetting(Set.of(SubscriptionTier.STANDARD, SubscriptionTier.PREMIUM));
+            new FeatureSetting(Set.of(SubscriptionTier.STANDARD, SubscriptionTier.PREMIUM), true);
     private FeatureSetting supplyOrdering = new FeatureSetting(Set.of(SubscriptionTier.PREMIUM));
 
     public FeatureSetting settingFor(FeatureKey featureKey) {

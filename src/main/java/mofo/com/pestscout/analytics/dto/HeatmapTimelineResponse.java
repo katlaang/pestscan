@@ -11,6 +11,7 @@ public record HeatmapTimelineResponse(
         LocalDate rangeEnd,
         HeatmapRangeUnit rangeUnit,
         int rangeSize,
+        String layerMode,
         List<WeeklyHeatmapResponse> weeklyHeatmaps,
         List<SeverityLegendEntry> legend
 ) {

@@ -8,6 +8,8 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 import mofo.com.pestscout.common.model.BaseEntity;
 
+import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -23,7 +25,8 @@ import java.util.UUID;
         ),
         indexes = {
                 @Index(name = "idx_scouting_observation_drafts_session", columnList = "session_id"),
-                @Index(name = "idx_scouting_observation_drafts_custom_species", columnList = "custom_species_id")
+                @Index(name = "idx_scouting_observation_drafts_custom_species", columnList = "custom_species_id"),
+                @Index(name = "idx_scouting_observation_drafts_local_id", columnList = "local_observation_id")
         }
 )
 @Getter
@@ -52,6 +55,17 @@ public class ScoutingObservationDraft extends BaseEntity {
     @Column(name = "species_identifier", nullable = false, length = 128)
     private String speciesIdentifier;
 
+    @Column(name = "local_observation_id", length = 64)
+    private String localObservationId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "observation_type", nullable = false, length = 32)
+    private ObservationType observationType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_status", nullable = false, length = 32)
+    private ObservationLifecycleStatus lifecycleStatus;
+
     @Column(name = "bay_index", nullable = false)
     private Integer bayIndex;
 
@@ -70,6 +84,15 @@ public class ScoutingObservationDraft extends BaseEntity {
     @Column(name = "count_value", nullable = false)
     private Integer count;
 
+    @Column(name = "latitude", precision = 10, scale = 7)
+    private BigDecimal latitude;
+
+    @Column(name = "longitude", precision = 10, scale = 7)
+    private BigDecimal longitude;
+
+    @Column(name = "geometry", length = 4000)
+    private String geometry;
+
     @Column(name = "notes", length = 2000)
     private String notes;
 
@@ -81,7 +104,10 @@ public class ScoutingObservationDraft extends BaseEntity {
         if (customSpecies != null) {
             return customSpecies.getCategory();
         }
-        return speciesCode != null ? speciesCode.getCategory() : null;
+        if (speciesCode != null) {
+            return speciesCode.getCategory();
+        }
+        return observationType != null ? observationType.getDefaultCategory() : null;
     }
 
     @Transient
@@ -89,7 +115,10 @@ public class ScoutingObservationDraft extends BaseEntity {
         if (customSpecies != null) {
             return customSpecies.getName();
         }
-        return speciesCode != null ? speciesCode.getDisplayName() : null;
+        if (speciesCode != null) {
+            return speciesCode.getDisplayName();
+        }
+        return observationType != null ? observationType.getDefaultDisplayName() : null;
     }
 
     @Transient
@@ -103,6 +132,25 @@ public class ScoutingObservationDraft extends BaseEntity {
         if (speciesCode != null) {
             return "CODE:" + speciesCode.name();
         }
+        if (observationType != null) {
+            return "TYPE:" + observationType.name();
+        }
         return null;
+    }
+
+    @Override
+    protected void applyPrePersistDefaults() {
+        if (observationType == null) {
+            observationType = ObservationType.fromCategory(getCategory());
+        }
+        if (lifecycleStatus == null) {
+            lifecycleStatus = ObservationLifecycleStatus.DRAFT;
+        }
+        if (localObservationId == null || localObservationId.isBlank()) {
+            localObservationId = "OBS-" + UUID.randomUUID().toString()
+                    .replace("-", "")
+                    .substring(0, 12)
+                    .toUpperCase(Locale.ROOT);
+        }
     }
 }

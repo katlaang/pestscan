@@ -5,6 +5,9 @@ Date: 2026-03-18
 Scope
 - This document covers the frontend implementation needed for the backend changes already present in this repo.
 - The backend repo does NOT contain the UI code, so the items below must be implemented in the frontend client.
+- This handoff now includes:
+  - milestone 0 map-layer exposure
+  - milestone 1 observation model enrichment
 
 Main UI Behaviors To Implement
 1. Replace the draft planner button label "Save and publish as new" with "Save".
@@ -16,6 +19,19 @@ Main UI Behaviors To Implement
 7. Farm managers and farm admins should load the same farm dashboard surfaces as before: dashboard, analytics, heatmap, alerts, farms, and sessions. The backend now allows active farm membership access.
 8. Heatmap and session grid rendering should be by Bay ID and Bed ID. In the API, bed selection is still named "benchTags" in a few payloads for backward compatibility. Treat those as Bed IDs in the UI.
 9. The superadmin has a larger dashboard where they can see everything across all farms and can click per farm and see the dashboard
+10. The map view must support layer toggles for:
+  - all
+  - pests only
+  - diseases only
+11. Treatment suggestions must be shown in the same workflow using the existing optional capability endpoint.
+12. Observation capture must support:
+  - localObservationId
+  - observationType
+  - lifecycleStatus
+  - latitude
+  - longitude
+  - geometry
+13. The scout must be able to save a suspicious observation even when the species is not yet known.
 
 Role Rules
 - SUPER_ADMIN
@@ -89,11 +105,55 @@ Frontend Flow: Scout Data Entry
 1. Scout opens a NEW session from the list.
 2. Load detail with GET /api/scouting/sessions/{sessionId}
 3. Start with POST /api/scouting/sessions/{sessionId}/start
+4. When a new observation row is created in the UI:
+   - generate localObservationId immediately on the client
+   - choose observationType
+   - set lifecycleStatus based on client state such as DRAFT or CAPTURED_OFFLINE
 4. Save observations with:
    - POST /api/scouting/sessions/{sessionId}/observations
    - POST /api/scouting/sessions/{sessionId}/observations/bulk
-5. Submit with POST /api/scouting/sessions/{sessionId}/submit
-6. Complete with POST /api/scouting/sessions/{sessionId}/complete
+5. If the device has GPS or mapped position data, include:
+   - latitude
+   - longitude
+   - geometry when available
+6. Submit with POST /api/scouting/sessions/{sessionId}/submit
+7. Complete with POST /api/scouting/sessions/{sessionId}/complete
+
+Important observation capture rules
+- The frontend may save an observation using:
+  - speciesCode
+  - or customSpeciesId
+- The frontend may also save an observation using:
+  - observationType only
+- observationType-only capture is valid for:
+  - SUSPECTED_PEST
+  - DISEASE_SYMPTOM
+  - CROP_DAMAGE
+  - OTHER
+- The device does not send geometry automatically.
+- The frontend must capture any location or mapped shape and include it in the observation payload.
+- If latitude is sent, longitude must also be sent.
+- If geometry is sent as GeoJSON, coordinate order must be:
+  - [longitude, latitude]
+- Use localObservationId as the stable local row key until server reconciliation is complete.
+- Use lifecycleStatus as a workflow badge in the UI.
+
+Geometry capture during a scouting session
+- Field scouting:
+  - prefer device GPS capture
+  - send latitude
+  - send longitude
+  - send geometry as a serialized GeoJSON Point when available
+- Greenhouse scouting:
+  - use sessionTargetId + bayIndex + benchIndex + spotIndex as the primary location
+  - treat geometry as optional until real greenhouse cell polygons exist
+- The frontend may source geometry from:
+  - current GPS position
+  - a map click or dropped pin
+  - a user-drawn affected area polygon
+  - a future preconfigured bay or bed geometry lookup
+- The backend stores geometry as provided by the client.
+- The backend does not derive geometry automatically from the scouting grid.
 
 Farm Setup UI Requirements
 
@@ -144,6 +204,14 @@ Heatmap Rendering Rules
   - severityLevel
   - colorHex
 - Harmful pressure color is already computed by backend using pests + diseases.
+- Heatmap and GIS payloads now support a mode switch:
+  - all
+  - pests
+  - diseases
+- In pests mode:
+  - totalCount and colorHex are pest-only
+- In diseases mode:
+  - totalCount and colorHex are disease-only
 - The current severity colors from backend are:
   - ZERO: #2ecc71
   - LOW: #f1c40f
@@ -206,6 +274,7 @@ Scouting sessions
 
 Observations
 - POST /api/scouting/sessions/{sessionId}/observations
+- PUT /api/scouting/sessions/{sessionId}/observations/{observationId}
 - POST /api/scouting/sessions/{sessionId}/observations/bulk
 - DELETE /api/scouting/sessions/{sessionId}/observations/{observationId}
 
@@ -214,6 +283,22 @@ Analytics and heatmaps
 - GET /api/analytics/dashboard/full?farmId={farmId}
 - GET /api/analytics/heatmap/monthly?farmId={farmId}&year={year}&month={month}
 - GET /api/analytics/reports/monthly?farmId={farmId}&year={year}&month={month}
+
+Milestone 0 map and treatment endpoints
+- GET /api/farms/{farmId}/heatmap?week={week}&year={year}&mode={all|pests|diseases}
+- GET /api/analytics/heatmap/timeline?farmId={farmId}&rangeUnit={...}&rangeSize={...}&mode={all|pests|diseases}
+- GET /api/optional-capabilities/gis-heatmaps/layers?farmId={farmId}&week={week}&year={year}&mode={all|pests|diseases}
+- GET /api/optional-capabilities/automated-treatment-recommendations?farmId={farmId}
+- GET /api/optional-capabilities/predictive-modeling/forecast?farmId={farmId}
+- GET /api/optional-capabilities/ai-pest-identification/photos/{photoId}?farmId={farmId}
+
+Important feature availability note
+- These optional capabilities are now enabled by default for eligible farms:
+  - ai-pest-identification
+  - drone-image-processing
+  - predictive-modeling
+  - gis-heatmaps
+  - automated-treatment-recommendations
 
 Important Request Shapes
 
@@ -345,7 +430,42 @@ POST /api/scouting/sessions/{sessionId}/observations
   "spotIndex": 1,
   "count": 4,
   "notes": "Observed on lower leaves",
-  "clientRequestId": "UUID"
+  "clientRequestId": "UUID",
+  "localObservationId": "LOCAL-OBS-001",
+  "observationType": "SUSPECTED_PEST",
+  "lifecycleStatus": "CAPTURED_OFFLINE",
+  "latitude": 1.2345678,
+  "longitude": 36.1234567,
+  "geometry": "{\"type\":\"Point\",\"coordinates\":[36.1234567,1.2345678]}"
+}
+
+Geometry payload guidance
+- Preferred field payload:
+  - send latitude
+  - send longitude
+  - send geometry as a GeoJSON Point string
+- Example Point geometry:
+  - {"type":"Point","coordinates":[36.1234567,1.2345678]}
+- Example Polygon geometry when the scout marks an affected zone:
+  - {"type":"Polygon","coordinates":[[[36.1200,1.2300],[36.1300,1.2300],[36.1300,1.2400],[36.1200,1.2400],[36.1200,1.2300]]]}
+- Greenhouse sessions may omit geometry when the UI only knows the grid cell location.
+
+Type-only suspicious observation example
+POST /api/scouting/sessions/{sessionId}/observations
+{
+  "sessionId": "SESSION_UUID",
+  "sessionTargetId": "TARGET_UUID",
+  "bayIndex": 1,
+  "bayTag": "Bay A",
+  "benchIndex": 2,
+  "benchTag": "Bed-2",
+  "spotIndex": 1,
+  "count": 1,
+  "notes": "Unknown damage pattern",
+  "clientRequestId": "UUID",
+  "localObservationId": "LOCAL-OBS-002",
+  "observationType": "CROP_DAMAGE",
+  "lifecycleStatus": "DRAFT"
 }
 
 Response Fields Frontend Should Use
@@ -401,6 +521,47 @@ ScoutingSessionDetailDto
   - areaHectares
   - observations[]
 
+ScoutingObservationDto
+- id
+- version
+- sessionId
+- sessionTargetId
+- greenhouseId
+- fieldBlockId
+- speciesCode
+- customSpeciesId
+- speciesDisplayName
+- speciesIdentifier
+- category
+- bayIndex
+- bayTag
+- benchIndex
+- benchTag
+- spotIndex
+- count
+- notes
+- updatedAt
+- syncStatus
+- deleted
+- deletedAt
+- clientRequestId
+- localObservationId
+- observationType
+- lifecycleStatus
+- latitude
+- longitude
+- geometry
+
+HeatmapResponse and GIS payloads
+- layerMode
+- cells[] or layers[].features[]
+- pestCount
+- diseaseCount
+- totalCount
+- colorHex
+- severityLevel
+- polygon for GIS features
+
 HeatmapSectionResponse
 - targetId
 - greenhouseId
@@ -448,3 +609,7 @@ Implementation Note
   - read-only draft mode before Edit
   - rendering beds instead of generic benches in the UI
   - showing/hiding actions by role and status
+  - map-layer toggles for all / pests / diseases
+  - treatment suggestions panel
+  - predictive summary panel
+  - observation local ids, workflow badges, and coordinate capture

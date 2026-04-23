@@ -1,10 +1,7 @@
 package mofo.com.pestscout.optional.service;
 
 import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.analytics.dto.HeatmapCellResponse;
-import mofo.com.pestscout.analytics.dto.HeatmapResponse;
-import mofo.com.pestscout.analytics.dto.HeatmapSectionResponse;
-import mofo.com.pestscout.analytics.dto.WeeklyPestTrendDto;
+import mofo.com.pestscout.analytics.dto.*;
 import mofo.com.pestscout.analytics.service.HeatmapService;
 import mofo.com.pestscout.analytics.service.TrendAnalysisService;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
@@ -196,7 +193,7 @@ public class OptionalCapabilityService {
     }
 
     @Transactional(readOnly = true)
-    public GisHeatmapResponse getGisHeatmapLayers(UUID farmId, Integer week, Integer year) {
+    public GisHeatmapResponse getGisHeatmapLayers(UUID farmId, Integer week, Integer year, HeatmapLayerMode layerMode) {
         Farm farm = accessService.loadFarmAndEnsureManager(farmId);
         featureAccessService.assertEnabled(FeatureKey.GIS_HEATMAPS, farmId);
 
@@ -205,7 +202,7 @@ public class OptionalCapabilityService {
         int resolvedWeek = week != null ? week : now.get(iso.weekOfWeekBasedYear());
         int resolvedYear = year != null ? year : now.get(iso.weekBasedYear());
 
-        HeatmapResponse heatmap = heatmapService.generateHeatmap(farmId, resolvedWeek, resolvedYear);
+        HeatmapResponse heatmap = heatmapService.generateHeatmap(farmId, resolvedWeek, resolvedYear, layerMode);
         boolean geoReferenced = farm.getLatitude() != null && farm.getLongitude() != null;
         String coordinateMode = geoReferenced ? "FARM_ANCHORED_GRID" : "LOCAL_GRID";
 
@@ -250,6 +247,7 @@ public class OptionalCapabilityService {
                 resolvedYear,
                 coordinateMode,
                 geoReferenced,
+                layerMode.apiValue(),
                 layers,
                 heatmap.severityLegend()
         );

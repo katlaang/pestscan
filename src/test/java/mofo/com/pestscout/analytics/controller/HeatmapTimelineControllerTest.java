@@ -1,5 +1,6 @@
 package mofo.com.pestscout.analytics.controller;
 
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapRangeUnit;
 import mofo.com.pestscout.analytics.dto.HeatmapTimelineResponse;
 import mofo.com.pestscout.analytics.service.HeatmapTimelineService;
@@ -43,6 +44,7 @@ class HeatmapTimelineControllerTest {
                 LocalDate.of(2026, 3, 22),
                 HeatmapRangeUnit.WEEKS,
                 5,
+                "diseases",
                 List.of(),
                 List.of()
         );
@@ -50,17 +52,20 @@ class HeatmapTimelineControllerTest {
                 farmId,
                 HeatmapRangeUnit.WEEKS,
                 5,
-                LocalDate.of(2026, 3, 18)
+                LocalDate.of(2026, 3, 18),
+                HeatmapLayerMode.DISEASES
         )).thenReturn(response);
 
         mockMvc.perform(get("/api/analytics/heatmap/timeline")
                         .param("farmId", farmId.toString())
                         .param("rangeUnit", "WEEKS")
                         .param("rangeSize", "5")
-                        .param("endDate", "2026-03-18"))
+                        .param("endDate", "2026-03-18")
+                        .param("mode", "diseases"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.farmId").value(farmId.toString()))
                 .andExpect(jsonPath("$.rangeUnit").value("WEEKS"))
-                .andExpect(jsonPath("$.rangeSize").value(5));
+                .andExpect(jsonPath("$.rangeSize").value(5))
+                .andExpect(jsonPath("$.layerMode").value("diseases"));
     }
 }

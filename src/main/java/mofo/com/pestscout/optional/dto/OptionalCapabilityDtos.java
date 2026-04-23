@@ -88,6 +88,7 @@ public final class OptionalCapabilityDtos {
             int year,
             String coordinateMode,
             boolean geoReferenced,
+            String layerMode,
             List<GisLayer> layers,
             List<SeverityLegendEntry> legend
     ) {

@@ -26,6 +26,8 @@ public record HeatmapResponse(
         // Per section (per greenhouse or field block) heatmaps
         List<HeatmapSectionResponse> sections,
 
+        String layerMode,
+
         // Legend entries for the Green to Dark Red scale
         List<SeverityLegendEntry> severityLegend
 ) {

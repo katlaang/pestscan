@@ -2180,6 +2180,159 @@ class ScoutingSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should persist observation coordinates, type, lifecycle, and local id")
+    void upsertObservation_WithObservationMetadata_PersistsNewFields() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.THRIPS,
+                null,
+                2,
+                "Bay-2",
+                4,
+                "Bed-4",
+                1,
+                9,
+                "Localized thrips pressure",
+                UUID.randomUUID(),
+                1L,
+                "LOCAL-OBS-001",
+                ObservationType.SUSPECTED_PEST,
+                ObservationLifecycleStatus.CAPTURED_OFFLINE,
+                new BigDecimal("1.2345678"),
+                new BigDecimal("36.1234567"),
+                "{\"type\":\"Point\",\"coordinates\":[36.1234567,1.2345678]}"
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(), target.getId(), 2, 4, 1, "CODE:THRIPS"
+        )).thenReturn(Optional.empty());
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result.localObservationId()).isEqualTo("LOCAL-OBS-001");
+        assertThat(result.observationType()).isEqualTo(ObservationType.SUSPECTED_PEST);
+        assertThat(result.lifecycleStatus()).isEqualTo(ObservationLifecycleStatus.CAPTURED_OFFLINE);
+        assertThat(result.latitude()).isEqualByComparingTo("1.2345678");
+        assertThat(result.longitude()).isEqualByComparingTo("36.1234567");
+        assertThat(result.geometry()).contains("Point");
+        verify(observationDraftRepository).save(argThat(saved ->
+                "LOCAL-OBS-001".equals(saved.getLocalObservationId())
+                        && saved.getObservationType() == ObservationType.SUSPECTED_PEST
+                        && saved.getLifecycleStatus() == ObservationLifecycleStatus.CAPTURED_OFFLINE
+                        && new BigDecimal("1.2345678").compareTo(saved.getLatitude()) == 0
+                        && new BigDecimal("36.1234567").compareTo(saved.getLongitude()) == 0
+        ));
+    }
+
+    @Test
+    @DisplayName("Should allow observation capture without a species when observation type is provided")
+    void upsertObservation_WithObservationTypeOnly_CreatesSpecieslessObservation() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                null,
+                null,
+                3,
+                "Bay-3",
+                2,
+                "Bed-2",
+                1,
+                4,
+                "Unknown pest activity",
+                UUID.randomUUID(),
+                null,
+                null,
+                ObservationType.SUSPECTED_PEST,
+                ObservationLifecycleStatus.DRAFT,
+                null,
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+        when(sessionTargetRepository.findByIdAndSessionId(target.getId(), testSession.getId())).thenReturn(Optional.of(target));
+        when(observationDraftRepository.findBySessionIdAndSessionTargetIdAndBayIndexAndBenchIndexAndSpotIndexAndSpeciesIdentifier(
+                testSession.getId(), target.getId(), 3, 2, 1, "TYPE:SUSPECTED_PEST"
+        )).thenReturn(Optional.empty());
+        when(observationDraftRepository.save(any(ScoutingObservationDraft.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ScoutingObservationDto result = scoutingSessionService.upsertObservation(testSession.getId(), request);
+
+        assertThat(result.speciesCode()).isNull();
+        assertThat(result.speciesIdentifier()).isEqualTo("TYPE:SUSPECTED_PEST");
+        assertThat(result.speciesDisplayName()).isEqualTo("Suspected pest activity");
+        assertThat(result.category()).isEqualTo(ObservationCategory.PEST);
+        assertThat(result.observationType()).isEqualTo(ObservationType.SUSPECTED_PEST);
+        assertThat(result.localObservationId()).startsWith("OBS-");
+    }
+
+    @Test
+    @DisplayName("Should reject partial observation coordinates")
+    void upsertObservation_WithPartialCoordinates_ThrowsBadRequest() {
+        testSession.setStatus(SessionStatus.IN_PROGRESS);
+
+        ScoutingSessionTarget target = ScoutingSessionTarget.builder()
+                .id(UUID.randomUUID())
+                .session(testSession)
+                .greenhouse(greenhouse)
+                .includeAllBays(true)
+                .includeAllBenches(true)
+                .build();
+
+        UpsertObservationRequest request = new UpsertObservationRequest(
+                testSession.getId(),
+                target.getId(),
+                SpeciesCode.WHITEFLIES,
+                null,
+                1,
+                "Bay-1",
+                1,
+                "Bed-1",
+                1,
+                2,
+                "Coordinate mismatch",
+                UUID.randomUUID(),
+                null,
+                null,
+                ObservationType.SUSPECTED_PEST,
+                ObservationLifecycleStatus.DRAFT,
+                new BigDecimal("1.2000000"),
+                null,
+                null
+        );
+
+        when(sessionRepository.findById(testSession.getId())).thenReturn(Optional.of(testSession));
+
+        assertThatThrownBy(() -> scoutingSessionService.upsertObservation(testSession.getId(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Provide both latitude and longitude");
+    }
+
+    @Test
     @DisplayName("Should return changed sessions and observations since timestamp")
     void syncChanges_WithUpdates_ReturnsOnlyChangedRecords() {
         // Arrange

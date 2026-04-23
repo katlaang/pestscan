@@ -5,6 +5,8 @@ import mofo.com.pestscout.analytics.dto.SessionTargetRequest;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.common.model.SyncStatus;
 import mofo.com.pestscout.scouting.dto.*;
+import mofo.com.pestscout.scouting.model.ObservationLifecycleStatus;
+import mofo.com.pestscout.scouting.model.ObservationType;
 import mofo.com.pestscout.scouting.model.PhotoSourceType;
 import mofo.com.pestscout.scouting.model.SessionStatus;
 import mofo.com.pestscout.scouting.service.ScoutingSessionReportExportService;
@@ -622,7 +624,13 @@ class ScoutingSessionControllerTest {
                 SyncStatus.PENDING_UPLOAD,
                 false,
                 null,
-                request.clientRequestId()
+                request.clientRequestId(),
+                "LOCAL-OBS-77",
+                ObservationType.SUSPECTED_PEST,
+                ObservationLifecycleStatus.CAPTURED_OFFLINE,
+                new BigDecimal("1.2000000"),
+                new BigDecimal("36.8000000"),
+                "{\"type\":\"Point\",\"coordinates\":[36.8,1.2]}"
         );
 
         when(sessionService.updateObservation(sessionId, observationId, request)).thenReturn(observation);
@@ -633,7 +641,12 @@ class ScoutingSessionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(observationId.toString()))
                 .andExpect(jsonPath("$.count").value(8))
-                .andExpect(jsonPath("$.notes").value("Edited value"));
+                .andExpect(jsonPath("$.notes").value("Edited value"))
+                .andExpect(jsonPath("$.localObservationId").value("LOCAL-OBS-77"))
+                .andExpect(jsonPath("$.observationType").value("SUSPECTED_PEST"))
+                .andExpect(jsonPath("$.lifecycleStatus").value("CAPTURED_OFFLINE"))
+                .andExpect(jsonPath("$.latitude").value(1.2))
+                .andExpect(jsonPath("$.longitude").value(36.8));
     }
 
     @Test

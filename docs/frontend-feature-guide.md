@@ -145,6 +145,21 @@ This document distills what the PestScout backend expects from the web/mobile cl
   - Single upsert: `POST /api/scouting/sessions/{id}/observations`
   - Bulk upsert: `POST /api/scouting/sessions/{id}/observations/bulk` (payload `sessionId` must match path)
   - Delete: `DELETE /api/scouting/sessions/{id}/observations/{observationId}`
+  - Observation payloads now support:
+    - `localObservationId`
+    - `observationType`
+    - `lifecycleStatus`
+    - `latitude`
+    - `longitude`
+    - `geometry`
+  - A capture form may send either:
+    - `speciesCode` or `customSpeciesId` for identified threats
+    - `observationType` only for suspicious conditions not yet identified to species
+  - If the client sends location, it must send both:
+    - `latitude`
+    - `longitude`
+  - Session detail payloads and sync payloads now return the same observation fields, so the UI should preserve them
+    across local edits and offline reconciliation.
 - **Photos** (scout only):
   - Register metadata: `POST /api/scouting/photos/register`
   - Confirm upload: `POST /api/scouting/photos/confirm`
@@ -200,6 +215,60 @@ This document distills what the PestScout backend expects from the web/mobile cl
 - Keep Swagger UI (`/swagger-ui.html`) available in dev to explore the full schemas as you build forms and clients.
 
 ## Latest backend additions
+
+- Heatmap layer filters:
+  - `GET /api/farms/{farmId}/heatmap?week={week}&year={year}&mode={all|pests|diseases}`
+  - `GET /api/analytics/heatmap/timeline?farmId={farmId}&rangeUnit={...}&rangeSize={...}&mode={all|pests|diseases}`
+  -
+  `GET /api/optional-capabilities/gis-heatmaps/layers?farmId={farmId}&week={week}&year={year}&mode={all|pests|diseases}`
+  - Default `mode` is `all`.
+  - Heatmap payloads now include `layerMode` so the UI can confirm which layer is being rendered.
+  - For farm and section cells, keep using:
+    - `pestCount`
+    - `diseaseCount`
+    - `beneficialCount`
+    - `totalCount`
+    - `colorHex`
+  - In `pests` mode, `totalCount` and `colorHex` are based on pest pressure only.
+  - In `diseases` mode, `totalCount` and `colorHex` are based on disease pressure only.
+- Optional capability defaults:
+  - The deployment config now enables these capabilities by default for tier-eligible farms:
+    - `ai-pest-identification`
+    - `drone-image-processing`
+    - `predictive-modeling`
+    - `gis-heatmaps`
+    - `automated-treatment-recommendations`
+  - Farm-specific feature overrides still apply.
+- Observation payload enrichment:
+  - `POST /api/scouting/sessions/{id}/observations`
+  - `PUT /api/scouting/sessions/{id}/observations/{observationId}`
+  - `POST /api/scouting/sessions/{id}/observations/bulk`
+  - `GET /api/scouting/sessions/{id}`
+  - `GET /api/scouting/sessions/sync`
+  - `POST /api/cloud/sync/sessions`
+  - New request/response fields:
+    - `localObservationId`
+    - `observationType`
+    - `lifecycleStatus`
+    - `latitude`
+    - `longitude`
+    - `geometry`
+  - Type-only observation capture is now supported:
+    - `SUSPECTED_PEST`
+    - `DISEASE_SYMPTOM`
+    - `CROP_DAMAGE`
+    - `OTHER`
+  - Frontend guidance:
+    - generate `localObservationId` on the client when the row is created
+    - use `localObservationId` as the stable local key before sync reconciliation
+    - use `observationType` as the fallback label when `speciesDisplayName` is not yet known
+    - render `lifecycleStatus` as a workflow badge
+    - preserve coordinates and geometry on edit/update flows
+    - the device does not send geometry automatically; the frontend must capture and submit it
+    - for field scouting, prefer device GPS and send a serialized GeoJSON Point when available
+    - for greenhouse scouting, keep `sessionTargetId + bayIndex + benchIndex + spotIndex` as the primary locator and
+      treat geometry as optional until real structure geometry exists
+    - when sending GeoJSON, coordinate order must be `[longitude, latitude]`
 
 - Multi-farm memberships:
   - `MANAGER` and `FARM_ADMIN` users can now belong to more than one farm.

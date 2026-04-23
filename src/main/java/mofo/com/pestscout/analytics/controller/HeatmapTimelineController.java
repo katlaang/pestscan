@@ -1,6 +1,7 @@
 package mofo.com.pestscout.analytics.controller;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapRangeUnit;
 import mofo.com.pestscout.analytics.dto.HeatmapTimelineResponse;
 import mofo.com.pestscout.analytics.service.HeatmapTimelineService;
@@ -25,8 +26,15 @@ public class HeatmapTimelineController {
             @RequestParam UUID farmId,
             @RequestParam(defaultValue = "MONTHS") HeatmapRangeUnit rangeUnit,
             @RequestParam(defaultValue = "1") int rangeSize,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(defaultValue = "all") String mode
     ) {
-        return heatmapTimelineService.getWeeklyTimeline(farmId, rangeUnit, rangeSize, endDate);
+        return heatmapTimelineService.getWeeklyTimeline(
+                farmId,
+                rangeUnit,
+                rangeSize,
+                endDate,
+                HeatmapLayerMode.fromValue(mode)
+        );
     }
 }

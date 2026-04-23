@@ -1,5 +1,6 @@
 package mofo.com.pestscout.farm.controller;
 
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.service.HeatmapService;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
@@ -43,16 +44,19 @@ class HeatmapControllerTest {
                 .benchesPerBay(1)
                 .cells(List.of())
                 .sections(List.of())
+                .layerMode("pests")
                 .severityLegend(List.of())
                 .build();
 
-        when(heatmapService.generateHeatmap(farmId, 12, 2024)).thenReturn(response);
+        when(heatmapService.generateHeatmap(farmId, 12, 2024, HeatmapLayerMode.PESTS)).thenReturn(response);
 
         mockMvc.perform(get("/api/farms/" + farmId + "/heatmap")
                         .param("week", "12")
-                        .param("year", "2024"))
+                        .param("year", "2024")
+                        .param("mode", "pests"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.farmId").value(farmId.toString()))
-                .andExpect(jsonPath("$.week").value(12));
+                .andExpect(jsonPath("$.week").value(12))
+                .andExpect(jsonPath("$.layerMode").value("pests"));
     }
 }

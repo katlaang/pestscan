@@ -1,6 +1,7 @@
 package mofo.com.pestscout.analytics.service;
 
 import lombok.RequiredArgsConstructor;
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapRangeUnit;
 import mofo.com.pestscout.analytics.dto.HeatmapTimelineResponse;
 import mofo.com.pestscout.analytics.dto.WeeklyHeatmapResponse;
@@ -27,7 +28,8 @@ public class HeatmapTimelineService {
             UUID farmId,
             HeatmapRangeUnit rangeUnit,
             int rangeSize,
-            LocalDate endDate
+            LocalDate endDate,
+            HeatmapLayerMode layerMode
     ) {
         if (rangeSize < 1) {
             throw new BadRequestException("Heatmap range size must be at least 1.");
@@ -47,7 +49,8 @@ public class HeatmapTimelineService {
                 rangeEnd,
                 rangeUnit,
                 rangeSize,
-                buildWeeklyBuckets(farmId, rangeStart, rangeEnd),
+                layerMode.apiValue(),
+                buildWeeklyBuckets(farmId, rangeStart, rangeEnd, layerMode),
                 heatmapService.getSeverityLegend()
         );
     }
@@ -66,7 +69,12 @@ public class HeatmapTimelineService {
         };
     }
 
-    private List<WeeklyHeatmapResponse> buildWeeklyBuckets(UUID farmId, LocalDate rangeStart, LocalDate rangeEnd) {
+    private List<WeeklyHeatmapResponse> buildWeeklyBuckets(
+            UUID farmId,
+            LocalDate rangeStart,
+            LocalDate rangeEnd,
+            HeatmapLayerMode layerMode
+    ) {
         WeekFields weekFields = WeekFields.ISO;
         LocalDate cursor = rangeStart.with(weekFields.dayOfWeek(), 1);
         List<WeeklyHeatmapResponse> weeklyHeatmaps = new ArrayList<>();
@@ -76,7 +84,7 @@ public class HeatmapTimelineService {
             LocalDate weekEnd = weekStart.plusDays(6);
             int weekNumber = weekStart.get(weekFields.weekOfWeekBasedYear());
             int weekBasedYear = weekStart.get(weekFields.weekBasedYear());
-            var weekHeatmap = heatmapService.generateHeatmap(farmId, weekNumber, weekBasedYear);
+            var weekHeatmap = heatmapService.generateHeatmap(farmId, weekNumber, weekBasedYear, layerMode);
 
             weeklyHeatmaps.add(new WeeklyHeatmapResponse(
                     weekNumber,

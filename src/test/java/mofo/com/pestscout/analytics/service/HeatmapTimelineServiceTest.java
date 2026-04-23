@@ -1,5 +1,6 @@
 package mofo.com.pestscout.analytics.service;
 
+import mofo.com.pestscout.analytics.dto.HeatmapLayerMode;
 import mofo.com.pestscout.analytics.dto.HeatmapRangeUnit;
 import mofo.com.pestscout.analytics.dto.HeatmapResponse;
 import mofo.com.pestscout.analytics.dto.HeatmapTimelineResponse;
@@ -44,10 +45,11 @@ class HeatmapTimelineServiceTest {
                 .benchesPerBay(2)
                 .cells(List.of())
                 .sections(List.of())
+                .layerMode("pests")
                 .severityLegend(List.of())
                 .build();
 
-        when(heatmapService.generateHeatmap(any(), anyInt(), anyInt())).thenReturn(heatmap);
+        when(heatmapService.generateHeatmap(any(), anyInt(), anyInt(), any())).thenReturn(heatmap);
         when(heatmapService.getSeverityLegend()).thenReturn(List.of());
 
         HeatmapTimelineService service = new HeatmapTimelineService(heatmapService, farmRepository);
@@ -55,12 +57,14 @@ class HeatmapTimelineServiceTest {
                 farmId,
                 HeatmapRangeUnit.WEEKS,
                 5,
-                LocalDate.of(2026, 3, 18)
+                LocalDate.of(2026, 3, 18),
+                HeatmapLayerMode.PESTS
         );
 
         assertThat(response.farmId()).isEqualTo(farmId);
         assertThat(response.rangeUnit()).isEqualTo(HeatmapRangeUnit.WEEKS);
         assertThat(response.rangeSize()).isEqualTo(5);
+        assertThat(response.layerMode()).isEqualTo("pests");
         assertThat(response.weeklyHeatmaps()).hasSize(5);
         assertThat(response.rangeStart()).isEqualTo(LocalDate.of(2026, 2, 16));
         assertThat(response.rangeEnd()).isEqualTo(LocalDate.of(2026, 3, 22));
@@ -81,10 +85,11 @@ class HeatmapTimelineServiceTest {
                 .benchesPerBay(2)
                 .cells(List.of())
                 .sections(List.of())
+                .layerMode("all")
                 .severityLegend(List.of())
                 .build();
 
-        when(heatmapService.generateHeatmap(any(), anyInt(), anyInt())).thenReturn(heatmap);
+        when(heatmapService.generateHeatmap(any(), anyInt(), anyInt(), any())).thenReturn(heatmap);
         when(heatmapService.getSeverityLegend()).thenReturn(List.of());
 
         HeatmapTimelineService service = new HeatmapTimelineService(heatmapService, farmRepository);
@@ -92,7 +97,8 @@ class HeatmapTimelineServiceTest {
                 farmId,
                 HeatmapRangeUnit.MONTHS,
                 3,
-                LocalDate.of(2026, 3, 18)
+                LocalDate.of(2026, 3, 18),
+                HeatmapLayerMode.ALL
         );
 
         assertThat(response.rangeStart()).isEqualTo(LocalDate.of(2026, 1, 1));

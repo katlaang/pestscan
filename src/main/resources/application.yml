@@ -100,15 +100,15 @@ app:
   version: 1.0.0
   features:
     ai-pest-identification:
-      enabled: false
+      enabled: true
       allowed-tiers:
         - PREMIUM
     drone-image-processing:
-      enabled: false
+      enabled: true
       allowed-tiers:
         - PREMIUM
     predictive-modeling:
-      enabled: false
+      enabled: true
       allowed-tiers:
         - PREMIUM
     automated-pdf-reports:
@@ -118,11 +118,11 @@ app:
         - STANDARD
         - PREMIUM
     gis-heatmaps:
-      enabled: false
+      enabled: true
       allowed-tiers:
         - PREMIUM
     automated-treatment-recommendations:
-      enabled: false
+      enabled: true
       allowed-tiers:
         - STANDARD
         - PREMIUM

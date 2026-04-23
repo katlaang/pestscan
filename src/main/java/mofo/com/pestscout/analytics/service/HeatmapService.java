@@ -57,6 +57,11 @@ public class HeatmapService {
 //    )
     @Transactional(readOnly = true)
     public HeatmapResponse generateHeatmap(UUID farmId, int week, int year) {
+        return generateHeatmap(farmId, week, year, HeatmapLayerMode.ALL);
+    }
+
+    @Transactional(readOnly = true)
+    public HeatmapResponse generateHeatmap(UUID farmId, int week, int year, HeatmapLayerMode layerMode) {
         LOGGER.info("Generating heatmap for farm {}, week {}, year {}", farmId, week, year);
 
         Farm farm = analyticsAccessService.loadFarmAndEnsureAnalyticsAccess(farmId);
@@ -70,7 +75,7 @@ public class HeatmapService {
 
         if (sessions.isEmpty()) {
             LOGGER.info("No scouting sessions found for farm {} in week {} of {}", farmId, week, year);
-            return emptyResponse(farm, week, year);
+            return emptyResponse(farm, week, year, layerMode);
         }
 
         List<UUID> sessionIds = sessions.stream()
@@ -122,13 +127,14 @@ public class HeatmapService {
                 .sorted(Comparator
                         .comparing(HeatmapAccumulator::bayIndex)
                         .thenComparing(HeatmapAccumulator::benchIndex))
-                .map(HeatmapAccumulator::toResponse)
+                .map(accumulator -> accumulator.toResponse(layerMode))
+                .filter(response -> layerMode.includeCell(response.totalCount()))
                 .collect(Collectors.toList());
 
         // Convert per-section accumulators to section DTOs
         List<HeatmapSectionResponse> sectionResponses = sectionMap.values().stream()
                 .sorted(Comparator.comparing(SectionAccumulator::getTargetName, String.CASE_INSENSITIVE_ORDER))
-                .map(SectionAccumulator::toResponse)
+                .map(section -> section.toResponse(layerMode))
                 .toList();
 
         LOGGER.debug("Generated heatmap for farm {} week {} year {}: {} cells, {} sections",
@@ -143,6 +149,7 @@ public class HeatmapService {
                 .benchesPerBay(farm.resolveBenchesPerBay())
                 .cells(farmCells)
                 .sections(sectionResponses)
+                .layerMode(layerMode.apiValue())
                 .severityLegend(toLegend())
                 .build();
     }
@@ -151,7 +158,7 @@ public class HeatmapService {
      * Empty heat map response when there are no sessions.
      * UI can still show legend and metadata.
      */
-    private HeatmapResponse emptyResponse(Farm farm, int week, int year) {
+    private HeatmapResponse emptyResponse(Farm farm, int week, int year, HeatmapLayerMode layerMode) {
         return HeatmapResponse.builder()
                 .farmId(farm.getId())
                 .farmName(farm.getName())
@@ -161,6 +168,7 @@ public class HeatmapService {
                 .benchesPerBay(farm.resolveBenchesPerBay())
                 .cells(List.of())
                 .sections(List.of())
+                .layerMode(layerMode.apiValue())
                 .severityLegend(toLegend())
                 .build();
     }
@@ -214,10 +222,9 @@ public class HeatmapService {
             }
         }
 
-        HeatmapCellResponse toResponse() {
-            // Severity is based on harmful pressure only (pests + diseases)
-            int totalHarmful = pestCount + diseaseCount;
-            SeverityLevel severityLevel = SeverityLevel.fromCount(totalHarmful);
+        HeatmapCellResponse toResponse(HeatmapLayerMode layerMode) {
+            int selectedCount = layerMode.selectCount(pestCount, diseaseCount);
+            SeverityLevel severityLevel = SeverityLevel.fromCount(selectedCount);
 
             return HeatmapCellResponse.builder()
                     .bayIndex(bayIndex)
@@ -225,7 +232,7 @@ public class HeatmapService {
                     .pestCount(pestCount)
                     .diseaseCount(diseaseCount)
                     .beneficialCount(beneficialCount)
-                    .totalCount(totalHarmful)
+                    .totalCount(selectedCount)
                     .severityLevel(severityLevel)
                     .colorHex(severityLevel.getColorHex())
                     .build();
@@ -366,12 +373,13 @@ public class HeatmapService {
             accumulator.add(observation);
         }
 
-        HeatmapSectionResponse toResponse() {
+        HeatmapSectionResponse toResponse(HeatmapLayerMode layerMode) {
             List<HeatmapCellResponse> cells = accumulators.values().stream()
                     .sorted(Comparator
                             .comparing(HeatmapAccumulator::bayIndex)
                             .thenComparing(HeatmapAccumulator::benchIndex))
-                    .map(HeatmapAccumulator::toResponse)
+                    .map(accumulator -> accumulator.toResponse(layerMode))
+                    .filter(response -> layerMode.includeCell(response.totalCount()))
                     .collect(Collectors.toList());
 
             return new HeatmapSectionResponse(

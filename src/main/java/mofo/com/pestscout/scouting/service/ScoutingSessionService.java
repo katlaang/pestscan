@@ -547,8 +547,19 @@ public class ScoutingSessionService {
                 ? request.spotIndex()
                 : Optional.ofNullable(observation.getSpotIndex()).orElse(1);
         ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request, observation);
+        ObservationType observationType = resolveObservationType(request, resolvedSpecies, observation.getObservationType());
+        ObservationLifecycleStatus lifecycleStatus = resolveObservationLifecycle(
+                request.lifecycleStatus(),
+                observation.getLifecycleStatus()
+        );
+        String localObservationId = resolveLocalObservationId(request.localObservationId(), observation.getLocalObservationId());
         String bayTag = request.bayTag() != null ? request.bayTag() : observation.getBayLabel();
         String benchTag = request.benchTag() != null ? request.benchTag() : observation.getBenchLabel();
+        BigDecimal latitude = request.latitude() != null ? request.latitude() : observation.getLatitude();
+        BigDecimal longitude = request.longitude() != null ? request.longitude() : observation.getLongitude();
+        String geometry = request.geometry() != null ? request.geometry() : observation.getGeometry();
+
+        validateObservationCoordinates(latitude, longitude);
 
         assertTargetSelectionsAllowCell(target, bayTag, benchTag);
         assertSpeciesAllowed(session, resolvedSpecies);
@@ -586,6 +597,12 @@ public class ScoutingSessionService {
                 benchTag,
                 spotIndex,
                 request.count(),
+                observationType,
+                lifecycleStatus,
+                localObservationId,
+                latitude,
+                longitude,
+                geometry,
                 request.notes(),
                 clientRequestId
         );
@@ -621,6 +638,7 @@ public class ScoutingSessionService {
                                                              UpsertObservationRequest request) {
         assertObservationSessionMatches(session.getId(), request);
         ensureDraftWorkspaceInitialized(session);
+        validateObservationCoordinates(request.latitude(), request.longitude());
 
         UUID clientRequestId = request.clientRequestId();
         if (clientRequestId != null) {
@@ -645,6 +663,9 @@ public class ScoutingSessionService {
         ensureSessionEditableForObservations(session);
         assertTargetSelectionsAllowCell(target, request.bayTag(), request.benchTag());
         ResolvedObservationSpecies resolvedSpecies = resolveObservationSpecies(session, request);
+        ObservationType observationType = resolveObservationType(request, resolvedSpecies, null);
+        ObservationLifecycleStatus lifecycleStatus = resolveObservationLifecycle(request.lifecycleStatus(), null);
+        String localObservationId = resolveLocalObservationId(request.localObservationId(), null);
         assertSpeciesAllowed(session, resolvedSpecies);
 
         ScoutingObservationDraft observation = observationDraftRepository
@@ -694,6 +715,12 @@ public class ScoutingSessionService {
                 request.benchTag(),
                 spotIndex,
                 request.count(),
+                observationType,
+                lifecycleStatus,
+                localObservationId,
+                request.latitude(),
+                request.longitude(),
+                request.geometry(),
                 request.notes(),
                 clientRequestId
         );
@@ -1128,12 +1155,18 @@ public class ScoutingSessionService {
                         .speciesCode(observation.getSpeciesCode())
                         .customSpecies(observation.getCustomSpecies())
                         .speciesIdentifier(observation.resolveSpeciesIdentifier())
+                        .localObservationId(observation.getLocalObservationId())
+                        .observationType(observation.getObservationType())
+                        .lifecycleStatus(observation.getLifecycleStatus())
                         .bayIndex(observation.getBayIndex())
                         .bayLabel(observation.getBayLabel())
                         .benchIndex(observation.getBenchIndex())
                         .benchLabel(observation.getBenchLabel())
                         .spotIndex(observation.getSpotIndex())
                         .count(observation.getCount())
+                        .latitude(observation.getLatitude())
+                        .longitude(observation.getLongitude())
+                        .geometry(observation.getGeometry())
                         .notes(observation.getNotes())
                         .clientRequestId(observation.getClientRequestId())
                         .syncStatus(SyncStatus.PENDING_UPLOAD)
@@ -1163,12 +1196,18 @@ public class ScoutingSessionService {
                         .speciesCode(draft.getSpeciesCode())
                         .customSpecies(draft.getCustomSpecies())
                         .speciesIdentifier(draft.resolveSpeciesIdentifier())
+                        .localObservationId(draft.getLocalObservationId())
+                        .observationType(draft.getObservationType())
+                        .lifecycleStatus(promoteObservationLifecycle(draft.getLifecycleStatus()))
                         .bayIndex(draft.getBayIndex())
                         .bayLabel(draft.getBayLabel())
                         .benchIndex(draft.getBenchIndex())
                         .benchLabel(draft.getBenchLabel())
                         .spotIndex(draft.getSpotIndex())
                         .count(draft.getCount())
+                        .latitude(draft.getLatitude())
+                        .longitude(draft.getLongitude())
+                        .geometry(draft.getGeometry())
                         .notes(draft.getNotes())
                         .clientRequestId(draft.getClientRequestId())
                         .syncStatus(SyncStatus.PENDING_UPLOAD)
@@ -1211,6 +1250,12 @@ public class ScoutingSessionService {
                                              String benchTag,
                                              Integer spotIndex,
                                              Integer count,
+                                             ObservationType observationType,
+                                             ObservationLifecycleStatus lifecycleStatus,
+                                             String localObservationId,
+                                             BigDecimal latitude,
+                                             BigDecimal longitude,
+                                             String geometry,
                                              String notes,
                                              UUID clientRequestId) {
         observation.setSession(session);
@@ -1218,12 +1263,18 @@ public class ScoutingSessionService {
         observation.setSpeciesCode(resolvedSpecies.speciesCode());
         observation.setCustomSpecies(resolvedSpecies.customSpecies());
         observation.setSpeciesIdentifier(resolvedSpecies.identifier());
+        observation.setLocalObservationId(localObservationId);
+        observation.setObservationType(observationType);
+        observation.setLifecycleStatus(lifecycleStatus);
         observation.setBayIndex(bayIndex);
         observation.setBayLabel(bayTag);
         observation.setBenchIndex(benchIndex);
         observation.setBenchLabel(benchTag);
         observation.setSpotIndex(spotIndex);
         observation.setCount(count);
+        observation.setLatitude(latitude);
+        observation.setLongitude(longitude);
+        observation.setGeometry(normalizeOptionalText(geometry));
         observation.setNotes(notes);
         observation.setClientRequestId(clientRequestId);
         observation.setSyncStatus(SyncStatus.PENDING_UPLOAD);
@@ -1690,7 +1741,13 @@ public class ScoutingSessionService {
                 observation.getSyncStatus(),
                 deleted,
                 observation.getDeletedAt(),
-                observation.getClientRequestId()
+                observation.getClientRequestId(),
+                observation.getLocalObservationId(),
+                observation.getObservationType(),
+                observation.getLifecycleStatus(),
+                observation.getLatitude(),
+                observation.getLongitude(),
+                observation.getGeometry()
         );
     }
 
@@ -1728,7 +1785,13 @@ public class ScoutingSessionService {
                 observation.getSyncStatus(),
                 deleted,
                 deleted ? observation.getDeletedAt() : null,
-                observation.getClientRequestId()
+                observation.getClientRequestId(),
+                observation.getLocalObservationId(),
+                observation.getObservationType(),
+                observation.getLifecycleStatus(),
+                observation.getLatitude(),
+                observation.getLongitude(),
+                observation.getGeometry()
         );
     }
 
@@ -1857,6 +1920,20 @@ public class ScoutingSessionService {
         boolean hasBuiltInSpecies = request.speciesCode() != null;
         boolean hasCustomSpecies = request.customSpeciesId() != null;
 
+        if (!hasBuiltInSpecies && !hasCustomSpecies) {
+            ObservationType observationType = request.observationType();
+            if (observationType == null) {
+                throw new BadRequestException("Provide a built-in speciesCode, a customSpeciesId, or an observationType.");
+            }
+            return new ResolvedObservationSpecies(
+                    null,
+                    null,
+                    "TYPE:" + observationType.name(),
+                    observationType.getDefaultDisplayName(),
+                    observationType.getDefaultCategory()
+            );
+        }
+
         if (hasBuiltInSpecies == hasCustomSpecies) {
             throw new BadRequestException("Provide either a built-in speciesCode or a customSpeciesId.");
         }
@@ -1889,6 +1966,21 @@ public class ScoutingSessionService {
                                                                  UpsertObservationRequest request,
                                                                  ScoutingObservationDraft existingObservation) {
         if (request.speciesCode() == null && request.customSpeciesId() == null) {
+            if (existingObservation.getSpeciesCode() == null && existingObservation.getCustomSpecies() == null) {
+                ObservationType observationType = request.observationType() != null
+                        ? request.observationType()
+                        : existingObservation.getObservationType();
+                if (observationType == null) {
+                    observationType = ObservationType.OTHER;
+                }
+                return new ResolvedObservationSpecies(
+                        null,
+                        null,
+                        "TYPE:" + observationType.name(),
+                        observationType.getDefaultDisplayName(),
+                        observationType.getDefaultCategory()
+                );
+            }
             return new ResolvedObservationSpecies(
                     existingObservation.getSpeciesCode(),
                     existingObservation.getCustomSpecies(),
@@ -1908,6 +2000,21 @@ public class ScoutingSessionService {
             return;
         }
 
+        if (species.speciesCode() == null && species.customSpecies() == null) {
+            if (species.category() == null) {
+                return;
+            }
+            boolean matchingBuiltInSelection = Optional.ofNullable(session.getSurveySpecies()).orElseGet(List::of).stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(code -> code.getCategory() == species.category());
+            boolean matchingCustomSelection = Optional.ofNullable(session.getCustomSurveySpecies()).orElseGet(List::of).stream()
+                    .anyMatch(definition -> definition.getCategory() == species.category());
+
+            if (matchingBuiltInSelection || matchingCustomSelection) {
+                return;
+            }
+        }
+
         if (species.speciesCode() != null && session.getSurveySpecies().contains(species.speciesCode())) {
             return;
         }
@@ -1925,6 +2032,92 @@ public class ScoutingSessionService {
         }
 
         throw new BadRequestException("Selected pest, disease, or beneficial insect is not configured for this session.");
+    }
+
+    /**
+     * Resolves the explicit observation intent, preferring the request value and
+     * falling back to any stored value or a category-based default.
+     */
+    private ObservationType resolveObservationType(UpsertObservationRequest request,
+                                                   ResolvedObservationSpecies resolvedSpecies,
+                                                   ObservationType existingObservationType) {
+        if (request.observationType() != null) {
+            return request.observationType();
+        }
+        if (existingObservationType != null) {
+            return existingObservationType;
+        }
+        return ObservationType.fromCategory(resolvedSpecies.category());
+    }
+
+    /**
+     * Resolves the workflow lifecycle stored on the observation.
+     */
+    private ObservationLifecycleStatus resolveObservationLifecycle(ObservationLifecycleStatus requestedLifecycle,
+                                                                   ObservationLifecycleStatus existingLifecycle) {
+        if (requestedLifecycle != null) {
+            return requestedLifecycle;
+        }
+        if (existingLifecycle != null) {
+            return existingLifecycle;
+        }
+        return ObservationLifecycleStatus.DRAFT;
+    }
+
+    /**
+     * Resolves the client-stable local observation id used for offline reconciliation.
+     */
+    private String resolveLocalObservationId(String requestedLocalObservationId, String existingLocalObservationId) {
+        String normalizedRequestedId = normalizeOptionalText(requestedLocalObservationId);
+        if (normalizedRequestedId != null) {
+            return normalizedRequestedId;
+        }
+        if (existingLocalObservationId != null && !existingLocalObservationId.isBlank()) {
+            return existingLocalObservationId;
+        }
+        return "OBS-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * Promotes draft or offline lifecycle values into a committed synced state.
+     */
+    private ObservationLifecycleStatus promoteObservationLifecycle(ObservationLifecycleStatus lifecycleStatus) {
+        if (lifecycleStatus == null
+                || lifecycleStatus == ObservationLifecycleStatus.DRAFT
+                || lifecycleStatus == ObservationLifecycleStatus.CAPTURED_OFFLINE) {
+            return ObservationLifecycleStatus.SYNCED;
+        }
+        return lifecycleStatus;
+    }
+
+    /**
+     * Trims optional free-text values and collapses blanks to null.
+     */
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * Validates that observation coordinates are either omitted entirely or
+     * provided as a valid latitude/longitude pair.
+     */
+    private void validateObservationCoordinates(BigDecimal latitude, BigDecimal longitude) {
+        if (latitude == null && longitude == null) {
+            return;
+        }
+        if (latitude == null || longitude == null) {
+            throw new BadRequestException("Provide both latitude and longitude when storing observation coordinates.");
+        }
+        if (latitude.compareTo(new BigDecimal("-90")) < 0 || latitude.compareTo(new BigDecimal("90")) > 0) {
+            throw new BadRequestException("Observation latitude must be between -90 and 90.");
+        }
+        if (longitude.compareTo(new BigDecimal("-180")) < 0 || longitude.compareTo(new BigDecimal("180")) > 0) {
+            throw new BadRequestException("Observation longitude must be between -180 and 180.");
+        }
     }
 
     private boolean allowsCustomSpeciesForCategory(List<SpeciesCode> selectedSpecies, ObservationCategory category) {
