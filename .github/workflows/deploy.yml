@@ -1,0 +1,67 @@
+name: Production CI/CD Pipeline
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # PHASE 1: FRESH CLOUD INTERPRETER RUNTIME COMPILATION (JAVA 25)
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25 Runtime
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25' # Configures environment to build using Java 25 toolchains
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant Execution Permission to Wrapper Script
+        run: chmod +x ./gradlew
+
+      - name: Assemble Spring Boot Executable JAR
+        run: ./gradlew bootJar -x test
+
+      - name: Temporarily Cache Compiled Binary Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: springboot-artifact
+          path: build/libs/*.jar
+
+  # PHASE 2: HOT-SWAP TO INFRASTRUCTURE NODE
+  deploy-to-oracle-cloud:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: oracle-cloud # Links to your existing GitHub Environment approval target
+
+    steps:
+      - name: Download Compiled Application
+        uses: actions/download-artifact@v4
+        with:
+          name: springboot-artifact
+          path: dist/
+
+      - name: Secure Copy JAR to Instance Storage Path
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.OCI_INSTANCE_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "dist/*.jar"
+          target: "~/app"
+          strip_components: 0
+
+      - name: Refresh Application Server Instance
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.OCI_INSTANCE_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/app
+            docker compose stop springboot-api
+            docker compose rm -f springboot-api
+            docker compose up -d springboot-api

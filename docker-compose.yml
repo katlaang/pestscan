@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:16
@@ -7,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: admin
     ports:
-      - "5433:5432"
+      - "5433:5432" # Keeps port 5433 open for your local desktop tools
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
@@ -23,23 +25,16 @@ services:
     depends_on:
       - postgres
       - redis
-    environment:
-      SPRING_PROFILES_ACTIVE: dev
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/pestscan_scouting
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: admin
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      # JWT secret used by the application (required by production profile).
-      # Must be at least 64 characters for the HMAC signing key. Replace this
-      # value with a secure secret or provide it via an external environment
-      # or Docker secret in production.
-      JWT_SECRET: "dev-local-jwt-secret-please-change-this-to-a-secure-64-char-minimum-xxxxxxxxxxxxxxxx"
     ports:
-      - "${APP_PORT:-8080}:8080"
-    # Uncomment to persist logs outside the container
-    # volumes:
-    #   - ./logs:/app/logs
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local # Activates your application.yml profile settings
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/pestscan_scouting
+      - SPRING_DATASOURCE_USERNAME=${LOCAL_DB_USER}
+      - SPRING_DATASOURCE_PASSWORD=${LOCAL_DB_PASS}
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - JWT_SECRET=${LOCAL_JWT_SECRET}
 
 volumes:
   postgres-data:
