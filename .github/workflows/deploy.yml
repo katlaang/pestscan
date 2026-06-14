@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - master
 
 jobs:
   # PHASE 1: FRESH CLOUD INTERPRETER RUNTIME COMPILATION (JAVA 25)
