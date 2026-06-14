@@ -1428,6 +1428,36 @@ Default local values:
 - host: `localhost`
 - port: `5433`
 - database: `pestscan_scouting`
+
+### Quick local setup (docker-compose)
+
+Create a `.env` file from the included `.env.example` and customize if needed:
+
+```
+cp .env.example .env
+# edit .env to change passwords or ports
+```
+
+Bring up the local stack:
+
+```
+docker compose up -d postgres redis
+docker compose up -d app
+docker logs -f pestscan-app
+```
+
+If you need a fresh database (WARNING: data loss), run:
+
+```
+./scripts/recreate-db.sh --yes-i-understand
+```
+
+If the application expects a specific DB user (for example when your environment sets `LOCAL_DB_USER`), create it in Postgres with:
+
+```
+./scripts/create-db-user.sh my_secret_local_user my_password
+```
+
 - username: `postgres`
 - password: `admin`
 
