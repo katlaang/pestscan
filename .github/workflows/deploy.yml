@@ -6,17 +6,17 @@ on:
       - master
 
 jobs:
-  # PHASE 1: FRESH CLOUD INTERPRETER RUNTIME COMPILATION (JAVA 25)
+  # PHASE 1: FRESH CLOUD INTERPRETER RUNTIME COMPILATION (JAVA 21)
   build-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 25 Runtime
+      - name: Set up JDK 21 Runtime
         uses: actions/setup-java@v4
         with:
-          java-version: '25' # Configures environment to build using Java 25 toolchains
+          java-version: '21' # Changed from 25 to 21 to match your code downgrade
           distribution: 'temurin'
           cache: 'gradle'
 
