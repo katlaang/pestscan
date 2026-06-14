@@ -12,6 +12,14 @@ services:
       - "5433:5432" # Keeps port 5433 open for your local desktop tools
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Mount local init scripts so the database is created on first run
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pestscan_scouting} -h localhost -p 5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7
