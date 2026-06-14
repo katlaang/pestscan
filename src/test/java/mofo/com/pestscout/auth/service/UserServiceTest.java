@@ -310,10 +310,8 @@ class UserServiceTest {
         UUID farmId = UUID.randomUUID();
         User manager = buildUser(UUID.randomUUID(), Role.MANAGER);
 
-        when(userRepository.findById(manager.getId()))
-                .thenReturn(Optional.of(manager));
-        when(membershipRepository.existsByUser_IdAndFarmId(manager.getId(), farmId))
-                .thenReturn(false);
+        when(userRepository.findById(manager.getId())).thenReturn(Optional.of(manager));
+        when(membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(manager.getId(), farmId)).thenReturn(false);
 
         assertThatThrownBy(() -> userService.getUsersByFarm(farmId, manager.getId()))
                 .isInstanceOf(UnauthorizedException.class)
@@ -323,10 +321,8 @@ class UserServiceTest {
     @Test
     @DisplayName("Should throw UnauthorizedException when non-member tries to list farm users")
     void getUsersByFarm_WithoutMembership_ThrowsUnauthorizedException() {
-        when(userRepository.findById(scout.getId()))
-                .thenReturn(Optional.of(scout));
-        when(membershipRepository.existsByUser_IdAndFarmId(scout.getId(), farmId))
-                .thenReturn(false);
+        when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
+        when(membershipRepository.existsByUser_IdAndFarmIdAndIsActiveTrue(scout.getId(), farmId)).thenReturn(false);
 
         assertThatThrownBy(() -> userService.getUsersByFarm(farmId, scout.getId()))
                 .isInstanceOf(UnauthorizedException.class)
