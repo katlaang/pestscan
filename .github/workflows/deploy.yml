@@ -1,107 +1,49 @@
-name: Production CI/CD Pipeline
+- name: Copy production compose file to instance
+  uses: appleboy/scp-action@master
+  with:
+    host: ${{ secrets.OCI_INSTANCE_IP }}
+    username: ubuntu
+    key: ${{ secrets.SSH_PRIVATE_KEY }}
+    source: "docker-compose.prod.yml"
+    target: "/home/ubuntu/app"
+    rm: false # Prevents clearing the app folder during copying
 
-on:
-  push:
-    branches:
-      - main
-      - master
-  workflow_dispatch:
+- name: Write runtime secrets and deploy
+  uses: appleboy/ssh-action@master
+  with:
+    host: ${{ secrets.OCI_INSTANCE_IP }}
+    username: ubuntu
+    key: ${{ secrets.SSH_PRIVATE_KEY }}
+    script: |
+      set -euo pipefail
+      APP_DIR=/home/ubuntu/app
+      mkdir -p "${APP_DIR}/logs"
+      
+      # --- ADD THIS FIX BLOCK ---
+      # If scp nested the file inside app/docker-compose.prod.yml, flatten it out
+      if [ -f "${APP_DIR}/docker-compose.prod.yml/docker-compose.prod.yml" ]; then
+          mv "${APP_DIR}/docker-compose.prod.yml/docker-compose.prod.yml" "${APP_DIR}/docker-compose.prod.yml.tmp"
+          rm -rf "${APP_DIR}/docker-compose.prod.yml"
+          mv "${APP_DIR}/docker-compose.prod.yml.tmp" "${APP_DIR}/docker-compose.prod.yml"
+      fi
+      # --------------------------
+      
+      rm -f "${APP_DIR}/docker-compose.yml"
+      umask 077
+      
+      cat > "${APP_DIR}/.env.prod" <<EOF
+      POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+      JWT_SECRET=${{ secrets.JWT_SECRET }}
+      APP_PUBLIC_BASE_URL=${{ vars.APP_PUBLIC_BASE_URL }}
+      CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+      EOF
 
-permissions:
-  contents: read
-
-env:
-  IMAGE_NAME: pestscan-app
-
-jobs:
-  build-test-and-push:
-    runs-on: ubuntu-latest
-    environment: oracle-cloud
-    outputs:
-      image_tag: ${{ steps.image-meta.outputs.image_tag }}
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21 Runtime
-        uses: actions/setup-java@v4
-        with:
-          java-version: "21"
-          distribution: "temurin"
-          cache: gradle
-
-      - name: Grant Execution Permission to Wrapper Script
-        run: chmod +x ./gradlew
-
-      - name: Run test suite
-        run: ./gradlew test --no-daemon
-
-      - name: Derive image tag
-        id: image-meta
-        shell: bash
-        run: echo "image_tag=sha-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to OCIR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ vars.OCIR_REGISTRY }}
-          username: ${{ secrets.OCIR_USERNAME }}
-          password: ${{ secrets.OCIR_AUTH_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push container image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ vars.OCIR_REGISTRY }}/${{ vars.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.image-meta.outputs.image_tag }}
-            ${{ vars.OCIR_REGISTRY }}/${{ vars.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
-
-  deploy-to-oracle-cloud:
-    needs: build-test-and-push
-    runs-on: ubuntu-latest
-    environment: oracle-cloud
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Copy production compose file to instance
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.OCI_INSTANCE_IP }}
-          username: ubuntu
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.prod.yml"
-          target: "~/app"
-
-      - name: Write runtime secrets and deploy
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.OCI_INSTANCE_IP }}
-          username: ubuntu
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -euo pipefail
-            APP_DIR=/home/ubuntu/app
-            mkdir -p "${APP_DIR}/logs"
-            rm -f "${APP_DIR}/docker-compose.yml"
-            umask 077
-            
-            cat > "${APP_DIR}/.env.prod" <<EOF
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            APP_PUBLIC_BASE_URL=${{ vars.APP_PUBLIC_BASE_URL }}
-            CORS_ORIGINS=${{ vars.CORS_ORIGINS }}
-            EOF
-            
-            export IMAGE_REF="${{ vars.OCIR_REGISTRY }}/${{ vars.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ needs.build-test-and-push.outputs.image_tag }}"
-            
-            echo "${{ secrets.OCIR_AUTH_TOKEN }}" | docker login "${{ vars.OCIR_REGISTRY }}" -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
-            
-            docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" pull springboot-api
-            docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" up -d --remove-orphans
-            docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" ps
+      
+      export IMAGE_REF="${{ vars.OCIR_REGISTRY }}/${{ vars.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ needs.build-test-and-push.outputs.image_tag }}"
+      
+      echo "${{ secrets.OCIR_AUTH_TOKEN }}" | docker login "${{ vars.OCIR_REGISTRY }}" -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
+      
+      docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" pull springboot-api
+      docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" up -d --remove-orphans
+      docker compose --env-file "${APP_DIR}/.env.prod" -f "${APP_DIR}/docker-compose.prod.yml" ps
