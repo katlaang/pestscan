@@ -68,7 +68,7 @@ application-secrets.yml
 
 # Environment variables
 .env
-.env.local
+.env.*
 
 # Database
 *.db

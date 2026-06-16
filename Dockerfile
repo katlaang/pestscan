@@ -1,5 +1,5 @@
 # Stage 1: Build the executable jar
-FROM eclipse-temurin:25-jdk AS build
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 
 # Install dependencies using the Gradle wrapper
@@ -15,7 +15,7 @@ COPY docs ./docs
 RUN ./gradlew bootJar --no-daemon
 
 # Stage 2: Create a lightweight runtime image
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 # Copy the built jar securely

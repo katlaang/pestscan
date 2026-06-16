@@ -1431,11 +1431,14 @@ Default local values:
 
 ### Quick local setup (docker-compose)
 
-Create a `.env` file from the included `.env.example` and customize if needed:
+Create a local `.env` file in the repository root. This file is ignored by Git and should contain only local development
+values:
 
-```
-cp .env.example .env
-# edit .env to change passwords or ports
+```bash
+LOCAL_DB_USER=postgres
+LOCAL_DB_PASS=your-local-db-password
+LOCAL_JWT_SECRET=your-local-jwt-secret
+LOCAL_DB_PORT=5434
 ```
 
 Bring up the local stack:

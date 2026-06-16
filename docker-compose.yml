@@ -4,8 +4,8 @@ services:
     container_name: pestscan-postgres
     environment:
       POSTGRES_DB: pestscan_scouting
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: admin
+      POSTGRES_USER: ${LOCAL_DB_USER:?LOCAL_DB_USER is required}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASS:?LOCAL_DB_PASS is required}
     ports:
       - "5434:5432" # Host port changed to 5434 to avoid conflicts on developer machines
     volumes:
@@ -13,7 +13,7 @@ services:
       # Mount local init scripts so the database is created on first run
       - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pestscan_scouting} -h localhost -p 5432"]
+      test: [ "CMD-SHELL", "pg_isready -U ${LOCAL_DB_USER:?LOCAL_DB_USER is required} -d pestscan_scouting -h localhost -p 5432" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -36,11 +36,11 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=local # Activates your application.yml profile settings
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/pestscan_scouting
-      - SPRING_DATASOURCE_USERNAME=${LOCAL_DB_USER:-postgres}
-      - SPRING_DATASOURCE_PASSWORD=${LOCAL_DB_PASS:-admin}
+      - SPRING_DATASOURCE_USERNAME=${LOCAL_DB_USER:?LOCAL_DB_USER is required}
+      - SPRING_DATASOURCE_PASSWORD=${LOCAL_DB_PASS:?LOCAL_DB_PASS is required}
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
-      - JWT_SECRET=${LOCAL_JWT_SECRET}
+      - JWT_SECRET=${LOCAL_JWT_SECRET:?LOCAL_JWT_SECRET is required}
     volumes:
       - ./docker/wait-for-db.sh:/wait-for-db.sh:ro
     command: ["/bin/sh","-c","/wait-for-db.sh && java -jar /app/*.jar"]
