@@ -57,6 +57,8 @@ spring:
 server:
   port: ${PORT:8080}
   forward-headers-strategy: framework
+  servlet:
+    context-path: /pestscout
   compression:
     enabled: true
     mime-types: application/json,application/xml,text/html,text/xml,text/plain
