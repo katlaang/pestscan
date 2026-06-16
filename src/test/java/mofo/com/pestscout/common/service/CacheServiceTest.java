@@ -1,6 +1,5 @@
 package mofo.com.pestscout.common.service;
 
-import mofo.com.pestscout.common.config.RuntimeMode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,17 +24,13 @@ class CacheServiceTest {
     @Mock
     private Cache cache;
 
-    @Mock
-    private RuntimeMode runtimeMode;
-
     private CacheService cacheService;
 
     @BeforeEach
     void setUp() {
-        cacheService = new CacheService(cacheManager, runtimeMode);
+        cacheService = new CacheService(cacheManager);
         lenient().when(cacheManager.getCache(ArgumentMatchers.anyString())).thenReturn(cache);
         lenient().when(cacheManager.getCacheNames()).thenReturn(List.of("analytics", "heatmap"));
-        lenient().when(runtimeMode.isEdge()).thenReturn(false);
     }
 
     @Test
@@ -75,13 +70,4 @@ class CacheServiceTest {
         assertThat(stats.cacheNames()).containsExactlyInAnyOrder("analytics", "heatmap");
     }
 
-    @Test
-    void clearUserScopedCachesOnStartupSkipsWhenCacheManagerIsNotRedis() {
-        cacheService.clearUserScopedCachesOnStartup();
-
-        verify(cacheManager, never()).getCache("farms-list");
-        verify(cacheManager, never()).getCache("sessions-list");
-        verify(cacheManager, never()).getCache("session-detail");
-        verifyNoInteractions(cache);
-    }
 }

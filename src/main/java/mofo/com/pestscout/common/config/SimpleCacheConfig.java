@@ -16,19 +16,30 @@ import org.springframework.context.annotation.Configuration;
 )
 public class SimpleCacheConfig {
 
+    public static final String CACHE_USERS = "users";
+    public static final String CACHE_FARMS = "farms";
+    public static final String CACHE_FARMS_LIST = "farms-list";
+    public static final String CACHE_GREENHOUSES = "greenhouses";
+    public static final String CACHE_FIELD_BLOCKS = "field-blocks";
+    public static final String CACHE_ANALYTICS = "analytics";
+    public static final String CACHE_HEATMAP = "heatmap";
+    public static final String CACHE_SPECIES_CATALOG = "species-catalog";
+    public static final String CACHE_SESSIONS_LIST = "sessions-list";
+    public static final String CACHE_SESSION_DETAIL = "session-detail";
+
     @Bean
     public CacheManager cacheManager() {
         return new ConcurrentMapCacheManager(
-                "users",
-                "farms",
-                "farms-list",
-                "greenhouses",
-                "field-blocks",
-                "analytics",
-                "heatmap",
-                "species-catalog",
-                "sessions-list",
-                "session-detail"
+                CACHE_USERS,
+                CACHE_FARMS,
+                CACHE_FARMS_LIST,
+                CACHE_GREENHOUSES,
+                CACHE_FIELD_BLOCKS,
+                CACHE_ANALYTICS,
+                CACHE_HEATMAP,
+                CACHE_SPECIES_CATALOG,
+                CACHE_SESSIONS_LIST,
+                CACHE_SESSION_DETAIL
         );
     }
 }

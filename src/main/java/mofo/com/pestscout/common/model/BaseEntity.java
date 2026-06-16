@@ -59,6 +59,7 @@ public abstract class BaseEntity {
         updatedAt = LocalDateTime.now();
     }
 
+    @Builder.Default
     @Column(name = "deleted", nullable = false)
     private boolean deleted = false;
 

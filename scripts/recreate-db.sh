@@ -13,11 +13,10 @@ fi
 echo "Stopping and removing compose services and volumes..."
 docker compose down -v
 
-echo "Bringing up postgres and redis..."
-docker compose up -d postgres redis
+echo "Bringing up postgres..."
+docker compose up -d postgres
 
 echo "Waiting for postgres to initialize (check logs)..."
 docker logs -f pestscan-postgres
 
 echo "Now you can bring up the app: docker compose up -d app"
-

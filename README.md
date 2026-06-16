@@ -156,18 +156,17 @@ Headless service role used for edge-to-cloud sync endpoints. This is not an inte
 
 ### Runtime stack
 
-- Java 25
+- Java 21
 - Spring Boot 3.5
 - Spring Security with JWT-based stateless authentication
 - Spring Data JPA with PostgreSQL
 - Flyway for schema migrations
-- Spring Cache with either in-memory cache or Redis-backed caching
+- Spring Cache with in-memory caching
 - SpringDoc / Swagger UI for API discovery
 
 ### Storage and infrastructure
 
 - PostgreSQL stores the system of record
-- Redis is optional and is used as a cache backend, not as a Spring Data repository store
 - S3-compatible storage or MinIO can be used for photo upload flows
 - scheduled jobs are enabled and currently used for edge-sync detection and license-expiry notification queuing
 
@@ -1444,7 +1443,7 @@ LOCAL_DB_PORT=5434
 Bring up the local stack:
 
 ```
-docker compose up -d postgres redis
+docker compose up -d postgres
 docker compose up -d app
 docker logs -f pestscan-app
 ```
@@ -1468,12 +1467,7 @@ If the application expects a specific DB user (for example when your environment
 
 Configured under `spring.cache.type`.
 
-Useful modes:
-
-- `simple`: in-memory cache, easiest for local development
-- `redis`: Redis-backed cache
-
-Redis repository scanning is disabled intentionally because Redis is only being used as a cache backend here.
+The application uses the default `simple` in-memory cache mode.
 
 ### Runtime mode
 
@@ -1535,9 +1529,8 @@ Used for photo upload flows when exercising storage-backed image workflows.
 
 ### Prerequisites
 
-- Java 25
+- Java 21
 - PostgreSQL
-- optional Redis
 - optional MinIO or S3-compatible storage
 
 ### Start the backend
@@ -1560,8 +1553,8 @@ Used for photo upload flows when exercising storage-backed image workflows.
 
 ### Common local-development notes
 
-- the default cache mode is `simple`, so Redis is not required for a basic local run
-- Java 25 requires the Gradle 9.1 wrapper already committed in this repo
+- the default cache mode is `simple`
+- Java 21 requires the Gradle 9.1 wrapper already committed in this repo
 - Flyway runs migrations at startup
 - Swagger is enabled locally
 
@@ -1588,9 +1581,6 @@ Default ports:
 
 - app: `8080`
 - postgres: `5433`
-- redis: `6379`
-
-If you want Redis-backed caching in Docker, add `SPRING_CACHE_TYPE=redis` to the app container environment.
 
 ## Repository map
 
@@ -1713,14 +1703,9 @@ They are structured so external AI or vendor integrations can replace the intern
 
 The edge scheduler currently detects pending work and logs it. A full outbound transport client is still future work.
 
-### Redis is optional
-
-Redis warnings about repository assignment should not appear in normal configuration because Redis repository scanning
-is disabled. Redis remains optional unless you explicitly choose Redis cache mode.
-
 ## Development notes
 
-- Java toolchain is pinned to Java 25 in `build.gradle`
+- Java toolchain is pinned to Java 21 in `build.gradle`
 - Gradle wrapper is pinned to Gradle 9.1
 - add or update tests alongside code changes
 - keep Swagger/OpenAPI annotations and docs aligned with behavior changes

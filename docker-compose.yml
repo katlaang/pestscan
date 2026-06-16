@@ -19,18 +19,11 @@ services:
       retries: 10
       start_period: 5s
 
-  redis:
-    image: redis:7
-    container_name: pestscan-redis
-    ports:
-      - "6379:6379"
-
   app:
     build: .
     container_name: pestscan-app
     depends_on:
       - postgres
-      - redis
     ports:
       - "8080:8080"
     environment:
@@ -38,8 +31,6 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/pestscan_scouting
       - SPRING_DATASOURCE_USERNAME=${LOCAL_DB_USER:?LOCAL_DB_USER is required}
       - SPRING_DATASOURCE_PASSWORD=${LOCAL_DB_PASS:?LOCAL_DB_PASS is required}
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
       - JWT_SECRET=${LOCAL_JWT_SECRET:?LOCAL_JWT_SECRET is required}
     volumes:
       - ./docker/wait-for-db.sh:/wait-for-db.sh:ro

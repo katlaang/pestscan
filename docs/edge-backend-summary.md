@@ -14,8 +14,9 @@ This guide summarizes the minimum backend changes required to support edge deplo
 - Treat `SyncStatus` as a transport-level state only; business meaning still lives in `SessionStatus` and related domain enums.
 
 ## Cache behavior
-- Do **not** fail startup if Redis is absent. Use `spring.cache.type=simple` for edge and `spring.cache.type=redis` for cloud.
-- Remove startup-wide cache eviction that assumes Redis. Instead, evict on domain events (e.g., photo confirmed/uploaded).
+
+- Use the in-memory cache manager for both cloud and edge runtimes.
+- Evict on domain events (e.g., photo confirmed/uploaded).
 - Scope cache keys by tenant/farm/user context to avoid leaks in the cloud runtime.
 
 ## Photo lifecycle (cloud + edge)
@@ -44,6 +45,7 @@ This guide summarizes the minimum backend changes required to support edge deplo
 - Audit events are not yet synced; plan a dedicated `/api/cloud/sync/audits` endpoint and include audits in edge upload batches before production hardening.
 
 ## What stays the same
-- Existing session/observation controllers remain mostly unchanged—just ensure they tolerate missing Redis and do not block on photo uploads.
+
+- Existing session/observation controllers remain mostly unchanged and should not block on photo uploads.
 - Offline observation sync continues to follow `docs/offline-sync.md` for versioning and soft-delete rules.
 - For concrete edge sync payloads, conflict walkthroughs, and React Native queue guidance, see `docs/edge-sync-guide.md`.
