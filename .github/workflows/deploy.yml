@@ -103,7 +103,7 @@ jobs:
             POSTGRES_USER=${{ secrets.POSTGRES_USER }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             JWT_SECRET=${{ secrets.JWT_SECRET }}
-            APP_PUBLIC_BASE_URL=${{ secrets.APP_PUBLIC_BASE_URL }}
+            APP_PUBLIC_BASE_URL=${{ vars.APP_PUBLIC_BASE_URL }}
             CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
             IMAGE_REF=${{ vars.OCIR_REGISTRY }}/${{ vars.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ needs.build-test-and-push.outputs.image_tag }}
             EOF
