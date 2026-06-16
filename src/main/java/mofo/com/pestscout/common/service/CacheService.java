@@ -1,95 +1,45 @@
 package mofo.com.pestscout.common.service;
 
-import lombok.RequiredArgsConstructor;
-import mofo.com.pestscout.common.config.RedisCacheConfig;
-import mofo.com.pestscout.common.config.RuntimeMode;
+import mofo.com.pestscout.common.config.SimpleCacheConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Collections;
 import java.util.UUID;
 
 /**
  * Service for programmatic cache management and invalidation.
- * <p>
- * Provides utilities for:
- * - Complex cache key generation
- * - Targeted cache invalidation
- * - Pattern-based cache clearing
- * - Cache health monitoring
- * <p>
- * Use this service when declarative caching (@Cacheable) is insufficient
- * or when you need fine-grained control over cache invalidation.
+ * Safe to run even if caching features are completely disabled.
  */
 @Service
-@RequiredArgsConstructor
-
 public class CacheService {
-
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheService.class);
-    private static final String REDIS_CACHE_MANAGER_CLASS_NAME = "org.springframework.data.redis.cache.RedisCacheManager";
-
     private final CacheManager cacheManager;
-    private final RuntimeMode runtimeMode;
 
-    /**
-     * Clear user-scoped caches at startup to eliminate stale entries that may
-     * have been written with older cache key formats.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void clearUserScopedCachesOnStartup() {
-        if (runtimeMode.isEdge()) {
-            LOGGER.info("Skipping cache cleanup in EDGE mode");
-            return;
+    // Optional constructor injection - prevents startup crashes if CacheManager is missing
+    public CacheService(@Autowired(required = false) CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+        if (cacheManager == null) {
+            LOGGER.info("CacheManager bean not found. Caching service is operating in BYPASS mode.");
         }
-
-        if (!isRedisCacheManager(cacheManager)) {
-            LOGGER.info("CacheManager is not Redis, skipping startup eviction");
-            return;
-        }
-
-        LOGGER.info("Clearing user-scoped caches at startup");
-        clearCache(RedisCacheConfig.CACHE_FARMS_LIST);
-        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
-        clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
     }
 
-    private boolean isRedisCacheManager(CacheManager cacheManager) {
-        Class<?> current = cacheManager.getClass();
-        while (current != null) {
-            if (REDIS_CACHE_MANAGER_CLASS_NAME.equals(current.getName())) {
-                return true;
-            }
-            current = current.getSuperclass();
-        }
-        return false;
-    }
-
-
-    /**
-     * Clear all farm-related caches when farm data changes.
-     * This ensures downstream data (greenhouses, sessions, etc.) is refreshed.
-     *
-     * @param farmId the farm whose caches should be cleared
-     */
     public void evictFarmCaches(UUID farmId) {
+        if (cacheManager == null) return;
         LOGGER.info("Evicting all caches for farm {}", farmId);
+        clearCache(SimpleCacheConfig.CACHE_FARMS);
+        clearCache(SimpleCacheConfig.CACHE_GREENHOUSES);
+        clearCache(SimpleCacheConfig.CACHE_FIELD_BLOCKS);
+        clearCache(SimpleCacheConfig.CACHE_SESSIONS_LIST);
 
-        clearCache(RedisCacheConfig.CACHE_FARMS);
-        clearCache(RedisCacheConfig.CACHE_GREENHOUSES);
-        clearCache(RedisCacheConfig.CACHE_FIELD_BLOCKS);
-        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
-
-        // Analytics and heatmap caches use composite keys, clear all for this farm
-        evictCachesByPrefix(RedisCacheConfig.CACHE_ANALYTICS, farmId.toString());
-        evictCachesByPrefix(RedisCacheConfig.CACHE_HEATMAP, farmId.toString());
-
+        evictCachesByPrefix(SimpleCacheConfig.CACHE_ANALYTICS, farmId.toString());
+        evictCachesByPrefix(SimpleCacheConfig.CACHE_HEATMAP, farmId.toString());
         LOGGER.debug("Cleared all farm-related caches for farm {}", farmId);
     }
 
@@ -97,22 +47,14 @@ public class CacheService {
         runAfterCommit(() -> evictFarmCaches(farmId));
     }
 
-    /**
-     * Clear all session-related caches when a session is modified.
-     *
-     * @param farmId    the farm the session belongs to
-     * @param sessionId the session that was modified
-     */
     public void evictSessionCaches(UUID farmId, UUID sessionId) {
+        if (cacheManager == null) return;
         LOGGER.info("Evicting session caches for session {} in farm {}", sessionId, farmId);
+        clearCache(SimpleCacheConfig.CACHE_SESSION_DETAIL);
+        clearCache(SimpleCacheConfig.CACHE_SESSIONS_LIST);
 
-        clearCache(RedisCacheConfig.CACHE_SESSION_DETAIL);
-        clearCache(RedisCacheConfig.CACHE_SESSIONS_LIST);
-
-        // Session changes affect analytics and heatmaps
-        evictCachesByPrefix(RedisCacheConfig.CACHE_ANALYTICS, farmId.toString());
-        evictCachesByPrefix(RedisCacheConfig.CACHE_HEATMAP, farmId.toString());
-
+        evictCachesByPrefix(SimpleCacheConfig.CACHE_ANALYTICS, farmId.toString());
+        evictCachesByPrefix(SimpleCacheConfig.CACHE_HEATMAP, farmId.toString());
         LOGGER.debug("Cleared session-related caches for session {}", sessionId);
     }
 
@@ -120,31 +62,17 @@ public class CacheService {
         runAfterCommit(() -> evictSessionCaches(farmId, sessionId));
     }
 
-    /**
-     * Clear analytics caches for a specific farm and time period.
-     *
-     * @param farmId the farm
-     * @param week   ISO week number
-     * @param year   year
-     */
     public void evictAnalyticsCaches(UUID farmId, int week, int year) {
+        if (cacheManager == null) return;
         LOGGER.info("Evicting analytics caches for farm {} week {} year {}", farmId, week, year);
-
-        clearCache(RedisCacheConfig.CACHE_ANALYTICS);
-        clearCache(RedisCacheConfig.CACHE_HEATMAP);
+        clearCache(SimpleCacheConfig.CACHE_ANALYTICS);
+        clearCache(SimpleCacheConfig.CACHE_HEATMAP);
     }
 
-    /**
-     * Clear user-related caches when user data changes.
-     *
-     * @param userId the user whose cache should be cleared
-     */
     public void evictUserCache(UUID userId) {
+        if (cacheManager == null) return;
         LOGGER.info("Evicting user cache for user {}", userId);
-        // User cache keys include the requesting user id (for permission-aware responses).
-        // Because we cannot enumerate every requester combination here, clear by prefix
-        // to avoid leaving behind stale permission-scoped entries after updates.
-        evictCachesByPrefix(RedisCacheConfig.CACHE_USERS, userId.toString());
+        evictCachesByPrefix(SimpleCacheConfig.CACHE_USERS, userId.toString());
     }
 
     private void runAfterCommit(Runnable action) {
@@ -160,12 +88,9 @@ public class CacheService {
         }
     }
 
-    /**
-     * Clear all caches (use sparingly, typically only in admin operations or testing).
-     */
     public void evictAllCaches() {
+        if (cacheManager == null) return;
         LOGGER.warn("Evicting ALL caches - this is expensive and should be used sparingly");
-
         cacheManager.getCacheNames().forEach(cacheName -> {
             Cache cache = cacheManager.getCache(cacheName);
             if (cache != null) {
@@ -173,17 +98,11 @@ public class CacheService {
                 LOGGER.debug("Cleared cache: {}", cacheName);
             }
         });
-
         LOGGER.info("All caches cleared");
     }
 
-    /**
-     * Evict a single cache entry by exact key.
-     *
-     * @param cacheName name of the cache
-     * @param key       the cache key
-     */
     private void evictCache(String cacheName, String key) {
+        if (cacheManager == null) return;
         Cache cache = cacheManager.getCache(cacheName);
         if (cache != null) {
             cache.evict(key);
@@ -194,6 +113,7 @@ public class CacheService {
     }
 
     private void clearCache(String cacheName) {
+        if (cacheManager == null) return;
         Cache cache = cacheManager.getCache(cacheName);
         if (cache != null) {
             cache.clear();
@@ -203,21 +123,10 @@ public class CacheService {
         }
     }
 
-    /**
-     * Evict all cache entries matching a key prefix.
-     * <p>
-     * Note: This requires iterating all keys, which can be expensive.
-     * Use sparingly and consider more targeted eviction strategies.
-     *
-     * @param cacheName name of the cache
-     * @param keyPrefix prefix to match
-     */
     private void evictCachesByPrefix(String cacheName, String keyPrefix) {
+        if (cacheManager == null) return;
         Cache cache = cacheManager.getCache(cacheName);
         if (cache != null) {
-            // Spring Cache doesn't provide pattern-based eviction out of the box
-            // For now, we clear the entire cache - consider implementing a custom
-            // RedisCacheManager if you need more granular pattern matching
             cache.clear();
             LOGGER.debug("Cleared entire cache {} (prefix eviction not supported, cleared all)", cacheName);
         } else {
@@ -225,14 +134,8 @@ public class CacheService {
         }
     }
 
-    /**
-     * Check if a value exists in cache (useful for monitoring/debugging).
-     *
-     * @param cacheName name of the cache
-     * @param key       the cache key
-     * @return true if the value exists in cache
-     */
     public boolean isCached(String cacheName, String key) {
+        if (cacheManager == null) return false;
         Cache cache = cacheManager.getCache(cacheName);
         if (cache != null) {
             Cache.ValueWrapper wrapper = cache.get(key);
@@ -241,28 +144,14 @@ public class CacheService {
         return false;
     }
 
-    /**
-     * Get cache statistics for monitoring (requires a supporting CacheManager).
-     * <p>
-     * Returns basic cache health information for operations monitoring.
-     */
     public CacheStats getCacheStats() {
+        if (cacheManager == null) {
+            return new CacheStats(0, Collections.emptyList());
+        }
         long totalCaches = cacheManager.getCacheNames().size();
-
         LOGGER.debug("Retrieved cache statistics: {} caches configured", totalCaches);
-
-        return new CacheStats(
-                totalCaches,
-                cacheManager.getCacheNames()
-        );
+        return new CacheStats(totalCaches, cacheManager.getCacheNames());
     }
 
-    /**
-     * Simple DTO for cache statistics.
-     */
-    public record CacheStats(
-            long totalCaches,
-            java.util.Collection<String> cacheNames
-    ) {
-    }
+    public record CacheStats(long totalCaches, java.util.Collection<String> cacheNames) {}
 }
