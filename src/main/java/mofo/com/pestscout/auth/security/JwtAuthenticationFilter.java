@@ -69,10 +69,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                  @NonNull HttpServletResponse response,
                                  @NonNull FilterChain filterChain) throws ServletException, IOException {
 
-        try {
-            // Always start with a clear context to avoid leaking authentication across reused threads
-            SecurityContextHolder.clearContext();
+        // Login must always be evaluated by credentials, not by any stale bearer token
+        // that a client might still have attached from a forced password-change session.
+        SecurityContextHolder.clearContext();
+        if (isLoginRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
+        try {
             String jwt = getJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
@@ -220,6 +225,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean shouldRecordActivity(HttpServletRequest request) {
         return !"/api/auth/refresh".equals(request.getRequestURI());
+    }
+
+    private boolean isLoginRequest(HttpServletRequest request) {
+        return "POST".equalsIgnoreCase(request.getMethod())
+                && "/api/auth/login".equals(request.getRequestURI());
     }
 
     private boolean isAllowedDuringPasswordChange(HttpServletRequest request) {

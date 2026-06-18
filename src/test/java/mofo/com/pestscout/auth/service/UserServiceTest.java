@@ -347,7 +347,7 @@ class UserServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         UpdateUserRequest request = UpdateUserRequest.builder()
-                .email("new@example.com")
+                .email("New@Example.COM")
                 .password("secret")
                 .firstName("NewFirst")
                 .lastName("NewLast")

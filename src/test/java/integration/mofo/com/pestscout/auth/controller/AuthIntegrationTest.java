@@ -12,11 +12,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -44,6 +47,9 @@ class AuthIntegrationTest {
     @Autowired
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     @Test
     void registerAndLoginThroughHttpEndpoints() throws Exception {
         String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
@@ -66,9 +72,10 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.role").value(Role.MANAGER.name()))
                 .andExpect(jsonPath("$.customerNumber").isNotEmpty());
 
-        assertThat(userRepository.findByEmail(uniqueEmail)).isPresent();
+        User storedUser = userRepository.findByEmail(uniqueEmail).orElseThrow();
+        assertThat(storedUser.getEmail()).isEqualTo(uniqueEmail);
 
-        LoginRequest loginRequest = new LoginRequest(uniqueEmail, "password123");
+        LoginRequest loginRequest = new LoginRequest(uniqueEmail.toUpperCase(Locale.ROOT), "password123");
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -78,6 +85,92 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.user.email").value(uniqueEmail))
                 .andExpect(jsonPath("$.user.role").value(Role.MANAGER.name()));
+    }
+
+    @Test
+    void registerRejectsCaseInsensitiveDuplicateEmail() throws Exception {
+        String uniqueEmail = "integration+" + UUID.randomUUID() + "@example.com";
+
+        RegisterRequest registerRequest = RegisterRequest.builder()
+                .email(uniqueEmail.toUpperCase(Locale.ROOT))
+                .password("password123")
+                .firstName("Integration")
+                .lastName("Tester")
+                .phoneNumber("555-0101")
+                .country("Kenya")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value(uniqueEmail));
+
+        RegisterRequest duplicateRequest = RegisterRequest.builder()
+                .email(uniqueEmail)
+                .password("password123")
+                .firstName("Duplicate")
+                .lastName("Tester")
+                .phoneNumber("555-0102")
+                .country("Kenya")
+                .role(Role.MANAGER)
+                .build();
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(duplicateRequest)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Email already registered"));
+    }
+
+    @Test
+    void temporaryPasswordLoginReturnsTokenPairAndPasswordChangeFlag() throws Exception {
+        String uniqueEmail = "temporary+" + UUID.randomUUID() + "@example.com";
+        String temporaryPassword = "TempPass123!";
+
+        User invitedUser = User.builder()
+                .email(uniqueEmail)
+                .password(passwordEncoder.encode(temporaryPassword))
+                .firstName("Temporary")
+                .lastName("User")
+                .phoneNumber("555-0110")
+                .country("KE")
+                .customerNumber("KE" + UUID.randomUUID().toString().replace("-", "").substring(0, 10))
+                .role(Role.SCOUT)
+                .isEnabled(true)
+                .passwordChangeRequired(true)
+                .temporaryPasswordExpiresAt(LocalDateTime.now().plusDays(5))
+                .passwordExpiresAt(LocalDateTime.now().plusDays(90))
+                .build();
+        userRepository.save(invitedUser);
+
+        LoginRequest loginRequest = new LoginRequest(uniqueEmail, temporaryPassword);
+
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.email").value(uniqueEmail))
+                .andExpect(jsonPath("$.user.passwordChangeRequired").value(true))
+                .andReturn();
+
+        LoginResponse loginResponse = objectMapper.readValue(
+                loginResult.getResponse().getContentAsString(),
+                LoginResponse.class
+        );
+
+        mockMvc.perform(post("/api/auth/login")
+                        .header("Authorization", "Bearer " + loginResponse.token())
+                        .header(mofo.com.pestscout.auth.security.ClientSessionHeaders.CLIENT_SESSION_ID, loginResponse.clientSessionId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.passwordChangeRequired").value(true));
     }
 
     @Test

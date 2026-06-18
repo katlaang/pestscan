@@ -25,10 +25,20 @@ public interface FarmRepository extends JpaRepository<Farm, UUID> {
     Optional<Farm> findByFarmTag(String farmTag);
 
     /**
+     * Find a farm by its stable URL slug.
+     */
+    Optional<Farm> findBySlug(String slug);
+
+    /**
      * Check if a farm tag is already in use.
      * Used when creating or editing farms to enforce unique tags.
      */
     boolean existsByFarmTag(String farmTag);
+
+    /**
+     * Check if a generated URL slug is already in use.
+     */
+    boolean existsBySlug(String slug);
 
     /**
      * Return all farms owned by the specified user.

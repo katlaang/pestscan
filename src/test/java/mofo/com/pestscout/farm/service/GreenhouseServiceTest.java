@@ -75,9 +75,9 @@ class GreenhouseServiceTest {
         GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
 
         assertThat(dto.bayTags()).containsExactly("east", "Bay-2");
-        assertThat(dto.benchTags()).containsExactly("bench1", "Bed-2", "Bed-3");
+        assertThat(dto.benchTags()).containsExactly("bench1", "Bed 2", "Bed 3");
         assertThat(dto.bays()).hasSize(2);
-        assertThat(dto.bays().getFirst().bedTags()).containsExactly("bench1", "Bed-2", "Bed-3");
+        assertThat(dto.bays().getFirst().bedTags()).containsExactly("bench1", "Bed 2", "Bed 3");
         verify(farmAccessService).requireAdminOrSuperAdmin(farm);
         verify(cacheService).evictFarmCachesAfterCommit(farmId);
     }
@@ -189,6 +189,38 @@ class GreenhouseServiceTest {
     }
 
     @Test
+    void createGreenhouse_withBlankBedTags_GeneratesBedNamesByPosition() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "House C",
+                "Partially named beds",
+                null,
+                null,
+                2,
+                List.of(),
+                List.of(),
+                new BigDecimal("2.25"),
+                List.of(new GreenhouseBayRequest("Bay-A", 3, List.of("", "Middle", " ")))
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bays()).hasSize(1);
+        assertThat(dto.bays().getFirst().bedTags()).containsExactly("Bed 1", "Middle", "Bed 3");
+        assertThat(dto.benchTags()).containsExactly("Bed 1", "Middle", "Bed 3");
+    }
+
+    @Test
     void updateGreenhouse_usesMutableCollectionsForHibernateMerge() {
         UUID greenhouseId = UUID.randomUUID();
         UUID farmId = UUID.randomUUID();
@@ -245,6 +277,48 @@ class GreenhouseServiceTest {
         assertThat(dto.name()).isEqualTo("House A");
         verify(farmAccessService).requireAdminOrSuperAdmin(farm);
         verify(cacheService).evictFarmCachesAfterCommit(farmId);
+    }
+
+    @Test
+    void updateGreenhouse_appliesActiveFlag() {
+        UUID greenhouseId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        Greenhouse greenhouse = Greenhouse.builder()
+                .id(greenhouseId)
+                .farm(farm)
+                .name("House A")
+                .bayCount(1)
+                .benchesPerBay(1)
+                .spotChecksPerBench(2)
+                .bayTags(new java.util.ArrayList<>(List.of("Bay-1")))
+                .benchTags(new java.util.ArrayList<>(List.of("Bed 1")))
+                .bays(new java.util.ArrayList<>())
+                .active(true)
+                .build();
+
+        UpdateGreenhouseRequest request = new UpdateGreenhouseRequest(
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(greenhouseRepository.findById(greenhouseId)).thenReturn(Optional.of(greenhouse));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GreenhouseDto dto = greenhouseService.updateGreenhouse(greenhouseId, request);
+
+        assertThat(dto.active()).isFalse();
     }
 
     @Test

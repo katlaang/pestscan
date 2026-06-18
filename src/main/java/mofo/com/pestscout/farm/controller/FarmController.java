@@ -51,6 +51,13 @@ public class FarmController {
         return ResponseEntity.ok(farmService.listFarms());
     }
 
+    @GetMapping("/by-slug/{slug}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<FarmResponse> getFarmBySlug(@PathVariable String slug) {
+        LOGGER.info("GET /api/farms/by-slug/{} - loading farm", slug);
+        return ResponseEntity.ok(farmService.getFarmBySlug(slug));
+    }
+
     @GetMapping("/{farmId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
     public ResponseEntity<FarmResponse> getFarm(@PathVariable UUID farmId) {

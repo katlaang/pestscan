@@ -31,14 +31,18 @@ public class GreenhouseBayDefinition {
     private List<String> bedTags = new ArrayList<>();
 
     public List<String> resolvedBedTags() {
-        if (bedTags != null && !bedTags.isEmpty()) {
-            return List.copyOf(bedTags);
-        }
         if (bedCount == null || bedCount <= 0) {
             return List.of();
         }
         return IntStream.rangeClosed(1, bedCount)
-                .mapToObj(index -> "Bed-" + index)
+                .mapToObj(index -> {
+                    String providedTag = index <= safeSize(bedTags) ? bedTags.get(index - 1) : null;
+                    return providedTag != null && !providedTag.isBlank() ? providedTag.trim() : "Bed " + index;
+                })
                 .toList();
+    }
+
+    private int safeSize(List<String> tags) {
+        return tags == null ? 0 : tags.size();
     }
 }

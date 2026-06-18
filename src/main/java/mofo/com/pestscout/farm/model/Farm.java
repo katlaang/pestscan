@@ -23,6 +23,7 @@ import java.util.List;
                 @Index(name = "idx_farms_name", columnList = "name"),
                 @Index(name = "idx_farms_subscription_status", columnList = "subscription_status"),
                 @Index(name = "idx_farms_farm_tag", columnList = "farm_tag", unique = true),
+                @Index(name = "idx_farms_slug", columnList = "slug", unique = true),
                 @Index(name = "idx_farms_external_id", columnList = "external_id", unique = true)
         }
 )
@@ -40,6 +41,9 @@ public class Farm extends BaseEntity {
 
     @Column(name = "farm_tag", length = 32, unique = true)
     private String farmTag;
+
+    @Column(name = "slug", nullable = false, length = 255, unique = true)
+    private String slug;
 
     @Column(nullable = false, length = 255)
     private String name;

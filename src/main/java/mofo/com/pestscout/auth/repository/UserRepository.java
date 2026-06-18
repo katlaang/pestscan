@@ -30,10 +30,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /**
      * Find user by email (for authentication).
      */
-    Optional<User> findByEmail(String email);
+    @Query("select u from User u where lower(u.email) = lower(:email)")
+    Optional<User> findByEmail(@Param("email") String email);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select u from User u where u.email = :email")
+    @Query("select u from User u where lower(u.email) = lower(:email)")
     Optional<User> findByEmailForUpdate(@Param("email") String email);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -43,7 +44,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /**
      * Check if email exists globally.
      */
-    boolean existsByEmail(String email);
+    @Query("select count(u) > 0 from User u where lower(u.email) = lower(:email)")
+    boolean existsByEmail(@Param("email") String email);
 
     /**
      * Check if a customer number is already in use.

@@ -108,18 +108,21 @@ public class Greenhouse extends BaseEntity {
                     .toList();
         }
 
-        if (benchTags != null && !benchTags.isEmpty()) {
-            return List.copyOf(benchTags);
-        }
-
         int bedCount = resolvedBenchesPerBay();
         if (bedCount <= 0) {
             return List.of();
         }
 
         return IntStream.rangeClosed(1, bedCount)
-                .mapToObj(index -> "Bed-" + index)
+                .mapToObj(index -> {
+                    String providedTag = index <= safeSize(benchTags) ? benchTags.get(index - 1) : null;
+                    return providedTag != null && !providedTag.isBlank() ? providedTag.trim() : "Bed " + index;
+                })
                 .toList();
+    }
+
+    private int safeSize(List<String> tags) {
+        return tags == null ? 0 : tags.size();
     }
 }
 

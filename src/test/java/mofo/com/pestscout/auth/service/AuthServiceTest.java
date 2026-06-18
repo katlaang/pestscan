@@ -150,6 +150,54 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("Should include active farm memberships in login response")
+    void login_WithFarmMemberships_ReturnsFarmSummaries() {
+        Authentication authentication = mock(Authentication.class);
+        UUID farmId = UUID.randomUUID();
+        Farm farm = Farm.builder()
+                .id(farmId)
+                .name("Acme Farms")
+                .slug("acme-farms")
+                .build();
+        UserFarmMembership membership = UserFarmMembership.builder()
+                .user(testUser)
+                .farm(farm)
+                .role(Role.MANAGER)
+                .isActive(true)
+                .build();
+
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(authentication);
+        when(userRepository.findByEmail(loginRequest.email()))
+                .thenReturn(Optional.of(testUser));
+        when(userRepository.findByEmailForUpdate(loginRequest.email()))
+                .thenReturn(Optional.of(testUser));
+        when(tokenProvider.generateToken(eq(testUser), anyLong()))
+                .thenReturn("accessToken");
+        when(tokenProvider.generateRefreshToken(eq(testUser), anyLong()))
+                .thenReturn("refreshToken");
+        when(tokenProvider.getAccessTokenExpirationMillis()).thenReturn(300000L);
+        when(tokenProvider.getRefreshTokenExpirationMillis()).thenReturn(600000L);
+        when(userService.convertToDto(testUser))
+                .thenReturn(UserDto.builder()
+                        .id(testUser.getId())
+                        .email(testUser.getEmail())
+                        .role(testUser.getRole())
+                        .build());
+        when(farmRepository.findByOwnerId(testUser.getId())).thenReturn(List.of());
+        when(membershipRepository.findByUser_Id(testUser.getId())).thenReturn(List.of(membership));
+
+        LoginResponse response = authService.login(loginRequest);
+
+        assertThat(response.farms()).singleElement().satisfies(loginFarm -> {
+            assertThat(loginFarm.farmId()).isEqualTo(farmId);
+            assertThat(loginFarm.slug()).isEqualTo("acme-farms");
+            assertThat(loginFarm.name()).isEqualTo("Acme Farms");
+            assertThat(loginFarm.role()).isEqualTo(Role.MANAGER);
+        });
+    }
+
+    @Test
     @DisplayName("Should notify the replaced session when login takes over another tab or device")
     void login_WithExistingDifferentClientSession_NotifiesReplacedSession() {
         testUser.setActiveClientSessionId("old-session");

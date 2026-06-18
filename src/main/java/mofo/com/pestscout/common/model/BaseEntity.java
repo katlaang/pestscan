@@ -57,6 +57,8 @@ public abstract class BaseEntity {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        // hook for subclasses
+        applyPreUpdateDefaults();
     }
 
     @Builder.Default
@@ -92,6 +94,14 @@ public abstract class BaseEntity {
      * Default is no-op.
      */
     protected void applyPrePersistDefaults() {
+        // no default implementation
+    }
+
+    /**
+     * Hook method for entities that need extra defaults on update.
+     * Default is no-op.
+     */
+    protected void applyPreUpdateDefaults() {
         // no default implementation
     }
 

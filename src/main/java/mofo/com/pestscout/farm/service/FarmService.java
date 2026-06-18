@@ -41,6 +41,7 @@ public class FarmService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FarmService.class);
     private static final UUID UNASSIGNED_USER_ID = new UUID(0L, 0L);
+    private static final int MAX_SLUG_LENGTH = 255;
 
     private final FarmRepository farmRepository;
     private final FarmAccessService farmAccess;
@@ -181,6 +182,16 @@ public class FarmService {
         return mapToResponse(farm);
     }
 
+    @Transactional(readOnly = true)
+    public FarmResponse getFarmBySlug(String slug) {
+        String normalizedSlug = normalizeSlug(slug);
+        Farm farm = farmRepository.findBySlug(normalizedSlug)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "slug", slug));
+
+        farmAccess.requireViewAccess(farm);
+        return mapToResponse(farm);
+    }
+
     @Transactional
     public void deleteFarmPermanently(UUID farmId) {
         farmAccess.requireSuperAdmin();
@@ -211,6 +222,7 @@ public class FarmService {
 
         Farm farm = Farm.builder()
                 .name(request.name())
+                .slug(generateUniqueSlug(request.name()))
                 .description(request.description())
                 .externalId(generateExternalId())
                 .farmTag(generateFarmTag(countryCode, request.name()))
@@ -279,6 +291,9 @@ public class FarmService {
             farm.setDefaultSpotChecksPerBench(request.defaultSpotChecksPerBench());
 
         if (farmAccess.isSuperAdmin()) {
+            if (request.slug() != null) {
+                applySlugUpdate(farm, request.slug());
+            }
             if (request.subscriptionStatus() != null) {
                 farm.setSubscriptionStatus(request.subscriptionStatus());
             }
@@ -328,6 +343,25 @@ public class FarmService {
                 farm.setScout(resolveAssignedUser(request.scoutId(), "scout"));
             }
         }
+
+        if (farm.getSlug() == null || farm.getSlug().isBlank()) {
+            farm.setSlug(generateUniqueSlug(farm.getName()));
+        }
+    }
+
+    private void applySlugUpdate(Farm farm, String requestedSlug) {
+        String normalizedSlug = normalizeSlug(requestedSlug);
+        if (normalizedSlug.equals(farm.getSlug())) {
+            return;
+        }
+
+        farmRepository.findBySlug(normalizedSlug)
+                .filter(existing -> !existing.getId().equals(farm.getId()))
+                .ifPresent(existing -> {
+                    throw new ConflictException("Farm slug already exists: " + normalizedSlug);
+                });
+
+        farm.setSlug(normalizedSlug);
     }
 
     private void applyTextUpdate(String requestedValue, Consumer<String> setter) {
@@ -394,6 +428,7 @@ public class FarmService {
         return new FarmResponse(
                 farm.getId(),
                 farm.getFarmTag(),
+                farm.getSlug(),
 
                 farm.getName(),
                 farm.getDescription(),
@@ -481,6 +516,41 @@ public class FarmService {
         return prefix + "-" + trimmedBase + suffix;
     }
 
+    private String generateUniqueSlug(String farmName) {
+        String baseSlug = normalizeSlug(farmName);
+        String candidate = fitSlug(baseSlug, "");
+        int suffix = 2;
+
+        while (farmRepository.existsBySlug(candidate)) {
+            String suffixText = "-" + suffix;
+            candidate = fitSlug(baseSlug, suffixText) + suffixText;
+            suffix++;
+        }
+
+        return candidate;
+    }
+
+    private String normalizeSlug(String value) {
+        if (value == null) {
+            return "farm";
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9\\s-]", "")
+                .replaceAll("\\s+", "-")
+                .replaceAll("^-+|-+$", "");
+
+        return normalized.isBlank() ? "farm" : normalized;
+    }
+
+    private String fitSlug(String baseSlug, String suffix) {
+        int maxBaseLength = MAX_SLUG_LENGTH - suffix.length();
+        if (maxBaseLength < 1) {
+            return "farm";
+        }
+        return baseSlug.length() > maxBaseLength ? baseSlug.substring(0, maxBaseLength) : baseSlug;
+    }
+
     private List<Farm> resolveManagedFarms(UUID userId) {
         Map<UUID, Farm> farmsById = new LinkedHashMap<>();
 
@@ -509,24 +579,39 @@ public class FarmService {
 
     private List<String> defaultTags(List<String> providedTags, String prefix, int count) {
         if (count <= 0) {
-            return providedTags;
-        }
-        if (providedTags.isEmpty()) {
-            return java.util.stream.IntStream.rangeClosed(1, count)
-                    .mapToObj(index -> prefix + "-" + index)
-                    .toList();
-        }
-        if (providedTags.size() >= count) {
-            return providedTags.stream()
-                    .limit(count)
-                    .toList();
+            return normalizeTags(providedTags);
         }
 
-        List<String> paddedTags = new ArrayList<>(providedTags);
-        for (int index = paddedTags.size() + 1; index <= count; index++) {
-            paddedTags.add(prefix + "-" + index);
+        List<String> paddedTags = new ArrayList<>();
+        Set<String> usedTags = new LinkedHashSet<>();
+        for (int index = 1; index <= count; index++) {
+            String providedTag = index <= safeSize(providedTags) ? providedTags.get(index - 1) : null;
+            String normalizedTag = providedTag != null && !providedTag.isBlank() ? providedTag.trim() : null;
+            String tag = normalizedTag != null && !usedTags.contains(normalizedTag)
+                    ? normalizedTag
+                    : uniqueDefaultTag(prefix, index, usedTags);
+            paddedTags.add(tag);
+            usedTags.add(tag);
         }
         return List.copyOf(paddedTags);
+    }
+
+    private int safeSize(List<String> tags) {
+        return tags == null ? 0 : tags.size();
+    }
+
+    private String defaultTag(String prefix, int index) {
+        return "Bed".equals(prefix) ? "Bed " + index : prefix + "-" + index;
+    }
+
+    private String uniqueDefaultTag(String prefix, int preferredIndex, Set<String> usedTags) {
+        int index = preferredIndex;
+        String candidate;
+        do {
+            candidate = defaultTag(prefix, index);
+            index++;
+        } while (usedTags.contains(candidate));
+        return candidate;
     }
 
     private Greenhouse buildGreenhouse(Farm farm, CreateGreenhouseRequest request) {
@@ -579,7 +664,7 @@ public class FarmService {
             List<GreenhouseBayRequest> requestedBays
     ) {
         if (requestedBays != null && !requestedBays.isEmpty()) {
-            List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, normalizeTags(requestedBedTags));
+            List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, requestedBedTags);
             int maxBedCount = bays.stream()
                     .mapToInt(GreenhouseBayDefinition::getBedCount)
                     .max()
@@ -599,7 +684,7 @@ public class FarmService {
                 bayCount,
                 maxBedCount,
                 defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
-                defaultTags(normalizeTags(requestedBedTags), "Bed", maxBedCount),
+                defaultTags(requestedBedTags, "Bed", maxBedCount),
                 List.of()
         );
     }
@@ -618,11 +703,9 @@ public class FarmService {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");
                     }
                     List<String> bedTags = defaultTags(
-                            normalizeTags(
-                                    request.bedTags() == null || request.bedTags().isEmpty()
-                                            ? fallbackBedTags
-                                            : request.bedTags()
-                            ),
+                            request.bedTags() == null || request.bedTags().isEmpty()
+                                    ? fallbackBedTags
+                                    : request.bedTags(),
                             "Bed",
                             request.bedCount()
                     );

@@ -9,6 +9,7 @@ import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
 import mofo.com.pestscout.auth.security.ClientSessionHeaders;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
+import mofo.com.pestscout.auth.util.EmailNormalizer;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
@@ -25,8 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.Date;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Authentication Service
@@ -60,20 +60,21 @@ public class AuthService {
 
     @Transactional
     public LoginResponse login(LoginRequest request, String clientSessionId) {
-        userRepository.findByEmail(request.email()).ifPresent(this::assertLoginAllowed);
+        String email = EmailNormalizer.normalize(request.email());
+        userRepository.findByEmail(email).ifPresent(this::assertLoginAllowed);
 
         try {
             // Authenticate user
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
-                            request.email(),
+                            email,
                             request.password()
                     )
             );
 
             // Load user
-            User user = userRepository.findByEmailForUpdate(request.email())
-                    .orElseThrow(() -> new ResourceNotFoundException("User", "email", request.email()));
+            User user = userRepository.findByEmailForUpdate(email)
+                    .orElseThrow(() -> new ResourceNotFoundException("User", "email", email));
 
             // Check if user is enabled
             if (!user.isActive()) {
@@ -98,11 +99,12 @@ public class AuthService {
                     .refreshToken(refreshToken)
                     .expiresIn(accessTokenExpirationMillis)
                     .user(userService.convertToDto(user))
+                    .farms(resolveLoginFarms(user))
                     .clientSessionId(resolvedClientSessionId)
                     .build();
 
         } catch (AuthenticationException e) {
-            log.warn("Failed login attempt for email: {}", request.email());
+            log.warn("Failed login attempt for email: {}", email);
             throw new BadRequestException("Invalid email or password");
         }
     }
@@ -271,6 +273,7 @@ public class AuthService {
                 .refreshToken(newRefreshToken)
                 .expiresIn(accessTokenExpirationMillis)
                 .user(userService.convertToDto(user))
+                .farms(resolveLoginFarms(user))
                 .clientSessionId(resolveClientSessionIdForResponse(user, clientSessionId, refreshToken))
                 .build();
     }
@@ -318,6 +321,7 @@ public class AuthService {
                 .refreshToken(newRefreshToken)
                 .expiresIn(accessTokenExpirationMillis)
                 .user(userService.convertToDto(user))
+                .farms(resolveLoginFarms(user))
                 .clientSessionId(resolvedClientSessionId)
                 .build();
     }
@@ -347,7 +351,8 @@ public class AuthService {
      */
     @Transactional
     public void requestPasswordReset(ForgotPasswordRequest request) {
-        userRepository.findByEmail(request.email())
+        String email = EmailNormalizer.normalize(request.email());
+        userRepository.findByEmail(email)
                 .filter(User::isActive)
                 .ifPresent(user -> {
                     invalidateExistingTokens(user);
@@ -558,6 +563,46 @@ public class AuthService {
         return tokenProvider.getSessionIdFromToken(token);
     }
 
+    private List<LoginFarmResponse> resolveLoginFarms(User user) {
+        if (user == null || user.getRole() == Role.SUPER_ADMIN) {
+            return List.of();
+        }
+
+        Map<UUID, LoginFarmResponse> farmsById = new LinkedHashMap<>();
+
+        if (user.getRole() == Role.FARM_ADMIN || user.getRole() == Role.MANAGER) {
+            Optional.ofNullable(farmRepository.findByOwnerId(user.getId()))
+                    .orElse(List.of())
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .forEach(farm -> farmsById.put(
+                            farm.getId(),
+                            new LoginFarmResponse(farm.getId(), farm.getSlug(), farm.getName(), user.getRole())
+                    ));
+        }
+
+        Optional.ofNullable(membershipRepository.findByUser_Id(user.getId()))
+                .orElse(List.of())
+                .stream()
+                .filter(membership -> Boolean.TRUE.equals(membership.getIsActive()))
+                .filter(membership -> membership.getFarm() != null)
+                .sorted(Comparator.comparing(
+                        membership -> membership.getFarm().getName(),
+                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)
+                ))
+                .forEach(membership -> {
+                    Farm farm = membership.getFarm();
+                    farmsById.put(
+                            farm.getId(),
+                            new LoginFarmResponse(farm.getId(), farm.getSlug(), farm.getName(), membership.getRole())
+                    );
+                });
+
+        return farmsById.values().stream()
+                .sorted(Comparator.comparing(LoginFarmResponse::name, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .toList();
+    }
+
     private long resolveAccessTokenExpirationMillis(User user) {
         return resolveTokenExpirationMillis(user, tokenProvider.getAccessTokenExpirationMillis());
     }
@@ -626,7 +671,8 @@ public class AuthService {
             throw new BadRequestException("Callback number must match the phone number on file");
         }
 
-        if (user.getEmail() == null || !request.email().trim().equalsIgnoreCase(user.getEmail())) {
+        String emailConfirmation = EmailNormalizer.normalize(request.email());
+        if (user.getEmail() == null || !emailConfirmation.equals(EmailNormalizer.normalize(user.getEmail()))) {
             throw new BadRequestException("Email confirmation does not match our records");
         }
 
@@ -651,7 +697,7 @@ public class AuthService {
         resetToken.setVerificationNotes(request.verificationNotes());
         resetToken.setFirstNameConfirmation(request.firstName().trim());
         resetToken.setLastNameConfirmation(request.lastName().trim());
-        resetToken.setEmailConfirmation(request.email().trim());
+        resetToken.setEmailConfirmation(emailConfirmation);
         resetToken.setLastLoginVerifiedOn(request.lastLoginDate());
         resetToken.setCustomerNumberConfirmation(request.customerNumber().trim());
         resetToken.setPerformedBy(supportUser);
@@ -709,7 +755,8 @@ public class AuthService {
     }
 
     private UserDto createUser(RegisterRequest request, boolean adminManaged) {
-        if (userRepository.existsByEmail(request.email())) {
+        String email = EmailNormalizer.normalize(request.email());
+        if (userRepository.existsByEmail(email)) {
             throw new ConflictException("Email already registered");
         }
 
@@ -721,7 +768,7 @@ public class AuthService {
                 : null;
 
         User user = User.builder()
-                .email(request.email())
+                .email(email)
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .phoneNumber(request.phoneNumber())

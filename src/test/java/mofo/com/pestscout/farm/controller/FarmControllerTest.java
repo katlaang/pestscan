@@ -183,6 +183,54 @@ class FarmControllerTest {
     }
 
     @Test
+    void getsFarmBySlugFromService() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        FarmResponse farm = new FarmResponse(
+                farmId,
+                "TAG-SLUG",
+                "acme-farms",
+                "Acme Farms",
+                "Slug lookup farm",
+                "EXT-SLUG",
+                "456 Other Rd",
+                "Eldoret",
+                "Uasin Gishu",
+                "30100",
+                "Kenya",
+                "John Doe",
+                "john@example.com",
+                "+254711111111",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                BigDecimal.valueOf(2.0),
+                80,
+                BigDecimal.ZERO,
+                LocalDate.of(2025, 12, 31),
+                true,
+                false,
+                FarmStructureType.GREENHOUSE,
+                3,
+                8,
+                4,
+                Instant.parse("2024-02-01T00:00:00Z"),
+                Instant.parse("2024-02-02T00:00:00Z"),
+                "Africa/Nairobi",
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+
+        when(farmService.getFarmBySlug("acme-farms")).thenReturn(farm);
+
+        mockMvc.perform(get("/api/farms/by-slug/{slug}", "acme-farms"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(farmId.toString()))
+                .andExpect(jsonPath("$.slug").value("acme-farms"));
+
+        Mockito.verify(farmService).getFarmBySlug("acme-farms");
+    }
+
+    @Test
     void updatesFarmAndReturnsPayload() throws Exception {
         UUID farmId = UUID.randomUUID();
 

@@ -10,6 +10,7 @@ import mofo.com.pestscout.auth.model.User;
 import mofo.com.pestscout.auth.model.UserFarmMembership;
 import mofo.com.pestscout.auth.repository.UserFarmMembershipRepository;
 import mofo.com.pestscout.auth.repository.UserRepository;
+import mofo.com.pestscout.auth.util.EmailNormalizer;
 import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ConflictException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
@@ -175,12 +176,12 @@ public class UserService {
 
         log.info("User {} updating user {}", requestingUserId, userId);
 
-        // Email update
-        if (request.getEmail() != null && !request.getEmail().equals(targetUser.getEmail())) {
-            if (userRepository.existsByEmail(request.getEmail())) {
+        if (request.getEmail() != null) {
+            String email = EmailNormalizer.normalize(request.getEmail());
+            if (!email.equalsIgnoreCase(targetUser.getEmail()) && userRepository.existsByEmail(email)) {
                 throw new ConflictException("Email already in use");
             }
-            targetUser.setEmail(request.getEmail());
+            targetUser.setEmail(email);
         }
 
         // Basic fields

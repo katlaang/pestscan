@@ -243,6 +243,36 @@ class FarmServiceTest {
     }
 
     @Test
+    @DisplayName("Should generate a unique URL slug when creating a farm")
+    void createFarm_GeneratesUniqueSlug() {
+        when(customerNumberService.normalizeCountryCode(createRequest.country()))
+                .thenReturn("CA");
+        when(userRepository.findById(farmOwner.getId()))
+                .thenReturn(Optional.of(farmOwner));
+        when(userRepository.findById(scout.getId()))
+                .thenReturn(Optional.of(scout));
+        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+                .thenReturn(Optional.empty());
+        when(farmRepository.existsBySlug("new-farm"))
+                .thenReturn(true);
+        when(farmRepository.existsBySlug("new-farm-2"))
+                .thenReturn(false);
+        when(farmRepository.save(any(Farm.class)))
+                .thenAnswer(invocation -> {
+                    Farm farm = invocation.getArgument(0);
+                    farm.setId(UUID.randomUUID());
+                    return farm;
+                });
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.createFarm(createRequest);
+
+        assertThat(response.slug()).isEqualTo("new-farm-2");
+        verify(farmRepository).save(argThat(farm -> "new-farm-2".equals(farm.getSlug())));
+    }
+
+    @Test
     @DisplayName("SuperAdmin can create farm without owner or scout")
     void createFarm_WithoutAssignedUsers_AllowsUnassignedFarm() {
         CreateFarmRequest unassignedRequest = new CreateFarmRequest(
@@ -575,6 +605,57 @@ class FarmServiceTest {
     }
 
     @Test
+    @DisplayName("SuperAdmin can update farm slug")
+    void updateFarm_AsSuperAdmin_UpdatesSlug() {
+        testFarm.setSlug("test-farm");
+        UpdateFarmRequest slugRequest = new UpdateFarmRequest(
+                null,
+                "Acme Farm Portal",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(farmRepository.findById(testFarm.getId())).thenReturn(Optional.of(testFarm));
+        when(farmRepository.findBySlug("acme-farm-portal")).thenReturn(Optional.empty());
+        when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(farmAccessService.isSuperAdmin()).thenReturn(true);
+        when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.updateFarm(testFarm.getId(), slugRequest);
+
+        assertThat(response.slug()).isEqualTo("acme-farm-portal");
+        verify(farmRepository).save(argThat(farm -> "acme-farm-portal".equals(farm.getSlug())));
+    }
+
+    @Test
     @DisplayName("Update can replace farm member assignments")
     void updateFarm_WithMemberAssignments_ReplacesNonPrimaryMembers() {
         User priorMember = User.builder()
@@ -772,6 +853,24 @@ class FarmServiceTest {
 
         // Assert
         assertThat(response).isNotNull();
+        assertThat(response.name()).isEqualTo(testFarm.getName());
+        verify(farmAccessService).requireViewAccess(testFarm);
+    }
+
+    @Test
+    @DisplayName("Should get farm by slug successfully")
+    void getFarmBySlug_WithValidSlug_ReturnsFarm() {
+        testFarm.setSlug("test-farm");
+
+        when(farmRepository.findBySlug("test-farm"))
+                .thenReturn(Optional.of(testFarm));
+        when(farmAccessService.getCurrentUserRole())
+                .thenReturn(Role.SUPER_ADMIN);
+
+        FarmResponse response = farmService.getFarmBySlug("Test Farm");
+
+        assertThat(response).isNotNull();
+        assertThat(response.slug()).isEqualTo("test-farm");
         assertThat(response.name()).isEqualTo(testFarm.getName());
         verify(farmAccessService).requireViewAccess(testFarm);
     }
@@ -1130,7 +1229,7 @@ class FarmServiceTest {
         assertThat(response.name()).isEqualTo("Tagged Farm");
         verify(farmRepository).save(argThat(farm ->
                 farm.getGreenhouses().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
-                        && farm.getGreenhouses().getFirst().getBenchTags().equals(List.of("Bed-1", "Bed-2", "Bed-3"))
+                        && farm.getGreenhouses().getFirst().getBenchTags().equals(List.of("Bed 1", "Bed 2", "Bed 3"))
                         && farm.getFieldBlocks().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
         ));
     }

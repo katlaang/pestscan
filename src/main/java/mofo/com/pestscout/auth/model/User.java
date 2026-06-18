@@ -3,6 +3,7 @@ package mofo.com.pestscout.auth.model;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import mofo.com.pestscout.auth.util.EmailNormalizer;
 import mofo.com.pestscout.common.model.BaseEntity;
 
 import java.time.LocalDateTime;
@@ -142,6 +143,20 @@ public class User extends BaseEntity {
     public void invalidateSessions() {
         // JWT issued-at timestamps are second-based, so keep the cutoff at the same precision.
         this.sessionValidAfter = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    @Override
+    protected void applyPrePersistDefaults() {
+        normalizeEmail();
+    }
+
+    @Override
+    protected void applyPreUpdateDefaults() {
+        normalizeEmail();
+    }
+
+    private void normalizeEmail() {
+        this.email = EmailNormalizer.normalize(this.email);
     }
 
     public void activateExclusiveSession(String clientSessionId) {

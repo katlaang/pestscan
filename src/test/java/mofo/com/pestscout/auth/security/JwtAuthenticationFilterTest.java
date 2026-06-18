@@ -28,8 +28,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class JwtAuthenticationFilterTest {
@@ -112,6 +112,20 @@ class JwtAuthenticationFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_skipsJwtAuthenticationForLoginEndpoint() throws ServletException, IOException {
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRequestURI()).thenReturn("/api/auth/login");
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(tokenProvider, never()).validateToken(anyString());
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR), any());
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR), any());
         verify(filterChain).doFilter(request, response);
     }
 

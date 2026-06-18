@@ -14,10 +14,7 @@ import mofo.com.pestscout.farm.security.FarmAccessService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -102,6 +99,9 @@ public class GreenhouseService {
         }
         if (request.spotChecksPerBench() != null) {
             greenhouse.setSpotChecksPerBench(request.spotChecksPerBench());
+        }
+        if (request.active() != null) {
+            greenhouse.setActive(request.active());
         }
         if (request.areaHectares() != null) {
             greenhouse.setAreaHectares(request.areaHectares());
@@ -196,7 +196,7 @@ public class GreenhouseService {
     }
 
     private GreenhouseLayout resolveLayoutFromBays(List<GreenhouseBayRequest> requestedBays, List<String> requestedBedTags) {
-        List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, normalizeTags(requestedBedTags));
+        List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, requestedBedTags);
         int maxBedCount = bays.stream()
                 .mapToInt(GreenhouseBayDefinition::getBedCount)
                 .max()
@@ -223,7 +223,7 @@ public class GreenhouseService {
                 bayCount,
                 maxBedCount,
                 defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
-                defaultTags(normalizeTags(requestedBedTags), "Bed", maxBedCount),
+                defaultTags(requestedBedTags, "Bed", maxBedCount),
                 new ArrayList<>()
         );
     }
@@ -246,11 +246,9 @@ public class GreenhouseService {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");
                     }
                     List<String> bedTags = defaultTags(
-                            normalizeTags(
-                                    request.bedTags() == null || request.bedTags().isEmpty()
-                                            ? fallbackBedTags
-                                            : request.bedTags()
-                            ),
+                            request.bedTags() == null || request.bedTags().isEmpty()
+                                    ? fallbackBedTags
+                                    : request.bedTags(),
                             "Bed",
                             request.bedCount()
                     );
@@ -285,24 +283,39 @@ public class GreenhouseService {
 
     private List<String> defaultTags(List<String> providedTags, String prefix, int count) {
         if (count <= 0) {
-            return new ArrayList<>(providedTags);
-        }
-        if (providedTags.isEmpty()) {
-            return java.util.stream.IntStream.rangeClosed(1, count)
-                    .mapToObj(index -> prefix + "-" + index)
-                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        }
-        if (providedTags.size() >= count) {
-            return providedTags.stream()
-                    .limit(count)
-                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            return normalizeTags(providedTags);
         }
 
-        List<String> paddedTags = new ArrayList<>(providedTags);
-        for (int index = paddedTags.size() + 1; index <= count; index++) {
-            paddedTags.add(prefix + "-" + index);
+        List<String> paddedTags = new ArrayList<>();
+        Set<String> usedTags = new LinkedHashSet<>();
+        for (int index = 1; index <= count; index++) {
+            String providedTag = index <= safeSize(providedTags) ? providedTags.get(index - 1) : null;
+            String normalizedTag = providedTag != null && !providedTag.isBlank() ? providedTag.trim() : null;
+            String tag = normalizedTag != null && !usedTags.contains(normalizedTag)
+                    ? normalizedTag
+                    : uniqueDefaultTag(prefix, index, usedTags);
+            paddedTags.add(tag);
+            usedTags.add(tag);
         }
         return paddedTags;
+    }
+
+    private int safeSize(List<String> tags) {
+        return tags == null ? 0 : tags.size();
+    }
+
+    private String defaultTag(String prefix, int index) {
+        return "Bed".equals(prefix) ? "Bed " + index : prefix + "-" + index;
+    }
+
+    private String uniqueDefaultTag(String prefix, int preferredIndex, Set<String> usedTags) {
+        int index = preferredIndex;
+        String candidate;
+        do {
+            candidate = defaultTag(prefix, index);
+            index++;
+        } while (usedTags.contains(candidate));
+        return candidate;
     }
 
     private boolean hasLegacyLayoutUpdates(UpdateGreenhouseRequest request) {
