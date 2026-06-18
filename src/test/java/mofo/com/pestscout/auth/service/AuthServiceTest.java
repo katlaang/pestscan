@@ -543,7 +543,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.refreshToken(request))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Session expired due to inactivity");
+                .hasMessageContaining("Timed out due to inactivity");
     }
 
     @Test

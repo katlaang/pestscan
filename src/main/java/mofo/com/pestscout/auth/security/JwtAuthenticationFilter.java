@@ -136,7 +136,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                     if (userSessionService.isIdleExpired(domainUser)) {
                         LOGGER.debug("Ignoring JWT for idle-expired user '{}'", email);
-                        markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session expired due to inactivity. Please log in again.");
+                        markAuthenticationFailure(request, "SESSION_EXPIRED", "Timed out due to inactivity.");
                         SecurityContextHolder.clearContext();
                         filterChain.doFilter(request, response);
                         return;

@@ -74,7 +74,7 @@ class GreenhouseServiceTest {
 
         GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
 
-        assertThat(dto.bayTags()).containsExactly("east", "Bay-2");
+        assertThat(dto.bayTags()).containsExactly("east", "Bay 2");
         assertThat(dto.benchTags()).containsExactly("bench1", "Bed 2", "Bed 3");
         assertThat(dto.bays()).hasSize(2);
         assertThat(dto.bays().getFirst().bedTags()).containsExactly("bench1", "Bed 2", "Bed 3");
@@ -150,6 +150,42 @@ class GreenhouseServiceTest {
         assertThat(dto.bays().get(0).bedCount()).isEqualTo(2);
         assertThat(dto.bays().get(1).bayTag()).isEqualTo("Bay-B");
         assertThat(dto.bays().get(1).bedCount()).isEqualTo(4);
+    }
+
+    @Test
+    void createGreenhouse_withUnnamedConfiguredBays_DefaultsBayNamesByPosition() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "House Defaults",
+                "Default bay names",
+                null,
+                null,
+                2,
+                List.of(),
+                List.of(),
+                new BigDecimal("1.50"),
+                List.of(
+                        new GreenhouseBayRequest(null, 3),
+                        new GreenhouseBayRequest(" ", 4)
+                )
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bays()).hasSize(2);
+        assertThat(dto.bays().get(0).bayTag()).isEqualTo("Bay 1");
+        assertThat(dto.bays().get(1).bayTag()).isEqualTo("Bay 2");
+        assertThat(dto.benchesPerBay()).isEqualTo(4);
     }
 
     @Test

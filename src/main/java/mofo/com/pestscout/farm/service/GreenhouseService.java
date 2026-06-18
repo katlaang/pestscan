@@ -236,12 +236,12 @@ public class GreenhouseService {
             return new ArrayList<>();
         }
 
-        List<GreenhouseBayDefinition> bays = requestedBays.stream()
-                .map(request -> {
-                    String bayTag = request.bayTag() != null ? request.bayTag().trim() : null;
-                    if (bayTag == null || bayTag.isBlank()) {
-                        throw new BadRequestException("Each greenhouse bay must have a name.");
-                    }
+        List<GreenhouseBayDefinition> bays = java.util.stream.IntStream.range(0, requestedBays.size())
+                .mapToObj(index -> {
+                    GreenhouseBayRequest request = requestedBays.get(index);
+                    String bayTag = request.bayTag() != null && !request.bayTag().isBlank()
+                            ? request.bayTag().trim()
+                            : defaultTag("Bay", index + 1);
                     if (request.bedCount() == null || request.bedCount() < 1) {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");
                     }
@@ -305,7 +305,7 @@ public class GreenhouseService {
     }
 
     private String defaultTag(String prefix, int index) {
-        return "Bed".equals(prefix) ? "Bed " + index : prefix + "-" + index;
+        return "Bed".equals(prefix) ? "Bed " + index : prefix + " " + index;
     }
 
     private String uniqueDefaultTag(String prefix, int preferredIndex, Set<String> usedTags) {

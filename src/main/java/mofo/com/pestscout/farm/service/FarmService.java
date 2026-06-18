@@ -300,6 +300,9 @@ public class FarmService {
             if (request.subscriptionTier() != null) {
                 farm.setSubscriptionTier(request.subscriptionTier());
             }
+            if (request.structureType() != null) {
+                farm.setStructureType(request.structureType());
+            }
             applyTextUpdate(request.billingEmail(), farm::setBillingEmail);
 
             if (request.licensedAreaHectares() != null) {
@@ -601,7 +604,7 @@ public class FarmService {
     }
 
     private String defaultTag(String prefix, int index) {
-        return "Bed".equals(prefix) ? "Bed " + index : prefix + "-" + index;
+        return "Bed".equals(prefix) ? "Bed " + index : prefix + " " + index;
     }
 
     private String uniqueDefaultTag(String prefix, int preferredIndex, Set<String> usedTags) {
@@ -693,11 +696,12 @@ public class FarmService {
             List<GreenhouseBayRequest> requestedBays,
             List<String> fallbackBedTags
     ) {
-        List<GreenhouseBayDefinition> bays = requestedBays.stream()
-                .map(request -> {
+        List<GreenhouseBayDefinition> bays = java.util.stream.IntStream.range(0, requestedBays.size())
+                .mapToObj(index -> {
+                    GreenhouseBayRequest request = requestedBays.get(index);
                     String bayTag = normalizeNullableText(request.bayTag());
                     if (bayTag == null) {
-                        throw new BadRequestException("Each greenhouse bay must have a name.");
+                        bayTag = defaultTag("Bay", index + 1);
                     }
                     if (request.bedCount() == null || request.bedCount() < 1) {
                         throw new BadRequestException("Each greenhouse bay must define at least one bed.");

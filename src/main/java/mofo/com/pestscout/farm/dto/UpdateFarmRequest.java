@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
 
@@ -70,6 +71,7 @@ public record UpdateFarmRequest(
         LocalDate licenseArchivedDate,
         Boolean autoRenewEnabled,
         Boolean isArchived,
+        FarmStructureType structureType,
 
         Integer defaultBayCount,
         Integer defaultBenchesPerBay,
@@ -141,6 +143,7 @@ public record UpdateFarmRequest(
                 licenseArchivedDate,
                 autoRenewEnabled,
                 isArchived,
+                null,
                 defaultBayCount,
                 defaultBenchesPerBay,
                 defaultSpotChecksPerBench,
@@ -209,6 +212,7 @@ public record UpdateFarmRequest(
                         licenseArchivedDate,
                         autoRenewEnabled,
                         isArchived,
+                        null,
                         defaultBayCount,
                         defaultBenchesPerBay,
                         defaultSpotChecksPerBench,

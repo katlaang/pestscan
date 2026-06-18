@@ -245,7 +245,7 @@ public class AuthService {
         assertTokenIsCurrent(user, refreshToken);
         assertClientSessionIsCurrent(user, refreshToken, clientSessionId);
         if (userSessionService.isIdleExpired(user)) {
-            throw new BadRequestException("Session expired due to inactivity. Please log in again.");
+            throw new BadRequestException("Timed out due to inactivity.");
         }
         if (userSessionService.isPasswordChangeSessionExpired(user)) {
             throw new BadRequestException("Temporary password session expired. Please log in again.");

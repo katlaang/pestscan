@@ -640,6 +640,7 @@ class FarmServiceTest {
                 null,
                 null,
                 null,
+                null,
                 null
         );
 
@@ -1228,9 +1229,9 @@ class FarmServiceTest {
 
         assertThat(response.name()).isEqualTo("Tagged Farm");
         verify(farmRepository).save(argThat(farm ->
-                farm.getGreenhouses().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
+                farm.getGreenhouses().getFirst().getBayTags().equals(List.of("Bay 1", "Bay 2"))
                         && farm.getGreenhouses().getFirst().getBenchTags().equals(List.of("Bed 1", "Bed 2", "Bed 3"))
-                        && farm.getFieldBlocks().getFirst().getBayTags().equals(List.of("Bay-1", "Bay-2"))
+                        && farm.getFieldBlocks().getFirst().getBayTags().equals(List.of("Bay 1", "Bay 2"))
         ));
     }
 
