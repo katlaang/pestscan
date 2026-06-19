@@ -130,6 +130,21 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void doFilterInternal_skipsJwtAuthenticationForLoginEndpointWithContextPath() throws ServletException, IOException {
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRequestURI()).thenReturn("/pestscout/api/auth/login");
+        when(request.getContextPath()).thenReturn("/pestscout");
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(tokenProvider, never()).validateToken(anyString());
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR), any());
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR), any());
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
     void doFilterInternal_skipsAuthenticationWhenUserNoLongerExists() throws ServletException, IOException {
         String token = "token";
 
@@ -358,6 +373,51 @@ class JwtAuthenticationFilterTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR, "PASSWORD_CHANGE_REQUIRED");
         verify(request).setAttribute(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR, "Change your password to continue.");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void doFilterInternal_setsAuthenticationForPasswordChangeResetEndpointWithContextPath() throws ServletException, IOException {
+        String token = "token";
+        UUID userId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+        UserDetails userDetails = User.withUsername("temp@example.com").password("pass").authorities("ROLE_SCOUT").build();
+        mofo.com.pestscout.auth.model.User domainUser = mofo.com.pestscout.auth.model.User.builder()
+                .id(userId)
+                .email("temp@example.com")
+                .passwordChangeRequired(true)
+                .lastLogin(LocalDateTime.now())
+                .build();
+
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getRequestURI()).thenReturn("/pestscout/api/auth/reset-password");
+        when(request.getContextPath()).thenReturn("/pestscout");
+        when(request.getMethod()).thenReturn("POST");
+        when(tokenProvider.validateToken(token)).thenReturn(true);
+        when(tokenProvider.getEmailFromToken(token)).thenReturn("temp@example.com");
+        when(tokenProvider.getUserIdFromToken(token)).thenReturn(userId);
+        when(tokenProvider.getFarmIdFromToken(token)).thenReturn(farmId);
+        when(tokenProvider.getRoleFromToken(token)).thenReturn("SCOUT");
+        when(userDetailsService.loadUserByUsername("temp@example.com")).thenReturn(userDetails);
+        UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
+        UserSessionService userSessionService = org.mockito.Mockito.mock(UserSessionService.class);
+        when(userRepositoryProvider.getIfAvailable()).thenReturn(userRepository);
+        when(userSessionServiceProvider.getIfAvailable()).thenReturn(userSessionService);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(domainUser));
+        when(userSessionService.isIdleExpired(domainUser)).thenReturn(false);
+        when(userSessionService.isPasswordChangeSessionExpired(domainUser)).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication())
+                .isInstanceOf(UsernamePasswordAuthenticationToken.class);
+        verify(userSessionService).recordActivity(domainUser);
+        verify(request).setAttribute("userId", userId);
+        verify(request).setAttribute("farmId", farmId);
+        verify(request).setAttribute("userEmail", "temp@example.com");
+        verify(request).setAttribute("userRole", "SCOUT");
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_CODE_ATTR), any());
+        verify(request, never()).setAttribute(eq(JwtAuthenticationFilter.AUTH_FAILURE_MESSAGE_ATTR), any());
         verify(filterChain).doFilter(request, response);
     }
 

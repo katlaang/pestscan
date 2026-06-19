@@ -224,12 +224,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private boolean shouldRecordActivity(HttpServletRequest request) {
-        return !"/api/auth/refresh".equals(request.getRequestURI());
+        return !"/api/auth/refresh".equals(pathWithinApplication(request));
     }
 
     private boolean isLoginRequest(HttpServletRequest request) {
         return "POST".equalsIgnoreCase(request.getMethod())
-                && "/api/auth/login".equals(request.getRequestURI());
+                && "/api/auth/login".equals(pathWithinApplication(request));
     }
 
     private boolean isAllowedDuringPasswordChange(HttpServletRequest request) {
@@ -237,11 +237,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
 
-        String requestUri = request.getRequestURI();
+        String requestUri = pathWithinApplication(request);
         return "/api/auth/reset-password".equals(requestUri)
                 || "/api/auth/change-password".equals(requestUri)
                 || "/api/auth/me".equals(requestUri)
                 || "/api/auth/refresh".equals(requestUri);
+    }
+
+    private String pathWithinApplication(HttpServletRequest request) {
+        String servletPath = request.getServletPath();
+        if (StringUtils.hasText(servletPath)) {
+            return servletPath;
+        }
+
+        String requestUri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (StringUtils.hasText(requestUri)
+                && StringUtils.hasText(contextPath)
+                && requestUri.startsWith(contextPath)) {
+            String path = requestUri.substring(contextPath.length());
+            return path.isBlank() ? "/" : path;
+        }
+
+        return requestUri;
     }
 
     private boolean isTokenRevoked(User user, String token) {
