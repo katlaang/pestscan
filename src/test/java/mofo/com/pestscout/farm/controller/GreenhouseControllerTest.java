@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import mofo.com.pestscout.auth.security.JwtTokenProvider;
 import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseDto;
+import mofo.com.pestscout.farm.dto.UpdateGreenhouseBayBedsRequest;
 import mofo.com.pestscout.farm.dto.UpdateGreenhouseRequest;
 import mofo.com.pestscout.farm.service.GreenhouseService;
 import org.junit.jupiter.api.Test;
@@ -122,6 +123,39 @@ class GreenhouseControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(greenhouseId.toString()));
+    }
+
+    @Test
+    void updatesBayBeds() throws Exception {
+        UUID greenhouseId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+        UpdateGreenhouseBayBedsRequest request = new UpdateGreenhouseBayBedsRequest(20);
+        GreenhouseDto dto = new GreenhouseDto(
+                greenhouseId,
+                1L,
+                farmId,
+                "G1",
+                "demo",
+                3,
+                20,
+                2,
+                List.of("A", "B", "C"),
+                List.of("Bed 1", "Bed 2"),
+                true
+        );
+
+        when(greenhouseService.updateBayBeds(
+                org.mockito.ArgumentMatchers.eq(greenhouseId),
+                org.mockito.ArgumentMatchers.eq(1),
+                any(UpdateGreenhouseBayBedsRequest.class)
+        )).thenReturn(dto);
+
+        mockMvc.perform(put("/api/greenhouses/{greenhouseId}/bays/{bayPosition}/beds", greenhouseId, 1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bayTags[0]").value("A"))
+                .andExpect(jsonPath("$.benchesPerBay").value(20));
     }
 
 }

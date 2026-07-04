@@ -5,6 +5,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.*;
 import mofo.com.pestscout.farm.model.FarmStructureType;
 import mofo.com.pestscout.farm.model.SubscriptionStatus;
 import mofo.com.pestscout.farm.model.SubscriptionTier;
@@ -19,119 +20,63 @@ import java.util.UUID;
  * Only SUPER_ADMIN can use this.
  * Includes license and billing fields.
  */
-public record CreateFarmRequest(
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CreateFarmRequest {
 
-        @NotBlank String name,
-        String description,
+    @NotBlank
+    private String name;
+    private String description;
 
-        String address,
-        String city,
-        String province,
-        String postalCode,
-        String country,
+    private String address;
+    private String city;
+    private String province;
+    private String postalCode;
+    private String country;
+    private Boolean organic;
 
-        UUID ownerId,
+    private UUID ownerId;
 
-        // Optional scout assignment on creation
-        UUID scoutId,
+    private UUID scoutId;
 
-        String contactName,
-        @Email String contactEmail,
-        String contactPhone,
+    private String contactName;
+    @Email
+    private String contactEmail;
+    private String contactPhone;
 
-        // Licensing fields (Superadmin only)
-        @NotNull SubscriptionStatus subscriptionStatus,
-        @NotNull SubscriptionTier subscriptionTier,
+    @NotNull
+    private SubscriptionStatus subscriptionStatus;
+    @NotNull
+    private SubscriptionTier subscriptionTier;
 
-        @Email String billingEmail,
+    @Email
+    private String billingEmail;
 
-        @NotNull @DecimalMin("0.0") BigDecimal licensedAreaHectares,
-        Integer licensedUnitQuota,
-        BigDecimal quotaDiscountPercentage,
+    @NotNull
+    @DecimalMin("0.0")
+    private BigDecimal licensedAreaHectares;
+    private Integer licensedUnitQuota;
+    private BigDecimal quotaDiscountPercentage;
 
-        FarmStructureType structureType,
+    private FarmStructureType structureType;
 
-        // Defaults for layout
-        Integer defaultBayCount,
-        Integer defaultBenchesPerBay,
-        Integer defaultSpotChecksPerBench,
+    private Integer defaultBayCount;
+    private Integer defaultBenchesPerBay;
+    private Integer defaultSpotChecksPerBench;
 
-        List<CreateGreenhouseRequest> greenhouses,
-        List<CreateFieldBlockRequest> fieldBlocks,
+    private List<CreateGreenhouseRequest> greenhouses;
+    private List<CreateFieldBlockRequest> fieldBlocks;
 
-        String timezone,
+    private String timezone;
 
-        // License lifecycle management
-        LocalDate licenseExpiryDate,
-        Boolean autoRenewEnabled,
-        @JsonDeserialize(using = LatitudeDeserializer.class)
-        BigDecimal latitude,
-        @JsonDeserialize(using = LongitudeDeserializer.class)
-        BigDecimal longitude,
-        List<FarmMemberAssignmentRequest> memberAssignments
-) {
-    public CreateFarmRequest(
-            String name,
-            String description,
-            String address,
-            String city,
-            String province,
-            String postalCode,
-            String country,
-            UUID ownerId,
-            UUID scoutId,
-            String contactName,
-            String contactEmail,
-            String contactPhone,
-            SubscriptionStatus subscriptionStatus,
-            SubscriptionTier subscriptionTier,
-            String billingEmail,
-            BigDecimal licensedAreaHectares,
-            Integer licensedUnitQuota,
-            BigDecimal quotaDiscountPercentage,
-            FarmStructureType structureType,
-            Integer defaultBayCount,
-            Integer defaultBenchesPerBay,
-            Integer defaultSpotChecksPerBench,
-            List<CreateGreenhouseRequest> greenhouses,
-            List<CreateFieldBlockRequest> fieldBlocks,
-            String timezone,
-            LocalDate licenseExpiryDate,
-            Boolean autoRenewEnabled
-    ) {
-        this(
-                name,
-                description,
-                address,
-                city,
-                province,
-                postalCode,
-                country,
-                ownerId,
-                scoutId,
-                contactName,
-                contactEmail,
-                contactPhone,
-                subscriptionStatus,
-                subscriptionTier,
-                billingEmail,
-                licensedAreaHectares,
-                licensedUnitQuota,
-                quotaDiscountPercentage,
-                structureType,
-                defaultBayCount,
-                defaultBenchesPerBay,
-                defaultSpotChecksPerBench,
-                greenhouses,
-                fieldBlocks,
-                timezone,
-                licenseExpiryDate,
-                autoRenewEnabled,
-                null,
-                null,
-                null
-        );
-    }
+    private LocalDate licenseExpiryDate;
+    private Boolean autoRenewEnabled;
+    @JsonDeserialize(using = LatitudeDeserializer.class)
+    private BigDecimal latitude;
+    @JsonDeserialize(using = LongitudeDeserializer.class)
+    private BigDecimal longitude;
+    private List<FarmMemberAssignmentRequest> memberAssignments;
 }
-
-

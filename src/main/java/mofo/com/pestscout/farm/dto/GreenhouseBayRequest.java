@@ -6,7 +6,7 @@ import java.util.List;
 
 public record GreenhouseBayRequest(
         String bayTag,
-        @Min(1) Integer bedCount,
+        @Min(0) Integer bedCount,
         List<String> bedTags
 ) {
     public GreenhouseBayRequest(String bayTag, Integer bedCount) {

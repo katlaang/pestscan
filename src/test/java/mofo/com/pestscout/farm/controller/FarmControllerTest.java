@@ -64,35 +64,35 @@ class FarmControllerTest {
         UUID ownerId = UUID.randomUUID();
         UUID scoutId = UUID.randomUUID();
 
-        CreateFarmRequest request = new CreateFarmRequest(
-                "Farm",                         // name
-                "Demo farm",                    // description
-                "123 Main St",                  // address
-                "Nairobi",                      // city
-                "Nairobi County",               // province
-                "00100",                        // postalCode
-                "Kenya",                        // country
-                ownerId,                        // ownerId
-                scoutId,                        // scoutId
-                "Jane Doe",                     // contactName
-                "jane@example.com",             // contactEmail
-                "+254700000000",                // contactPhone
-                SubscriptionStatus.ACTIVE,      // subscriptionStatus
-                SubscriptionTier.BASIC,         // subscriptionTier
-                "billing@example.com",          // billingEmail
-                BigDecimal.valueOf(1.5),        // licensedAreaHectares
-                100,                            // licensedUnitQuota
-                BigDecimal.valueOf(10),         // quotaDiscountPercentage
-                FarmStructureType.GREENHOUSE,   // structureType
-                4,                              // defaultBayCount
-                10,                             // defaultBenchesPerBay
-                5,                              // defaultSpotChecksPerBench
-                List.of(),                      // greenhouses
-                List.of(),                      // fieldBlocks
-                "Africa/Nairobi",               // timezone
-                LocalDate.of(2026, 1, 1),       // licenseExpiryDate
-                true                            // autoRenewEnabled
-        );
+        CreateFarmRequest request = CreateFarmRequest.builder()
+                .name("Farm")
+                .description("Demo farm")
+                .address("123 Main St")
+                .city("Nairobi")
+                .province("Nairobi County")
+                .postalCode("00100")
+                .country("Kenya")
+                .ownerId(ownerId)
+                .scoutId(scoutId)
+                .contactName("Jane Doe")
+                .contactEmail("jane@example.com")
+                .contactPhone("+254700000000")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.BASIC)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(BigDecimal.valueOf(1.5))
+                .licensedUnitQuota(100)
+                .quotaDiscountPercentage(BigDecimal.valueOf(10))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(4)
+                .defaultBenchesPerBay(10)
+                .defaultSpotChecksPerBench(5)
+                .greenhouses(List.of())
+                .fieldBlocks(List.of())
+                .timezone("Africa/Nairobi")
+                .licenseExpiryDate(LocalDate.of(2026, 1, 1))
+                .autoRenewEnabled(true)
+                .build();
 
         FarmResponse response = new FarmResponse(
                 farmId,
@@ -135,6 +135,84 @@ class FarmControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(farmId.toString()));
+    }
+
+    @Test
+    void createsFarmWithOrganicFlag() throws Exception {
+        UUID farmId = UUID.randomUUID();
+        FarmResponse response = new FarmResponse(
+                farmId,
+                "TAG-ORG",
+                "Organic Farm",
+                "Organic farm",
+                "EXT-ORG",
+                "123 Main St",
+                "Nairobi",
+                "Nairobi County",
+                "00100",
+                "Kenya",
+                "Jane Doe",
+                "jane@example.com",
+                "+254700000000",
+                SubscriptionStatus.ACTIVE,
+                SubscriptionTier.BASIC,
+                "billing@example.com",
+                BigDecimal.valueOf(1.5),
+                100,
+                BigDecimal.ZERO,
+                LocalDate.of(2026, 1, 1),
+                true,
+                false,
+                FarmStructureType.GREENHOUSE,
+                4,
+                10,
+                5,
+                Instant.parse("2024-01-01T00:00:00Z"),
+                Instant.parse("2024-01-02T00:00:00Z"),
+                "Africa/Nairobi",
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+
+        when(farmService.createFarm(any(CreateFarmRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/farms")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Organic Farm",
+                                  "description": "Organic farm",
+                                  "address": "123 Main St",
+                                  "city": "Nairobi",
+                                  "province": "Nairobi County",
+                                  "postalCode": "00100",
+                                  "country": "Kenya",
+                                  "organic": true,
+                                  "contactName": "Jane Doe",
+                                  "contactEmail": "jane@example.com",
+                                  "contactPhone": "+254700000000",
+                                  "subscriptionStatus": "ACTIVE",
+                                  "subscriptionTier": "BASIC",
+                                  "billingEmail": "billing@example.com",
+                                  "licensedAreaHectares": 1.5,
+                                  "licensedUnitQuota": 100,
+                                  "quotaDiscountPercentage": 0,
+                                  "structureType": "GREENHOUSE",
+                                  "defaultBayCount": 4,
+                                  "defaultBenchesPerBay": 10,
+                                  "defaultSpotChecksPerBench": 5,
+                                  "greenhouses": [],
+                                  "fieldBlocks": [],
+                                  "timezone": "Africa/Nairobi",
+                                  "licenseExpiryDate": "2026-01-01",
+                                  "autoRenewEnabled": true
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<CreateFarmRequest> captor = ArgumentCaptor.forClass(CreateFarmRequest.class);
+        Mockito.verify(farmService).createFarm(captor.capture());
+        assertThat(captor.getValue().getOrganic()).isTrue();
     }
 
     @Test
@@ -444,8 +522,8 @@ class FarmControllerTest {
 
         ArgumentCaptor<CreateFarmRequest> captor = ArgumentCaptor.forClass(CreateFarmRequest.class);
         Mockito.verify(farmService).createFarm(captor.capture());
-        assertThat(captor.getValue().latitude()).isEqualByComparingTo("-1.292066");
-        assertThat(captor.getValue().longitude()).isEqualByComparingTo("-104.0204");
+        assertThat(captor.getValue().getLatitude()).isEqualByComparingTo("-1.292066");
+        assertThat(captor.getValue().getLongitude()).isEqualByComparingTo("-104.0204");
     }
 
     @Test

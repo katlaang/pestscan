@@ -37,7 +37,7 @@ public class FarmController {
     }
 
     @PutMapping("/{farmId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<FarmResponse> updateFarm(@PathVariable UUID farmId,
                                                    @Valid @RequestBody UpdateFarmRequest request) {
         LOGGER.info("PUT /api/farms/{} - updating farm", farmId);

@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
 import mofo.com.pestscout.farm.dto.GreenhouseDto;
+import mofo.com.pestscout.farm.dto.UpdateGreenhouseBayBedsRequest;
 import mofo.com.pestscout.farm.dto.UpdateGreenhouseRequest;
 import mofo.com.pestscout.farm.service.GreenhouseService;
 import org.slf4j.Logger;
@@ -47,6 +48,15 @@ public class GreenhouseController {
                                                           @Valid @RequestBody UpdateGreenhouseRequest request) {
         LOGGER.info("PUT /api/greenhouses/{} — updating greenhouse", greenhouseId);
         return ResponseEntity.ok(greenhouseService.updateGreenhouse(greenhouseId, request));
+    }
+
+    @PutMapping("/greenhouses/{greenhouseId}/bays/{bayPosition}/beds")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','FARM_ADMIN','MANAGER')")
+    public ResponseEntity<GreenhouseDto> updateBayBeds(@PathVariable UUID greenhouseId,
+                                                       @PathVariable int bayPosition,
+                                                       @Valid @RequestBody UpdateGreenhouseBayBedsRequest request) {
+        LOGGER.info("PUT /api/greenhouses/{}/bays/{}/beds - updating bay beds", greenhouseId, bayPosition);
+        return ResponseEntity.ok(greenhouseService.updateBayBeds(greenhouseId, bayPosition, request));
     }
 
     @DeleteMapping("/greenhouses/{greenhouseId}")

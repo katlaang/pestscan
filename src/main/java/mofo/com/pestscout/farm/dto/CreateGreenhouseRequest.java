@@ -25,7 +25,9 @@ public record CreateGreenhouseRequest(
         List<String> benchTags,
         BigDecimal areaHectares,
 
-        @Valid List<GreenhouseBayRequest> bays
+        @Valid List<GreenhouseBayRequest> bays,
+        BayNumberingMode bayNumberingMode,
+        String firstBayIdentifier
 ) {
 
     public CreateGreenhouseRequest(
@@ -37,7 +39,7 @@ public record CreateGreenhouseRequest(
             List<String> bayTags,
             List<String> benchTags
     ) {
-        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, null, null);
+        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, null, null, null, null);
     }
 
     public CreateGreenhouseRequest(
@@ -50,7 +52,21 @@ public record CreateGreenhouseRequest(
             List<String> benchTags,
             BigDecimal areaHectares
     ) {
-        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, areaHectares, null);
+        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, areaHectares, null, null, null);
+    }
+
+    public CreateGreenhouseRequest(
+            String name,
+            String description,
+            Integer bayCount,
+            Integer benchesPerBay,
+            Integer spotChecksPerBench,
+            List<String> bayTags,
+            List<String> benchTags,
+            BigDecimal areaHectares,
+            List<GreenhouseBayRequest> bays
+    ) {
+        this(name, description, bayCount, benchesPerBay, spotChecksPerBench, bayTags, benchTags, areaHectares, bays, null, null);
     }
 }
 

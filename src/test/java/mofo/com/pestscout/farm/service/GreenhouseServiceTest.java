@@ -1,11 +1,9 @@
 package mofo.com.pestscout.farm.service;
 
+import mofo.com.pestscout.common.exception.BadRequestException;
 import mofo.com.pestscout.common.exception.ResourceNotFoundException;
 import mofo.com.pestscout.common.service.CacheService;
-import mofo.com.pestscout.farm.dto.CreateGreenhouseRequest;
-import mofo.com.pestscout.farm.dto.GreenhouseBayRequest;
-import mofo.com.pestscout.farm.dto.GreenhouseDto;
-import mofo.com.pestscout.farm.dto.UpdateGreenhouseRequest;
+import mofo.com.pestscout.farm.dto.*;
 import mofo.com.pestscout.farm.model.Farm;
 import mofo.com.pestscout.farm.model.Greenhouse;
 import mofo.com.pestscout.farm.repository.FarmRepository;
@@ -150,6 +148,40 @@ class GreenhouseServiceTest {
         assertThat(dto.bays().get(0).bedCount()).isEqualTo(2);
         assertThat(dto.bays().get(1).bayTag()).isEqualTo("Bay-B");
         assertThat(dto.bays().get(1).bedCount()).isEqualTo(4);
+    }
+
+    @Test
+    void createGreenhouse_withAlphabeticBayGeneration_MapsBayLabels() {
+        UUID farmId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        CreateGreenhouseRequest request = new CreateGreenhouseRequest(
+                "House Alphabetic",
+                "Generated bays",
+                3,
+                null,
+                2,
+                List.of(),
+                List.of(),
+                new BigDecimal("1.50"),
+                null,
+                BayNumberingMode.ALPHABETIC,
+                "A"
+        );
+
+        when(farmRepository.findById(farmId)).thenReturn(Optional.of(farm));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> {
+            Greenhouse greenhouse = invocation.getArgument(0);
+            greenhouse.setId(UUID.randomUUID());
+            return greenhouse;
+        });
+
+        GreenhouseDto dto = greenhouseService.createGreenhouse(farmId, request);
+
+        assertThat(dto.bayTags()).containsExactly("A", "B", "C");
+        assertThat(dto.bays()).extracting("bayTag").containsExactly("A", "B", "C");
+        assertThat(dto.bays()).extracting("bedCount").containsExactly(0, 0, 0);
     }
 
     @Test
@@ -355,6 +387,73 @@ class GreenhouseServiceTest {
         GreenhouseDto dto = greenhouseService.updateGreenhouse(greenhouseId, request);
 
         assertThat(dto.active()).isFalse();
+    }
+
+    @Test
+    void updateBayBeds_generatesBedTagsForSelectedBay() {
+        UUID greenhouseId = UUID.randomUUID();
+        UUID farmId = UUID.randomUUID();
+
+        Farm farm = new Farm();
+        farm.setId(farmId);
+
+        Greenhouse greenhouse = Greenhouse.builder()
+                .id(greenhouseId)
+                .farm(farm)
+                .name("House A")
+                .bayCount(3)
+                .benchesPerBay(0)
+                .spotChecksPerBench(2)
+                .bayTags(new java.util.ArrayList<>(List.of("A", "B", "C")))
+                .benchTags(new java.util.ArrayList<>())
+                .bays(new java.util.ArrayList<>())
+                .active(true)
+                .build();
+
+        when(greenhouseRepository.findById(greenhouseId)).thenReturn(Optional.of(greenhouse));
+        when(greenhouseRepository.save(any(Greenhouse.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GreenhouseDto dto = greenhouseService.updateBayBeds(
+                greenhouseId,
+                2,
+                new UpdateGreenhouseBayBedsRequest(3)
+        );
+
+        assertThat(dto.bays()).hasSize(3);
+        assertThat(dto.bays().get(0).bayTag()).isEqualTo("A");
+        assertThat(dto.bays().get(0).bedCount()).isZero();
+        assertThat(dto.bays().get(1).bayTag()).isEqualTo("B");
+        assertThat(dto.bays().get(1).bedCount()).isEqualTo(3);
+        assertThat(dto.bays().get(1).bedTags()).containsExactly("Bed 1", "Bed 2", "Bed 3");
+        assertThat(dto.bays().get(2).bayTag()).isEqualTo("C");
+        assertThat(dto.benchTags()).containsExactly("Bed 1", "Bed 2", "Bed 3");
+        verify(cacheService).evictFarmCachesAfterCommit(farmId);
+    }
+
+    @Test
+    void updateBayBeds_rejectsOutOfRangeBayPosition() {
+        UUID greenhouseId = UUID.randomUUID();
+        Farm farm = new Farm();
+        farm.setId(UUID.randomUUID());
+
+        Greenhouse greenhouse = Greenhouse.builder()
+                .id(greenhouseId)
+                .farm(farm)
+                .name("House A")
+                .bayCount(1)
+                .bayTags(new java.util.ArrayList<>(List.of("A")))
+                .benchTags(new java.util.ArrayList<>())
+                .bays(new java.util.ArrayList<>())
+                .active(true)
+                .build();
+
+        when(greenhouseRepository.findById(greenhouseId)).thenReturn(Optional.of(greenhouse));
+
+        assertThatThrownBy(() -> greenhouseService.updateBayBeds(
+                greenhouseId,
+                2,
+                new UpdateGreenhouseBayBedsRequest(1)
+        )).isInstanceOf(BadRequestException.class);
     }
 
     @Test

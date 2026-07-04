@@ -1,0 +1,330 @@
+# Regional Pest & Disease Alerts, Agronomist Oversight Role
+
+**Status:** Draft design
+**Author:** Eunice Kamau
+**Date:** June 2026
+**Repos affected:** `pestscan` (backend), `pestscout-dashboard` (frontend)
+
+## 1. Problem and motivation
+
+PestScout currently scopes all data access to a single farm boundary. Every role
+except `SUPER_ADMIN` sees data for the farm(s) they belong to, and `SUPER_ADMIN`
+sees everything with full detail. There is no role for a person who needs visibility
+*across many farms in a geographic region* without being an operator of any single
+farm, and without seeing another farm's individual operational data.
+
+This gap matters for two converging reasons:
+
+- **Product**: agricultural extension officers, regional plant-health authorities,
+  and independent agronomists need early signals about pest and disease pressure
+  building across a region, not just within one client's farm. Early regional
+  signal is what allows preemptive action (a county-level whitefly advisory, for
+  example) rather than farm-by-farm reactive response.
+- **National interest**: regional pest/disease surveillance and rapid alerting is
+  a recognized agricultural biosecurity function. Invasive pest and disease spread
+  (e.g. Spotted Lanternfly, citrus greening) is treated as a matter of national
+  importance by USDA/APHIS and equivalent bodies elsewhere. A system that produces
+  real, privacy-preserving regional pest intelligence is a substantive technical
+  and policy-relevant contribution, not just a product feature.
+
+## 2. Design goals
+
+1. Add a new oversight role, `AGRONOMIST`, that can self-select regions to monitor.
+2. Agronomists see **aggregated, anonymized** regional pest/disease data only —
+   never an individual farm's identity, exact location, or raw observation data.
+3. The privacy boundary must be architectural, not just a permission check: the
+   aggregation service should be incapable of returning per-farm data to an
+   agronomist, regardless of how the query is constructed.
+4. Surface this through a shared **Alerts** experience used by all roles, with
+   per-role filtering:
+   - `FARM_ADMIN` / `MANAGER`: alerts scoped to their own farm's region and crops
+   - `AGRONOMIST`: aggregated alerts across every region they follow
+   - `SUPER_ADMIN`: full visibility, all regions, full detail (consistent with
+     existing global-access rules)
+5. Lay groundwork for a second alert source (weather-event alerts) sharing the
+   same delivery surface, without requiring it for v1.
+
+## 3. Non-goals (for this iteration)
+
+- Real-time outbound notification (email/SMS/push) — alerts are surfaced in-app
+  only for v1, consistent with the existing license-expiry reminder pattern
+  (queued and logged, not yet dispatched via SMTP/SES).
+- Weather-event alerts themselves (separate design, depends on weather API
+  integration not yet started).
+- Cross-region epidemiological spread modeling (separate, harder problem;
+  this design only covers detection aggregation and alerting, not prediction).
+- Admin-assigned regions for agronomists (self-service only, per product decision).
+
+## 4. Data model changes
+
+### 4.1 `Role` enum
+
+Add `AGRONOMIST` to the existing enum (`SUPER_ADMIN`, `FARM_ADMIN`, `MANAGER`,
+`SCOUT`, `EDGE_SYNC`, **`AGRONOMIST`**).
+
+Characteristics:
+- Farm-unscoped, like `SUPER_ADMIN` (no `UserFarmMembership` required).
+- Read-only at the platform level — no write access to any farm, session,
+  observation, or photo data.
+- Created via the existing `POST /api/auth/users` admin-managed flow (a
+  `SUPER_ADMIN` creates the account; the agronomist completes onboarding via the
+  existing temporary-password flow). Self-service applies to *region selection*,
+  not account creation.
+
+### 4.2 New entity: `RegionWatch`
+
+```sql
+CREATE TABLE region_watches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    country VARCHAR(2) NOT NULL,        -- ISO 3166-1 alpha-2
+    admin_area VARCHAR(255),            -- state/province/county; nullable = whole country
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    CONSTRAINT uq_region_watch UNIQUE (user_id, country, admin_area)
+);
+
+CREATE INDEX idx_region_watches_user ON region_watches (user_id);
+CREATE INDEX idx_region_watches_region ON region_watches (country, admin_area);
+```
+
+Notes:
+- `admin_area` is intentionally a free-text field rather than a foreign key into
+  a geo-reference table for v1. Acceptable because regions are matched against
+  whatever `Farm.province`/`Farm.country` values already exist in the farm record
+  — no new geocoding dependency required.
+- An agronomist may have many `RegionWatch` rows (e.g. watching both Arusha,
+  Tanzania and California, USA simultaneously).
+- A future iteration could normalize this to real admin-boundary identifiers if
+  regions need to support radius-based or polygon-based definitions instead of
+  administrative boundaries.
+
+### 4.3 No changes to `Farm`, `ScoutingSession`, or `ScoutingObservation`
+
+Deliberately. The aggregation service (Section 5) reads existing tables; it does
+not require new columns on farm-owned data. This keeps the privacy boundary at
+the service layer, where it can be tested and reasoned about independently of
+how individual farm data evolves.
+
+## 5. Aggregation service: the privacy boundary
+
+### 5.1 Architectural principle
+
+`RegionalPestSummaryService` is the **only** code path an `AGRONOMIST` request can
+reach. It is not a filtered view of `ScoutingObservation` exposed through a
+permission check — it is a separate service whose return type structurally cannot
+carry farm-identifying information.
+
+```java
+public record RegionalPestSummary(
+        String country,
+        String adminArea,
+        String speciesCode,
+        String category,          // PEST or DISEASE
+        int weekNumber,
+        int year,
+        long detectionCount,           // total observations matching
+        long distinctFarmCount,        // count only, never farm IDs
+        TrendDirection trend           // RISING, STABLE, FALLING
+) {}
+```
+
+There is no `farmId`, `farmName`, or any field that could be joined back to a
+specific farm by an agronomist-facing caller. `distinctFarmCount` answers "how
+widespread is this" without answering "which farms."
+
+### 5.2 Suppression threshold
+
+To prevent re-identification in sparsely-farmed regions (if `distinctFarmCount`
+is 1, "aggregated" data is actually that one farm's raw data), apply a minimum
+threshold:
+
+- If `distinctFarmCount < 3` for a given region/species/week, suppress the row
+  entirely from agronomist-facing results rather than returning it with a low
+  count. This is a standard small-cell suppression technique used in public
+  health and agricultural statistics reporting.
+- `SUPER_ADMIN` queries are not subject to this suppression (they already have
+  full per-farm access through existing endpoints).
+
+### 5.3 Query path
+
+```java
+@Service
+public class RegionalPestSummaryService {
+
+    public List<RegionalPestSummary> getSummaryForRegions(
+            List<RegionWatch> watchedRegions,
+            LocalDate since) {
+        // 1. For each watched region, query observations joined to farms
+        //    WHERE farm.country = region.country
+        //      AND (region.adminArea IS NULL OR farm.province = region.adminArea)
+        //      AND observation.observedAt >= since
+        // 2. GROUP BY country, adminArea, speciesCode, category, weekNumber, year
+        // 3. COUNT(*) as detectionCount, COUNT(DISTINCT farm.id) as distinctFarmCount
+        // 4. Compute trend by comparing to prior week's count for the same group
+        // 5. Filter out groups where distinctFarmCount < 3
+        // 6. Map directly to RegionalPestSummary — no farm-identifying fields
+        //    ever enter the returned object graph
+    }
+}
+```
+
+This method is the single chokepoint. Any future endpoint serving agronomist
+data must go through it; no agronomist-facing controller should query
+`ScoutingObservation` or `Farm` repositories directly.
+
+## 6. API surface
+
+### 6.1 Region management (self-service)
+
+```
+POST   /api/agronomist/regions
+       body: { "country": "US", "adminArea": "California" }
+       auth: AGRONOMIST only
+
+GET    /api/agronomist/regions
+       returns: list of the caller's own RegionWatch rows
+       auth: AGRONOMIST only
+
+DELETE /api/agronomist/regions/{regionWatchId}
+       auth: AGRONOMIST only, must own the row
+```
+
+### 6.2 Regional alerts feed
+
+```
+GET /api/alerts
+    auth: any authenticated role
+    behavior branches by role:
+      - FARM_ADMIN / MANAGER: scoped to caller's farm region + crops
+      - AGRONOMIST: aggregated across all of caller's RegionWatch regions
+      - SUPER_ADMIN: all regions, full detail, includes farm-level breakdowns
+```
+
+A single endpoint with role-based branching (rather than separate endpoints per
+role) keeps the frontend's Alerts tab implementation uniform — same request,
+different payload shape depending on `role` already present in the auth context.
+
+## 7. Frontend changes (`pestscout-dashboard`)
+
+- New route `/alerts` already exists per current README; extend `AlertsPage` to
+  render differently based on `user.role`:
+  - Farm roles: existing per-farm alert card list.
+  - `AGRONOMIST`: a regional summary view — likely a map or table grouped by
+    region/species/trend, explicitly *not* showing farm names or counts of 1–2.
+  - `SUPER_ADMIN`: existing global view, unchanged.
+- New `RegionPicker` component for `AGRONOMIST` accounts (likely surfaced in
+  `SettingsPage` or a dedicated section) — simple country/admin-area select,
+  calling the region management endpoints above.
+- Sidebar: `AGRONOMIST` role should see `Alerts` and a regions-management entry,
+  and should **not** see Farms, Sessions, Heatmaps, or Analytics, since those are
+  inherently farm-specific and out of scope for this role.
+
+## 8. Resolved decisions
+
+### 8.1 Caching
+
+`RegionalPestSummary` results are cached, recomputed on a schedule rather than
+per-request. Reuses the existing Spring Cache (`simple` in-memory) pattern
+already used elsewhere in the codebase.
+
+- Cache key: `(country, adminArea, sinceWeek)` — one cache entry per region per
+  week window, so a single recompute serves every agronomist watching that region.
+- Refresh interval: hourly is sufficient given pest/disease detection rates don't
+  meaningfully change minute-to-minute; a scheduled job (matching the existing
+  `licensing.notification-cron`-style pattern already in `application.yml`)
+  recomputes and replaces the cache rather than each request triggering a
+  potentially expensive cross-farm aggregation query.
+- Cache eviction: time-based (hourly TTL) rather than event-based for v1 — no
+  need to invalidate on every new observation, since near-real-time precision
+  isn't the goal for regional trend awareness.
+
+### 8.2 Trend computation
+
+Reuses logic from `TrendAnalysisService`, but the service needs a new entry
+point operating over a **region** rather than a single farm.
+
+- Today `TrendAnalysisService` presumably computes trend direction
+  (`RISING`/`STABLE`/`FALLING`) per farm, per species, over time — that
+  farm-scoped logic doesn't change.
+- Add an overload (or a sibling method) that accepts a *region-level aggregated
+  time series* — i.e. the same week-over-week comparison logic, but fed
+  `detectionCount` summed across all farms in the region for each week, instead
+  of one farm's count. The trend *math* (whatever threshold/smoothing the
+  existing service uses to decide rising vs. stable vs. falling) stays identical;
+  only the input series changes from "one farm's weekly counts" to "regional
+  weekly counts."
+- Concretely: `RegionalPestSummaryService` should depend on
+  `TrendAnalysisService` and call into its trend-classification logic directly,
+  rather than reimplementing trend math separately. This avoids two divergent
+  definitions of "rising" existing in the codebase.
+- Action item before implementation: review `TrendAnalysisService`'s current
+  method signature to confirm it can accept an arbitrary numeric time series
+  (rather than being hard-wired to query farm-scoped data itself internally) —
+  if it currently both *fetches* and *classifies* in one method, it will need a
+  small refactor to separate "classify this series" from "fetch this farm's
+  series," so the classification half can be reused for regional series too.
+
+### 8.3 Farm location data requirement
+
+Region matching will **not** rely on `Farm.province`/`Farm.country` text fields
+alone. Every farm must have a real address plus `latitude`/`longitude` (both
+fields already exist on `CreateFarmRequest` per the current schema) — these
+become required, not optional, going forward.
+
+- `CreateFarmRequest.latitude` and `CreateFarmRequest.longitude` move from
+  optional to validated-required (`@NotNull`) for any farm created after this
+  change ships. Existing `CreateFarmRequest` constructor overloads that default
+  these to `null` become a real correctness risk once latitude/longitude is
+  required, not just dead-code clutter — worth resolving as part of this work.
+- Region matching for `RegionWatch` then becomes geographic (point-in-region or
+  point-within-radius), not text-field matching against `province`/`country`
+  strings. This is more robust than free-text matching, since it doesn't depend
+  on every farm's address being entered with consistent province/state naming.
+- Practically: `country` and `adminArea` on `RegionWatch` still describe what an
+  agronomist is watching in human terms (e.g. "California, US"), but resolving
+  *which farms* fall inside that region now means a bounding-region lookup
+  against each farm's lat/long, not a string comparison.
+
+**Boundary data source: bundled static dataset, not a geocoding API.**
+
+A geocoding API is the wrong tool here — it's built for full address resolution
+and costs money per call, when the actual question ("which country/state does
+this point fall in") is a static, one-time geometric fact that doesn't need an
+external network call on every aggregation run.
+
+- **Source**: [Natural Earth](https://www.naturalearthdata.com/) admin-1 dataset
+  (`ne_10m_admin_1_states_provinces`) — public domain, no attribution required,
+  standard go-to for free administrative boundary polygons at country+state
+  granularity. This is the right precision level for this use case (no need for
+  full address-level or polygon-perfect accuracy).
+- **Format**: download once as a shapefile, convert to GeoJSON, bundle as a
+  resource file in the `pestscan` backend — e.g.
+  `src/main/resources/geo/admin1-boundaries.geojson`. One-time asset, not a
+  runtime dependency on any external service.
+- **Lookup library**: use **JTS (Java Topology Suite)** for point-in-polygon
+  checks rather than hand-rolling the geometry math — JTS correctly handles
+  edge cases (concave polygons, multi-part/enclave regions, etc.) that a naive
+  implementation would get wrong. Add as a Gradle dependency
+  (`org.locationtech.jts:jts-core`).
+- **Loading strategy**: parse the bundled GeoJSON into an in-memory list of
+  `(country, adminArea, Polygon)` tuples once at application startup (or lazily
+  on first use, cached thereafter) — not re-parsed per request. Region
+  resolution for a given farm's lat/long becomes an in-memory iteration checking
+  `polygon.contains(point)`, which is fast enough for the data volumes involved
+  here (number of farms, not number of requests-per-second at internet scale).
+- **No new external dependency, no per-call cost, no rate limit risk** — the
+  entire boundary-resolution step becomes free, deterministic, and offline-safe
+  once the dataset is bundled.
+- Backfill requirement: existing farms without lat/long need to be backfilled
+  before this ships, or they will be silently excluded from all regional
+  aggregation — worth running a query now to see how many existing farms are
+  missing this data, since that determines whether backfill is trivial (a
+  handful of pilot farms) or substantial.
+
+## 9. Relationship to future weather-alert work
+
+When weather-event alerts are added, they should emit the same conceptual shape
+(`region`, `category` of event, `severity`, `trend`/forecast window) so the
+`/api/alerts` endpoint and the frontend `AlertsPage` can merge both sources
+without a structural rewrite. Not building this now, but the `RegionalPestSummary`
+shape above was chosen partly to make that merge straightforward later.

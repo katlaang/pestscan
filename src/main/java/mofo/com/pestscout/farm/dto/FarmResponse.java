@@ -25,6 +25,7 @@ public record FarmResponse(
         String province,
         String postalCode,
         String country,
+        Boolean organic,
 
         String contactName,
         String contactEmail,
@@ -54,6 +55,10 @@ public record FarmResponse(
         UUID ownerId,
         UUID scoutId
 ) {
+    public FarmResponse {
+        organic = Boolean.TRUE.equals(organic);
+    }
+
     public FarmResponse(
             UUID id,
             String farmTag,
@@ -102,6 +107,7 @@ public record FarmResponse(
                 province,
                 postalCode,
                 country,
+                null,
                 contactName,
                 contactEmail,
                 contactPhone,
@@ -173,6 +179,7 @@ public record FarmResponse(
                 province,
                 postalCode,
                 country,
+                null,
                 contactName,
                 contactEmail,
                 contactPhone,
@@ -246,6 +253,7 @@ public record FarmResponse(
                 province,
                 postalCode,
                 country,
+                null,
                 contactName,
                 contactEmail,
                 contactPhone,
@@ -278,5 +286,10 @@ public record FarmResponse(
     @JsonProperty("longitudeDisplay")
     public String longitudeDisplay() {
         return CoordinateFormatSupport.formatLongitude(longitude);
+    }
+
+    @JsonProperty("organicLabel")
+    public String organicLabel() {
+        return Boolean.TRUE.equals(organic) ? "Organic" : "Conventional";
     }
 }

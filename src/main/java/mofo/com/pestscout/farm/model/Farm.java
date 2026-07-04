@@ -75,6 +75,10 @@ public class Farm extends BaseEntity {
     @Column(length = 100)
     private String country;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean organic = false;
+
     // ─────────────────────────────────────────────────────────────
     // Ownership & Assigned Staff
     // ─────────────────────────────────────────────────────────────
@@ -240,6 +244,7 @@ public class Farm extends BaseEntity {
         if (licenseType == null) licenseType = LicenseType.PAID;
         if (licenseExtensionMonths == null) licenseExtensionMonths = 0;
         if (country == null) country = "Canada";
+        if (organic == null) organic = false;
         if (structureType == null) structureType = FarmStructureType.GREENHOUSE;
         if (isArchived == null) isArchived = false;
         if (autoRenewEnabled == null) autoRenewEnabled = false;

@@ -147,35 +147,36 @@ class FarmServiceTest {
                 .fieldBlocks(new ArrayList<>())
                 .build();
 
-        createRequest = new CreateFarmRequest(
-                "New Farm",
-                "New Farm Description",
-                "123 Farm Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                farmOwner.getId(),
-                scout.getId(),
-                "John Doe",
-                "john@example.com",
-                "555-1234",
-                SubscriptionStatus.ACTIVE,
-                SubscriptionTier.STANDARD,
-                "billing@example.com",
-                new BigDecimal("15.00"),
-                100,
-                new BigDecimal("5.00"),
-                FarmStructureType.GREENHOUSE,
-                5,
-                10,
-                3,
-                new ArrayList<>(),
-                new ArrayList<>(),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                true
-        );
+        createRequest = CreateFarmRequest.builder()
+                .name("New Farm")
+                .description("New Farm Description")
+                .address("123 Farm Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .organic(false)
+                .ownerId(farmOwner.getId())
+                .scoutId(scout.getId())
+                .contactName("John Doe")
+                .contactEmail("john@example.com")
+                .contactPhone("555-1234")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("15.00"))
+                .licensedUnitQuota(100)
+                .quotaDiscountPercentage(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(5)
+                .defaultBenchesPerBay(10)
+                .defaultSpotChecksPerBench(3)
+                .greenhouses(new ArrayList<>())
+                .fieldBlocks(new ArrayList<>())
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(true)
+                .build();
 
         updateRequest = new UpdateFarmRequest(
                 "Updated Farm Name",
@@ -215,13 +216,13 @@ class FarmServiceTest {
     @DisplayName("SuperAdmin should create farm successfully")
     void createFarm_AsSuperAdmin_CreatesFarm() {
         // Arrange
-        when(customerNumberService.normalizeCountryCode(createRequest.country()))
+        when(customerNumberService.normalizeCountryCode(createRequest.getCountry()))
                 .thenReturn("CA");
         when(userRepository.findById(farmOwner.getId()))
                 .thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId()))
                 .thenReturn(Optional.of(scout));
-        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName()))
                 .thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class)))
                 .thenReturn(testFarm);
@@ -235,9 +236,9 @@ class FarmServiceTest {
         assertThat(response).isNotNull();
         verify(farmAccessService).requireSuperAdmin();
         verify(farmAreaAllocationService).validateFarmStructureAreas(
-                createRequest.licensedAreaHectares(),
-                createRequest.greenhouses(),
-                createRequest.fieldBlocks()
+                createRequest.getLicensedAreaHectares(),
+                createRequest.getGreenhouses(),
+                createRequest.getFieldBlocks()
         );
         verify(farmRepository).save(any(Farm.class));
     }
@@ -245,13 +246,13 @@ class FarmServiceTest {
     @Test
     @DisplayName("Should generate a unique URL slug when creating a farm")
     void createFarm_GeneratesUniqueSlug() {
-        when(customerNumberService.normalizeCountryCode(createRequest.country()))
+        when(customerNumberService.normalizeCountryCode(createRequest.getCountry()))
                 .thenReturn("CA");
         when(userRepository.findById(farmOwner.getId()))
                 .thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId()))
                 .thenReturn(Optional.of(scout));
-        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName()))
                 .thenReturn(Optional.empty());
         when(farmRepository.existsBySlug("new-farm"))
                 .thenReturn(true);
@@ -275,39 +276,39 @@ class FarmServiceTest {
     @Test
     @DisplayName("SuperAdmin can create farm without owner or scout")
     void createFarm_WithoutAssignedUsers_AllowsUnassignedFarm() {
-        CreateFarmRequest unassignedRequest = new CreateFarmRequest(
-                "Unassigned Farm",
-                "No owner yet",
-                "123 Farm Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                new UUID(0L, 0L),
-                new UUID(0L, 0L),
-                "Ops Contact",
-                "ops@example.com",
-                "555-1234",
-                SubscriptionStatus.PENDING_ACTIVATION,
-                SubscriptionTier.BASIC,
-                "billing@example.com",
-                new BigDecimal("5.00"),
-                10,
-                BigDecimal.ZERO,
-                FarmStructureType.GREENHOUSE,
-                2,
-                4,
-                2,
-                new ArrayList<>(),
-                new ArrayList<>(),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                false
-        );
+        CreateFarmRequest unassignedRequest = CreateFarmRequest.builder()
+                .name("Unassigned Farm")
+                .description("No owner yet")
+                .address("123 Farm Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .ownerId(new UUID(0L, 0L))
+                .scoutId(new UUID(0L, 0L))
+                .contactName("Ops Contact")
+                .contactEmail("ops@example.com")
+                .contactPhone("555-1234")
+                .subscriptionStatus(SubscriptionStatus.PENDING_ACTIVATION)
+                .subscriptionTier(SubscriptionTier.BASIC)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("5.00"))
+                .licensedUnitQuota(10)
+                .quotaDiscountPercentage(BigDecimal.ZERO)
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(2)
+                .defaultBenchesPerBay(4)
+                .defaultSpotChecksPerBench(2)
+                .greenhouses(new ArrayList<>())
+                .fieldBlocks(new ArrayList<>())
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(false)
+                .build();
 
-        when(customerNumberService.normalizeCountryCode(unassignedRequest.country()))
+        when(customerNumberService.normalizeCountryCode(unassignedRequest.getCountry()))
                 .thenReturn("CA");
-        when(farmRepository.findByNameIgnoreCase(unassignedRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(unassignedRequest.getName()))
                 .thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -325,44 +326,45 @@ class FarmServiceTest {
     @Test
     @DisplayName("Should persist create-time coordinates and attach requested members")
     void createFarm_WithCoordinatesAndMembers_PersistsCoordinatesAndMemberships() {
-        CreateFarmRequest request = new CreateFarmRequest(
-                "Coordinate Farm",
-                "Mapped farm",
-                "123 Farm Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                farmOwner.getId(),
-                scout.getId(),
-                "John Doe",
-                "john@example.com",
-                "555-1234",
-                SubscriptionStatus.ACTIVE,
-                SubscriptionTier.STANDARD,
-                "billing@example.com",
-                new BigDecimal("15.00"),
-                100,
-                new BigDecimal("5.00"),
-                FarmStructureType.GREENHOUSE,
-                5,
-                10,
-                3,
-                new ArrayList<>(),
-                new ArrayList<>(),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                true,
-                new BigDecimal("43.1234567"),
-                new BigDecimal("-80.1234567"),
-                List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER))
-        );
+        CreateFarmRequest request = CreateFarmRequest.builder()
+                .name("Coordinate Farm")
+                .description("Mapped farm")
+                .address("123 Farm Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .organic(true)
+                .ownerId(farmOwner.getId())
+                .scoutId(scout.getId())
+                .contactName("John Doe")
+                .contactEmail("john@example.com")
+                .contactPhone("555-1234")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("15.00"))
+                .licensedUnitQuota(100)
+                .quotaDiscountPercentage(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(5)
+                .defaultBenchesPerBay(10)
+                .defaultSpotChecksPerBench(3)
+                .greenhouses(new ArrayList<>())
+                .fieldBlocks(new ArrayList<>())
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(true)
+                .latitude(new BigDecimal("43.1234567"))
+                .longitude(new BigDecimal("-80.1234567"))
+                .memberAssignments(List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER)))
+                .build();
 
-        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(customerNumberService.normalizeCountryCode(request.getCountry())).thenReturn("CA");
         when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
         when(userRepository.findById(managerMember.getId())).thenReturn(Optional.of(managerMember));
-        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.findByNameIgnoreCase(request.getName())).thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
             Farm farm = invocation.getArgument(0);
             farm.setId(UUID.randomUUID());
@@ -375,6 +377,9 @@ class FarmServiceTest {
 
         assertThat(response.latitude()).isEqualByComparingTo("43.1234567");
         assertThat(response.longitude()).isEqualByComparingTo("-80.1234567");
+        assertThat(response.organic()).isTrue();
+        assertThat(response.organicLabel()).isEqualTo("Organic");
+        verify(farmRepository).save(argThat(farm -> Boolean.TRUE.equals(farm.getOrganic())));
         verify(membershipRepository, times(3)).save(any(UserFarmMembership.class));
     }
 
@@ -397,44 +402,42 @@ class FarmServiceTest {
                 .isActive(true)
                 .build();
 
-        CreateFarmRequest request = new CreateFarmRequest(
-                "Conflicting Farm",
-                "Farm with duplicate member",
-                "123 Farm Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                farmOwner.getId(),
-                scout.getId(),
-                "John Doe",
-                "john@example.com",
-                "555-1234",
-                SubscriptionStatus.ACTIVE,
-                SubscriptionTier.STANDARD,
-                "billing@example.com",
-                new BigDecimal("15.00"),
-                100,
-                new BigDecimal("5.00"),
-                FarmStructureType.GREENHOUSE,
-                5,
-                10,
-                3,
-                new ArrayList<>(),
-                new ArrayList<>(),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                true,
-                null,
-                null,
-                List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER))
-        );
+        CreateFarmRequest request = CreateFarmRequest.builder()
+                .name("Conflicting Farm")
+                .description("Farm with duplicate member")
+                .address("123 Farm Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .ownerId(farmOwner.getId())
+                .scoutId(scout.getId())
+                .contactName("John Doe")
+                .contactEmail("john@example.com")
+                .contactPhone("555-1234")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("15.00"))
+                .licensedUnitQuota(100)
+                .quotaDiscountPercentage(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(5)
+                .defaultBenchesPerBay(10)
+                .defaultSpotChecksPerBench(3)
+                .greenhouses(new ArrayList<>())
+                .fieldBlocks(new ArrayList<>())
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(true)
+                .memberAssignments(List.of(new FarmMemberAssignmentRequest(managerMember.getId(), Role.MANAGER)))
+                .build();
 
-        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(customerNumberService.normalizeCountryCode(request.getCountry())).thenReturn("CA");
         when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
         when(userRepository.findById(managerMember.getId())).thenReturn(Optional.of(managerMember));
-        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.findByNameIgnoreCase(request.getName())).thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
             Farm farm = invocation.getArgument(0);
             farm.setId(UUID.randomUUID());
@@ -469,10 +472,10 @@ class FarmServiceTest {
                 .isActive(true)
                 .build();
 
-        when(customerNumberService.normalizeCountryCode(createRequest.country())).thenReturn("CA");
+        when(customerNumberService.normalizeCountryCode(createRequest.getCountry())).thenReturn("CA");
         when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
-        when(farmRepository.findByNameIgnoreCase(createRequest.name())).thenReturn(Optional.empty());
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName())).thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> {
             Farm farm = invocation.getArgument(0);
             farm.setId(UUID.randomUUID());
@@ -491,7 +494,7 @@ class FarmServiceTest {
     @DisplayName("Should throw ConflictException when farm name exists")
     void createFarm_WithExistingName_ThrowsConflictException() {
         // Arrange
-        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName()))
                 .thenReturn(Optional.of(testFarm));
 
         // Act & Assert
@@ -506,11 +509,11 @@ class FarmServiceTest {
     @DisplayName("Should throw ResourceNotFoundException when owner not found")
     void createFarm_WithInvalidOwner_ThrowsResourceNotFoundException() {
         // Arrange
-        when(customerNumberService.normalizeCountryCode(createRequest.country()))
+        when(customerNumberService.normalizeCountryCode(createRequest.getCountry()))
                 .thenReturn("CA");
-        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName()))
                 .thenReturn(Optional.empty());
-        when(userRepository.findById(createRequest.ownerId()))
+        when(userRepository.findById(createRequest.getOwnerId()))
                 .thenReturn(Optional.empty());
 
         // Act & Assert
@@ -540,7 +543,7 @@ class FarmServiceTest {
 
         // Assert
         assertThat(response).isNotNull();
-        verify(farmAccessService).requireAdminOrSuperAdmin(testFarm);
+        verify(farmAccessService).requireSuperAdmin();
         verify(farmRepository).save(any(Farm.class));
     }
 
@@ -1025,29 +1028,17 @@ class FarmServiceTest {
     }
 
     @Test
-    @DisplayName("Manager can update non-license fields")
-    void updateFarm_AsManager_UpdatesAllowedFields() {
+    @DisplayName("Manager cannot update farm fields")
+    void updateFarm_AsManager_ThrowsForbiddenException() {
         // Arrange
         when(farmRepository.findById(testFarm.getId()))
                 .thenReturn(Optional.of(testFarm));
-        when(farmRepository.findByNameIgnoreCase(updateRequest.name()))
-                .thenReturn(Optional.empty());
-        when(farmRepository.save(any(Farm.class)))
-                .thenReturn(testFarm);
-        when(farmAccessService.isSuperAdmin())
-                .thenReturn(false);
-        when(farmAccessService.getCurrentUserRole())
-                .thenReturn(Role.MANAGER);
+        doThrow(new ForbiddenException("Only super administrators can perform this action."))
+                .when(farmAccessService).requireSuperAdmin();
 
-        // Act
-        FarmResponse response = farmService.updateFarm(testFarm.getId(), updateRequest);
-
-        // Assert
-        assertThat(response).isNotNull();
-        verify(farmRepository).save(argThat(farm ->
-                farm.getName().equals(updateRequest.name()) &&
-                        farm.getDescription().equals(updateRequest.description())
-        ));
+        assertThatThrownBy(() -> farmService.updateFarm(testFarm.getId(), updateRequest))
+                .isInstanceOf(ForbiddenException.class);
+        verify(farmRepository, never()).save(any(Farm.class));
     }
 
     @Test
@@ -1111,13 +1102,13 @@ class FarmServiceTest {
     @DisplayName("Should apply farm defaults correctly")
     void createFarm_WithDefaults_AppliesCorrectly() {
         // Arrange
-        when(customerNumberService.normalizeCountryCode(createRequest.country()))
+        when(customerNumberService.normalizeCountryCode(createRequest.getCountry()))
                 .thenReturn("CA");
         when(userRepository.findById(farmOwner.getId()))
                 .thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId()))
                 .thenReturn(Optional.of(scout));
-        when(farmRepository.findByNameIgnoreCase(createRequest.name()))
+        when(farmRepository.findByNameIgnoreCase(createRequest.getName()))
                 .thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -1130,47 +1121,44 @@ class FarmServiceTest {
         // Assert
         assertThat(response).isNotNull();
         verify(farmRepository).save(argThat(farm ->
-                farm.getDefaultBayCount().equals(createRequest.defaultBayCount()) &&
-                        farm.getDefaultBenchesPerBay().equals(createRequest.defaultBenchesPerBay()) &&
-                        farm.getDefaultSpotChecksPerBench().equals(createRequest.defaultSpotChecksPerBench())
+                farm.getDefaultBayCount().equals(createRequest.getDefaultBayCount()) &&
+                        farm.getDefaultBenchesPerBay().equals(createRequest.getDefaultBenchesPerBay()) &&
+                        farm.getDefaultSpotChecksPerBench().equals(createRequest.getDefaultSpotChecksPerBench())
         ));
     }
 
     @Test
     @DisplayName("Should infer FIELD structure type from field blocks when type omitted")
     void createFarm_WithFieldBlocksAndNoStructureType_InfersField() {
-        CreateFarmRequest fieldFarmRequest = new CreateFarmRequest(
-                "Field Farm",
-                "Open field setup",
-                "123 Field Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                null,
-                null,
-                "Field Ops",
-                "field@example.com",
-                "555-0000",
-                SubscriptionStatus.ACTIVE,
-                SubscriptionTier.BASIC,
-                "billing@example.com",
-                new BigDecimal("20.00"),
-                50,
-                BigDecimal.ZERO,
-                null,
-                9,
-                0,
-                4,
-                new ArrayList<>(),
-                List.of(new CreateFieldBlockRequest("North Field", null, null, List.of("Row-1"), true)),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                false
-        );
+        CreateFarmRequest fieldFarmRequest = CreateFarmRequest.builder()
+                .name("Field Farm")
+                .description("Open field setup")
+                .address("123 Field Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .contactName("Field Ops")
+                .contactEmail("field@example.com")
+                .contactPhone("555-0000")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.BASIC)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("20.00"))
+                .licensedUnitQuota(50)
+                .quotaDiscountPercentage(BigDecimal.ZERO)
+                .defaultBayCount(9)
+                .defaultBenchesPerBay(0)
+                .defaultSpotChecksPerBench(4)
+                .greenhouses(new ArrayList<>())
+                .fieldBlocks(List.of(new CreateFieldBlockRequest("North Field", null, null, List.of("Row-1"), true)))
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(false)
+                .build();
 
-        when(customerNumberService.normalizeCountryCode(fieldFarmRequest.country())).thenReturn("CA");
-        when(farmRepository.findByNameIgnoreCase(fieldFarmRequest.name())).thenReturn(Optional.empty());
+        when(customerNumberService.normalizeCountryCode(fieldFarmRequest.getCountry())).thenReturn("CA");
+        when(farmRepository.findByNameIgnoreCase(fieldFarmRequest.getName())).thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
 
@@ -1188,40 +1176,40 @@ class FarmServiceTest {
     @Test
     @DisplayName("Should generate bay and bench tags when farm structures omit them")
     void createFarm_WithoutStructureTags_GeneratesDefaults() {
-        CreateFarmRequest request = new CreateFarmRequest(
-                "Tagged Farm",
-                "Generated layout tags",
-                "123 Farm Road",
-                "Farmville",
-                "Ontario",
-                "N1N 1N1",
-                "Canada",
-                farmOwner.getId(),
-                scout.getId(),
-                "John Doe",
-                "john@example.com",
-                "555-1234",
-                SubscriptionStatus.ACTIVE,
-                SubscriptionTier.STANDARD,
-                "billing@example.com",
-                new BigDecimal("15.00"),
-                100,
-                new BigDecimal("5.00"),
-                FarmStructureType.GREENHOUSE,
-                4,
-                3,
-                2,
-                List.of(new CreateGreenhouseRequest("House 1", null, 2, 3, 2, List.of(), List.of(), new BigDecimal("1.50"))),
-                List.of(new CreateFieldBlockRequest("Field 1", 2, 2, List.of(), true, new BigDecimal("2.00"))),
-                "America/Toronto",
-                LocalDate.now().plusYears(1),
-                true
-        );
+        CreateFarmRequest request = CreateFarmRequest.builder()
+                .name("Tagged Farm")
+                .description("Generated layout tags")
+                .address("123 Farm Road")
+                .city("Farmville")
+                .province("Ontario")
+                .postalCode("N1N 1N1")
+                .country("Canada")
+                .ownerId(farmOwner.getId())
+                .scoutId(scout.getId())
+                .contactName("John Doe")
+                .contactEmail("john@example.com")
+                .contactPhone("555-1234")
+                .subscriptionStatus(SubscriptionStatus.ACTIVE)
+                .subscriptionTier(SubscriptionTier.STANDARD)
+                .billingEmail("billing@example.com")
+                .licensedAreaHectares(new BigDecimal("15.00"))
+                .licensedUnitQuota(100)
+                .quotaDiscountPercentage(new BigDecimal("5.00"))
+                .structureType(FarmStructureType.GREENHOUSE)
+                .defaultBayCount(4)
+                .defaultBenchesPerBay(3)
+                .defaultSpotChecksPerBench(2)
+                .greenhouses(List.of(new CreateGreenhouseRequest("House 1", null, 2, 3, 2, List.of(), List.of(), new BigDecimal("1.50"))))
+                .fieldBlocks(List.of(new CreateFieldBlockRequest("Field 1", 2, 2, List.of(), true, new BigDecimal("2.00"))))
+                .timezone("America/Toronto")
+                .licenseExpiryDate(LocalDate.now().plusYears(1))
+                .autoRenewEnabled(true)
+                .build();
 
-        when(customerNumberService.normalizeCountryCode(request.country())).thenReturn("CA");
+        when(customerNumberService.normalizeCountryCode(request.getCountry())).thenReturn("CA");
         when(userRepository.findById(farmOwner.getId())).thenReturn(Optional.of(farmOwner));
         when(userRepository.findById(scout.getId())).thenReturn(Optional.of(scout));
-        when(farmRepository.findByNameIgnoreCase(request.name())).thenReturn(Optional.empty());
+        when(farmRepository.findByNameIgnoreCase(request.getName())).thenReturn(Optional.empty());
         when(farmRepository.save(any(Farm.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(farmAccessService.getCurrentUserRole()).thenReturn(Role.SUPER_ADMIN);
 

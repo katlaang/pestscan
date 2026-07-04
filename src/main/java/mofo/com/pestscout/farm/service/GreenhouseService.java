@@ -81,7 +81,9 @@ public class GreenhouseService {
                     request.bayCount(),
                     request.benchesPerBay(),
                     request.bayTags(),
-                    request.benchTags()
+                    request.benchTags(),
+                    null,
+                    null
             ));
         } else {
             if (request.bayTags() != null) {
@@ -107,6 +109,28 @@ public class GreenhouseService {
             greenhouse.setAreaHectares(request.areaHectares());
         }
 
+        Greenhouse saved = greenhouseRepository.save(greenhouse);
+        cacheService.evictFarmCachesAfterCommit(greenhouse.getFarm().getId());
+        return toDto(saved);
+    }
+
+    @Transactional
+    public GreenhouseDto updateBayBeds(UUID greenhouseId, int bayPosition, UpdateGreenhouseBayBedsRequest request) {
+        Greenhouse greenhouse = greenhouseRepository.findById(greenhouseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Greenhouse", "id", greenhouseId));
+
+        farmAccessService.requireAdminOrSuperAdmin(greenhouse.getFarm());
+        List<GreenhouseBayDefinition> bays = materializeBays(greenhouse);
+        if (bayPosition < 1 || bayPosition > bays.size()) {
+            throw new BadRequestException("Greenhouse bay position is out of range.");
+        }
+
+        int bedCount = request.bedCount() != null ? request.bedCount() : 0;
+        GreenhouseBayDefinition bay = bays.get(bayPosition - 1);
+        bay.setBedCount(bedCount);
+        bay.setBedTags(defaultTags(List.of(), "Bed", bedCount));
+
+        applyLayout(greenhouse, layoutFromBays(bays));
         Greenhouse saved = greenhouseRepository.save(greenhouse);
         cacheService.evictFarmCachesAfterCommit(greenhouse.getFarm().getId());
         return toDto(saved);
@@ -191,7 +215,9 @@ public class GreenhouseService {
                 request.bayCount(),
                 request.benchesPerBay(),
                 request.bayTags(),
-                request.benchTags()
+                request.benchTags(),
+                request.bayNumberingMode(),
+                request.firstBayIdentifier()
         );
     }
 
@@ -215,14 +241,17 @@ public class GreenhouseService {
             Integer requestedBayCount,
             Integer requestedBedsPerBay,
             List<String> requestedBayTags,
-            List<String> requestedBedTags
+            List<String> requestedBedTags,
+            BayNumberingMode bayNumberingMode,
+            String firstBayIdentifier
     ) {
         int bayCount = requestedBayCount != null ? requestedBayCount : 0;
         int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : 0;
+        List<String> normalizedBayTags = normalizeTags(requestedBayTags);
         return new GreenhouseLayout(
                 bayCount,
                 maxBedCount,
-                defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
+                resolveBayTags(normalizedBayTags, bayNumberingMode, firstBayIdentifier, bayCount),
                 defaultTags(requestedBedTags, "Bed", maxBedCount),
                 new ArrayList<>()
         );
@@ -242,15 +271,15 @@ public class GreenhouseService {
                     String bayTag = request.bayTag() != null && !request.bayTag().isBlank()
                             ? request.bayTag().trim()
                             : defaultTag("Bay", index + 1);
-                    if (request.bedCount() == null || request.bedCount() < 1) {
-                        throw new BadRequestException("Each greenhouse bay must define at least one bed.");
-                    }
+                    int bedCount = request.bedCount() != null ? request.bedCount() : 0;
                     List<String> bedTags = defaultTags(
-                            request.bedTags() == null || request.bedTags().isEmpty()
+                            bedCount == 0
+                                    ? List.of()
+                                    : request.bedTags() == null || request.bedTags().isEmpty()
                                     ? fallbackBedTags
                                     : request.bedTags(),
                             "Bed",
-                            request.bedCount()
+                            bedCount
                     );
                     long distinctBedTags = bedTags.stream().distinct().count();
                     if (distinctBedTags != bedTags.size()) {
@@ -258,7 +287,7 @@ public class GreenhouseService {
                     }
                     return GreenhouseBayDefinition.builder()
                             .bayTag(bayTag)
-                            .bedCount(request.bedCount())
+                            .bedCount(bedCount)
                             .bedTags(bedTags)
                             .build();
                 })
@@ -275,10 +304,68 @@ public class GreenhouseService {
         return bays;
     }
 
+    private GreenhouseLayout layoutFromBays(List<GreenhouseBayDefinition> bays) {
+        int maxBedCount = bays.stream()
+                .map(GreenhouseBayDefinition::getBedCount)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(0);
+        return new GreenhouseLayout(
+                bays.size(),
+                maxBedCount,
+                bays.stream().map(GreenhouseBayDefinition::getBayTag).toList(),
+                collectBedTags(bays),
+                bays
+        );
+    }
+
+    private List<GreenhouseBayDefinition> materializeBays(Greenhouse greenhouse) {
+        if (greenhouse.getBays() != null && !greenhouse.getBays().isEmpty()) {
+            return greenhouse.getBays().stream()
+                    .map(bay -> GreenhouseBayDefinition.builder()
+                            .bayTag(bay.getBayTag())
+                            .bedCount(bay.getBedCount() != null ? bay.getBedCount() : 0)
+                            .bedTags(new ArrayList<>(bay.resolvedBedTags()))
+                            .build())
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        }
+
+        List<String> bayTags = greenhouse.getBayTags() != null && !greenhouse.getBayTags().isEmpty()
+                ? greenhouse.getBayTags()
+                : defaultTags(List.of(), "Bay", greenhouse.resolvedBayCount());
+        int bedCount = Math.max(0, greenhouse.resolvedBenchesPerBay());
+        List<String> bedTags = defaultTags(greenhouse.getBenchTags(), "Bed", bedCount);
+        return bayTags.stream()
+                .map(bayTag -> GreenhouseBayDefinition.builder()
+                        .bayTag(bayTag)
+                        .bedCount(bedCount)
+                        .bedTags(new ArrayList<>(bedTags))
+                        .build())
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
     private List<String> collectBedTags(List<GreenhouseBayDefinition> bays) {
         java.util.LinkedHashSet<String> bedTags = new java.util.LinkedHashSet<>();
         bays.forEach(bay -> bedTags.addAll(bay.resolvedBedTags()));
         return new ArrayList<>(bedTags);
+    }
+
+    private List<String> resolveBayTags(
+            List<String> normalizedBayTags,
+            BayNumberingMode bayNumberingMode,
+            String firstBayIdentifier,
+            int bayCount
+    ) {
+        if (bayCount <= 0) {
+            return normalizeTags(normalizedBayTags);
+        }
+        if (normalizedBayTags != null && !normalizedBayTags.isEmpty()) {
+            return defaultTags(normalizedBayTags, "Bay", bayCount);
+        }
+        if (bayNumberingMode != null || firstBayIdentifier != null) {
+            return BayLabelGenerator.generate(bayNumberingMode, firstBayIdentifier, bayCount);
+        }
+        return defaultTags(List.of(), "Bay", bayCount);
     }
 
     private List<String> defaultTags(List<String> providedTags, String prefix, int count) {

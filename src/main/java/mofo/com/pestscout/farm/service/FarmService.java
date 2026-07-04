@@ -64,22 +64,22 @@ public class FarmService {
     @Transactional
     public FarmResponse createFarm(CreateFarmRequest request) {
         farmAccess.requireSuperAdmin();
-        LOGGER.info("Creating farm '{}'", request.name());
+        LOGGER.info("Creating farm '{}'", request.getName());
 
-        farmRepository.findByNameIgnoreCase(request.name()).ifPresent(existing -> {
-            throw new ConflictException("Farm already exists: " + request.name());
+        farmRepository.findByNameIgnoreCase(request.getName()).ifPresent(existing -> {
+            throw new ConflictException("Farm already exists: " + request.getName());
         });
 
-        String countryCode = customerNumberService.normalizeCountryCode(request.country());
+        String countryCode = customerNumberService.normalizeCountryCode(request.getCountry());
         farmAreaAllocationService.validateFarmStructureAreas(
-                request.licensedAreaHectares(),
-                request.greenhouses(),
-                request.fieldBlocks()
+                request.getLicensedAreaHectares(),
+                request.getGreenhouses(),
+                request.getFieldBlocks()
         );
 
         Farm farm = toFarmEntity(request, countryCode);
         Farm saved = farmRepository.save(farm);
-        synchronizeFarmMemberships(saved, saved.getOwner(), saved.getScout(), request.memberAssignments(), true);
+        synchronizeFarmMemberships(saved, saved.getOwner(), saved.getScout(), request.getMemberAssignments(), true);
 
         LOGGER.info("Farm '{}' created with id {}", saved.getName(), saved.getId());
         return mapToResponse(saved);
@@ -99,8 +99,8 @@ public class FarmService {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
 
-        // Access: super admin OR farm owner/manager
-        farmAccess.requireAdminOrSuperAdmin(farm);
+        // Farm metadata and license-related settings are superadmin-managed.
+        farmAccess.requireSuperAdmin();
 
         LOGGER.info("Updating farm {} ({})", farm.getName(), farm.getId());
 
@@ -215,50 +215,51 @@ public class FarmService {
     // -------------------------------
 
     private Farm toFarmEntity(CreateFarmRequest request, String countryCode) {
-        User owner = resolveAssignedUser(request.ownerId(), "owner");
-        User scout = resolveAssignedUser(request.scoutId(), "scout");
-        boolean hasGreenhouses = request.greenhouses() != null && !request.greenhouses().isEmpty();
-        boolean hasFieldBlocks = request.fieldBlocks() != null && !request.fieldBlocks().isEmpty();
+        User owner = resolveAssignedUser(request.getOwnerId(), "owner");
+        User scout = resolveAssignedUser(request.getScoutId(), "scout");
+        boolean hasGreenhouses = request.getGreenhouses() != null && !request.getGreenhouses().isEmpty();
+        boolean hasFieldBlocks = request.getFieldBlocks() != null && !request.getFieldBlocks().isEmpty();
 
         Farm farm = Farm.builder()
-                .name(request.name())
-                .slug(generateUniqueSlug(request.name()))
-                .description(request.description())
+                .name(request.getName())
+                .slug(generateUniqueSlug(request.getName()))
+                .description(request.getDescription())
                 .externalId(generateExternalId())
-                .farmTag(generateFarmTag(countryCode, request.name()))
-                .address(request.address())
-                .latitude(CoordinateFormatSupport.validateLatitude(request.latitude()))
-                .longitude(CoordinateFormatSupport.validateLongitude(request.longitude()))
-                .city(request.city())
-                .province(request.province())
-                .postalCode(request.postalCode())
-                .country(request.country())
+                .farmTag(generateFarmTag(countryCode, request.getName()))
+                .address(request.getAddress())
+                .latitude(CoordinateFormatSupport.validateLatitude(request.getLatitude()))
+                .longitude(CoordinateFormatSupport.validateLongitude(request.getLongitude()))
+                .city(request.getCity())
+                .province(request.getProvince())
+                .postalCode(request.getPostalCode())
+                .country(request.getCountry())
+                .organic(Boolean.TRUE.equals(request.getOrganic()))
                 .owner(owner)
                 .scout(scout)
-                .contactName(resolveContactName(request.contactName(), owner))
-                .contactEmail(request.contactEmail())
-                .contactPhone(request.contactPhone())
-                .subscriptionStatus(request.subscriptionStatus())
-                .subscriptionTier(request.subscriptionTier())
-                .billingEmail(request.billingEmail())
-                .licensedAreaHectares(request.licensedAreaHectares())
-                .licensedUnitQuota(request.licensedUnitQuota())
-                .quotaDiscountPercentage(request.quotaDiscountPercentage())
-                .structureType(resolveStructureType(request.structureType(), hasGreenhouses, hasFieldBlocks))
-                .defaultBayCount(request.defaultBayCount() != null ? request.defaultBayCount() : 0)
-                .defaultBenchesPerBay(request.defaultBenchesPerBay() != null ? request.defaultBenchesPerBay() : 0)
-                .defaultSpotChecksPerBench(request.defaultSpotChecksPerBench())
-                .timezone(request.timezone())
-                .licenseExpiryDate(request.licenseExpiryDate())
-                .autoRenewEnabled(request.autoRenewEnabled())
+                .contactName(resolveContactName(request.getContactName(), owner))
+                .contactEmail(request.getContactEmail())
+                .contactPhone(request.getContactPhone())
+                .subscriptionStatus(request.getSubscriptionStatus())
+                .subscriptionTier(request.getSubscriptionTier())
+                .billingEmail(request.getBillingEmail())
+                .licensedAreaHectares(request.getLicensedAreaHectares())
+                .licensedUnitQuota(request.getLicensedUnitQuota())
+                .quotaDiscountPercentage(request.getQuotaDiscountPercentage())
+                .structureType(resolveStructureType(request.getStructureType(), hasGreenhouses, hasFieldBlocks))
+                .defaultBayCount(request.getDefaultBayCount() != null ? request.getDefaultBayCount() : 0)
+                .defaultBenchesPerBay(request.getDefaultBenchesPerBay() != null ? request.getDefaultBenchesPerBay() : 0)
+                .defaultSpotChecksPerBench(request.getDefaultSpotChecksPerBench())
+                .timezone(request.getTimezone())
+                .licenseExpiryDate(request.getLicenseExpiryDate())
+                .autoRenewEnabled(request.getAutoRenewEnabled())
                 .build();
 
-        if (request.greenhouses() != null) {
-            request.greenhouses().forEach(ghRequest -> farm.getGreenhouses().add(buildGreenhouse(farm, ghRequest)));
+        if (request.getGreenhouses() != null) {
+            request.getGreenhouses().forEach(ghRequest -> farm.getGreenhouses().add(buildGreenhouse(farm, ghRequest)));
         }
 
-        if (request.fieldBlocks() != null) {
-            request.fieldBlocks().forEach(blockRequest -> farm.getFieldBlocks().add(buildFieldBlock(farm, blockRequest)));
+        if (request.getFieldBlocks() != null) {
+            request.getFieldBlocks().forEach(blockRequest -> farm.getFieldBlocks().add(buildFieldBlock(farm, blockRequest)));
         }
 
         return farm;
@@ -277,6 +278,9 @@ public class FarmService {
         applyTextUpdate(request.province(), farm::setProvince);
         applyTextUpdate(request.postalCode(), farm::setPostalCode);
         applyTextUpdate(request.country(), farm::setCountry);
+        if (request.organic() != null) {
+            farm.setOrganic(request.organic());
+        }
         applyTextUpdate(request.contactName(), farm::setContactName);
         applyTextUpdate(request.contactEmail(), farm::setContactEmail);
         applyTextUpdate(request.contactPhone(), farm::setContactPhone);
@@ -443,6 +447,7 @@ public class FarmService {
                 farm.getProvince(),
                 farm.getPostalCode(),
                 farm.getCountry(),
+                farm.getOrganic(),
 
                 farm.getContactName(),
                 farm.getContactEmail(),
@@ -624,7 +629,9 @@ public class FarmService {
                 request.benchesPerBay(),
                 request.bayTags(),
                 request.benchTags(),
-                request.bays()
+                request.bays(),
+                request.bayNumberingMode(),
+                request.firstBayIdentifier()
         );
 
         return Greenhouse.builder()
@@ -664,7 +671,9 @@ public class FarmService {
             Integer requestedBedsPerBay,
             List<String> requestedBayTags,
             List<String> requestedBedTags,
-            List<GreenhouseBayRequest> requestedBays
+            List<GreenhouseBayRequest> requestedBays,
+            BayNumberingMode bayNumberingMode,
+            String firstBayIdentifier
     ) {
         if (requestedBays != null && !requestedBays.isEmpty()) {
             List<GreenhouseBayDefinition> bays = normalizeBays(requestedBays, requestedBedTags);
@@ -683,10 +692,11 @@ public class FarmService {
 
         int bayCount = requestedBayCount != null ? requestedBayCount : 0;
         int maxBedCount = requestedBedsPerBay != null ? requestedBedsPerBay : 0;
+        List<String> normalizedBayTags = normalizeTags(requestedBayTags);
         return new GreenhouseLayout(
                 bayCount,
                 maxBedCount,
-                defaultTags(normalizeTags(requestedBayTags), "Bay", bayCount),
+                resolveBayTags(normalizedBayTags, bayNumberingMode, firstBayIdentifier, bayCount),
                 defaultTags(requestedBedTags, "Bed", maxBedCount),
                 List.of()
         );
@@ -703,15 +713,15 @@ public class FarmService {
                     if (bayTag == null) {
                         bayTag = defaultTag("Bay", index + 1);
                     }
-                    if (request.bedCount() == null || request.bedCount() < 1) {
-                        throw new BadRequestException("Each greenhouse bay must define at least one bed.");
-                    }
+                    int bedCount = request.bedCount() != null ? request.bedCount() : 0;
                     List<String> bedTags = defaultTags(
-                            request.bedTags() == null || request.bedTags().isEmpty()
+                            bedCount == 0
+                                    ? List.of()
+                                    : request.bedTags() == null || request.bedTags().isEmpty()
                                     ? fallbackBedTags
                                     : request.bedTags(),
                             "Bed",
-                            request.bedCount()
+                            bedCount
                     );
                     long distinctBedTags = bedTags.stream().distinct().count();
                     if (distinctBedTags != bedTags.size()) {
@@ -719,7 +729,7 @@ public class FarmService {
                     }
                     return GreenhouseBayDefinition.builder()
                             .bayTag(bayTag)
-                            .bedCount(request.bedCount())
+                            .bedCount(bedCount)
                             .bedTags(bedTags)
                             .build();
                 })
@@ -740,6 +750,24 @@ public class FarmService {
         LinkedHashSet<String> bedTags = new LinkedHashSet<>();
         bays.forEach(bay -> bedTags.addAll(bay.resolvedBedTags()));
         return List.copyOf(bedTags);
+    }
+
+    private List<String> resolveBayTags(
+            List<String> normalizedBayTags,
+            BayNumberingMode bayNumberingMode,
+            String firstBayIdentifier,
+            int bayCount
+    ) {
+        if (bayCount <= 0) {
+            return normalizeTags(normalizedBayTags);
+        }
+        if (normalizedBayTags != null && !normalizedBayTags.isEmpty()) {
+            return defaultTags(normalizedBayTags, "Bay", bayCount);
+        }
+        if (bayNumberingMode != null || firstBayIdentifier != null) {
+            return BayLabelGenerator.generate(bayNumberingMode, firstBayIdentifier, bayCount);
+        }
+        return defaultTags(List.of(), "Bay", bayCount);
     }
 
     private record GreenhouseLayout(
