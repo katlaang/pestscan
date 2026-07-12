@@ -246,9 +246,13 @@ public class AuthController {
     public ResponseEntity<Void> resetPassword(
             @Valid @RequestBody ResetPasswordRequest request,
             @RequestParam(value = "token", required = false) String token,
-            @RequestAttribute(value = "userId", required = false) UUID requestingUserId) {
+            @RequestAttribute(value = "userId", required = false) UUID requestingUserId,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
         ResetPasswordRequest normalizedRequest = request.withResolvedToken(token);
         if ((normalizedRequest.token() == null || normalizedRequest.token().isBlank()) && requestingUserId == null) {
+            LOGGER.info("Rejecting reset-password request without token or authenticated user. authFailureCode={}, hasAuthorizationHeader={}",
+                    httpRequest.getAttribute("authFailureCode"),
+                    httpRequest.getHeader("Authorization") != null);
             throw new BadRequestException("Reset token is required");
         }
 

@@ -80,6 +80,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
+            if (isResetPasswordRequest(request) && !hasBearerAuthorizationHeader(request)) {
+                LOGGER.info("Reset-password request received without Authorization bearer token");
+            }
+
             if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
                 // Extract claims from token
                 String email = tokenProvider.getEmailFromToken(jwt);
@@ -188,12 +192,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         email, farmId, role);
             } else if (StringUtils.hasText(jwt)) {
                 LOGGER.debug("JWT present but invalid or expired");
+                if (isResetPasswordRequest(request)) {
+                    LOGGER.info("Reset-password request received with invalid or expired bearer token");
+                }
                 markAuthenticationFailure(request, "SESSION_EXPIRED", "Your session has expired. Please log in again.");
                 SecurityContextHolder.clearContext();
             }
         } catch (Exception ex) {
             // We log the error but do not block the request pipeline here.
             LOGGER.warn("Could not set user authentication in security context: {}", ex.getMessage());
+            if (isResetPasswordRequest(request)) {
+                LOGGER.info("Reset-password request bearer token could not be processed: {}", ex.getMessage());
+            }
             if (StringUtils.hasText(getJwtFromRequest(request))) {
                 markAuthenticationFailure(request, "SESSION_INVALID", "Authentication failed. Please log in again.");
             }
@@ -223,6 +233,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return null;
     }
 
+    private boolean hasBearerAuthorizationHeader(HttpServletRequest request) {
+        String authorization = request.getHeader("Authorization");
+        return StringUtils.hasText(authorization) && authorization.startsWith("Bearer ");
+    }
+
     private boolean shouldRecordActivity(HttpServletRequest request) {
         return !"/api/auth/refresh".equals(pathWithinApplication(request));
     }
@@ -230,6 +245,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private boolean isLoginRequest(HttpServletRequest request) {
         return "POST".equalsIgnoreCase(request.getMethod())
                 && "/api/auth/login".equals(pathWithinApplication(request));
+    }
+
+    private boolean isResetPasswordRequest(HttpServletRequest request) {
+        return "POST".equalsIgnoreCase(request.getMethod())
+                && "/api/auth/reset-password".equals(pathWithinApplication(request));
     }
 
     private boolean isAllowedDuringPasswordChange(HttpServletRequest request) {
@@ -299,4 +319,5 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         return !activeClientSessionId.equals(requestSessionId.trim());
     }
+
 }
