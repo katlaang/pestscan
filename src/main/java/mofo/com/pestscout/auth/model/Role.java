@@ -31,6 +31,12 @@ public enum Role {
     SUPER_ADMIN,
 
     /**
+     * Regional Analyst - Can browse region-level maps, trends, and alerts
+     * without any farm membership.
+     */
+    REGIONAL_ANALYST,
+
+    /**
      * Edge Sync - Headless service role for edge-to-cloud sync
      * Scoped to sync endpoints only (no interactive permissions).
      */

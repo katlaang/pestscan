@@ -486,6 +486,19 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
+    @PutMapping("/users/{userId}/curator-permission")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Grant or revoke alert curator permission",
+            description = "Super-admin only toggle for the authority alert curator capability."
+    )
+    public ResponseEntity<UserDto> updateCuratorPermission(
+            @PathVariable UUID userId,
+            @Valid @RequestBody UpdateAlertCuratorPermissionRequest request,
+            @RequestAttribute("userId") UUID requestingUserId) {
+        return ResponseEntity.ok(userService.updateAlertCuratorPermission(userId, request.enabled(), requestingUserId));
+    }
+
     /**
      * Soft-delete (disable) a user.
      */

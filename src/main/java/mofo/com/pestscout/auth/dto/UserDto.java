@@ -27,6 +27,7 @@ public class UserDto {
     private String country;
     private String customerNumber;
     private Role role;
+    private Boolean authorityAlertCurator;
     private Boolean isEnabled;
     private Boolean active;
     private Boolean deleted;

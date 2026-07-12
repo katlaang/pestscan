@@ -203,6 +203,12 @@ public class UserService {
         if (request.getIsEnabled() != null) {
             targetUser.setIsEnabled(request.getIsEnabled());
         }
+        if (request.getAuthorityAlertCurator() != null) {
+            if (requester.getRole() != Role.SUPER_ADMIN) {
+                throw new UnauthorizedException("Only super admins can modify curator permission");
+            }
+            targetUser.setAuthorityAlertCurator(request.getAuthorityAlertCurator());
+        }
 
         if (request.getPassword() != null) {
             passwordPolicyService.validateAndApplyPassword(targetUser, request.getPassword());
@@ -423,6 +429,7 @@ public class UserService {
                 .country(user.getCountry())
                 .customerNumber(user.getCustomerNumber())
                 .role(user.getRole())
+                .authorityAlertCurator(user.getAuthorityAlertCurator())
                 .isEnabled(user.getIsEnabled())
                 .active(user.isActive())
                 .deleted(user.isDeleted())
@@ -440,6 +447,24 @@ public class UserService {
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
+    }
+
+    @Transactional
+    public UserDto updateAlertCuratorPermission(UUID userId, boolean enabled, UUID requestingUserId) {
+        User requester = userRepository.findById(requestingUserId)
+                .orElseThrow(() -> new UnauthorizedException("Invalid requesting user"));
+
+        if (requester.getRole() != Role.SUPER_ADMIN) {
+            throw new UnauthorizedException("Only super admins can grant or revoke curator permission");
+        }
+
+        User targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        targetUser.setAuthorityAlertCurator(enabled);
+        User updated = userRepository.save(targetUser);
+        cacheService.evictUserCache(userId);
+        return convertToDto(updated);
     }
 
     private List<UserDto> convertToDtosWithPrimaryFarm(List<User> users) {

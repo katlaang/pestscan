@@ -22,6 +22,7 @@ import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.optional.repository.SupplyOrderRequestRepository;
+import mofo.com.pestscout.region.service.NorthAmericaRegionService;
 import mofo.com.pestscout.scouting.repository.CustomSpeciesDefinitionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +84,9 @@ class FarmServiceTest {
 
     @Mock
     private SupplyOrderRequestRepository supplyOrderRequestRepository;
+
+    @Mock
+    private NorthAmericaRegionService northAmericaRegionService;
 
     @InjectMocks
     private FarmService farmService;
@@ -210,6 +214,9 @@ class FarmServiceTest {
                 null,
                 null
         );
+
+        lenient().when(northAmericaRegionService.normalizeCountry(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(northAmericaRegionService.normalizeState(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test

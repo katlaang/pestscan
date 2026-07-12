@@ -51,6 +51,10 @@ public class User extends BaseEntity {
     private Role role;
 
     @Builder.Default
+    @Column(name = "authority_alert_curator", nullable = false)
+    private Boolean authorityAlertCurator = false;
+
+    @Builder.Default
     @Column(name = "is_enabled")
     private Boolean isEnabled = true;
 

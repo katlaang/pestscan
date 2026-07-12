@@ -83,4 +83,10 @@ public class UpdateUserRequest {
      * If not null, controls whether the user can log in.
      */
     private Boolean isEnabled;
+
+    /**
+     * Authority alert curator grant.
+     * Optional and super-admin managed.
+     */
+    private Boolean authorityAlertCurator;
 }

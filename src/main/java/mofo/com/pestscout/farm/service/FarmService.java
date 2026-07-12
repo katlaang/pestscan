@@ -20,6 +20,7 @@ import mofo.com.pestscout.farm.repository.FarmRepository;
 import mofo.com.pestscout.farm.security.CurrentUserService;
 import mofo.com.pestscout.farm.security.FarmAccessService;
 import mofo.com.pestscout.optional.repository.SupplyOrderRequestRepository;
+import mofo.com.pestscout.region.service.NorthAmericaRegionService;
 import mofo.com.pestscout.scouting.repository.CustomSpeciesDefinitionRepository;
 import mofo.com.pestscout.scouting.repository.ScoutingSessionRepository;
 import org.slf4j.Logger;
@@ -56,6 +57,7 @@ public class FarmService {
     private final FarmFeatureEntitlementRepository farmFeatureEntitlementRepository;
     private final CustomSpeciesDefinitionRepository customSpeciesDefinitionRepository;
     private final SupplyOrderRequestRepository supplyOrderRequestRepository;
+    private final NorthAmericaRegionService northAmericaRegionService;
 
     /**
      * SUPER_ADMIN ONLY.
@@ -71,13 +73,15 @@ public class FarmService {
         });
 
         String countryCode = customerNumberService.normalizeCountryCode(request.getCountry());
+        String normalizedCountry = northAmericaRegionService.normalizeCountry(request.getCountry());
+        String normalizedProvince = northAmericaRegionService.normalizeState(normalizedCountry, request.getProvince());
         farmAreaAllocationService.validateFarmStructureAreas(
                 request.getLicensedAreaHectares(),
                 request.getGreenhouses(),
                 request.getFieldBlocks()
         );
 
-        Farm farm = toFarmEntity(request, countryCode);
+        Farm farm = toFarmEntity(request, countryCode, normalizedCountry, normalizedProvince);
         Farm saved = farmRepository.save(farm);
         synchronizeFarmMemberships(saved, saved.getOwner(), saved.getScout(), request.getMemberAssignments(), true);
 
@@ -214,7 +218,7 @@ public class FarmService {
     // INTERNAL HELPERS
     // -------------------------------
 
-    private Farm toFarmEntity(CreateFarmRequest request, String countryCode) {
+    private Farm toFarmEntity(CreateFarmRequest request, String countryCode, String normalizedCountry, String normalizedProvince) {
         User owner = resolveAssignedUser(request.getOwnerId(), "owner");
         User scout = resolveAssignedUser(request.getScoutId(), "scout");
         boolean hasGreenhouses = request.getGreenhouses() != null && !request.getGreenhouses().isEmpty();
@@ -230,9 +234,9 @@ public class FarmService {
                 .latitude(CoordinateFormatSupport.validateLatitude(request.getLatitude()))
                 .longitude(CoordinateFormatSupport.validateLongitude(request.getLongitude()))
                 .city(request.getCity())
-                .province(request.getProvince())
+                .province(normalizedProvince)
                 .postalCode(request.getPostalCode())
-                .country(request.getCountry())
+                .country(normalizedCountry)
                 .organic(Boolean.TRUE.equals(request.getOrganic()))
                 .owner(owner)
                 .scout(scout)
@@ -269,15 +273,23 @@ public class FarmService {
      * Applies allowed updates depending on user role.
      */
     private void applyAllowedFarmUpdates(Farm farm, UpdateFarmRequest request) {
+        normalizeRequestedGeography(farm, request);
 
         // Common fields editable by FARM_MANAGER or SUPER_ADMIN
         applyTextUpdate(request.name(), farm::setName);
         applyTextUpdate(request.description(), farm::setDescription);
         applyTextUpdate(request.address(), farm::setAddress);
         applyTextUpdate(request.city(), farm::setCity);
-        applyTextUpdate(request.province(), farm::setProvince);
+        if (request.province() != null) {
+            farm.setProvince(northAmericaRegionService.normalizeState(
+                    request.country() != null ? request.country() : farm.getCountry(),
+                    request.province()
+            ));
+        }
         applyTextUpdate(request.postalCode(), farm::setPostalCode);
-        applyTextUpdate(request.country(), farm::setCountry);
+        if (request.country() != null) {
+            farm.setCountry(northAmericaRegionService.normalizeCountry(request.country()));
+        }
         if (request.organic() != null) {
             farm.setOrganic(request.organic());
         }
@@ -376,6 +388,24 @@ public class FarmService {
             return;
         }
         setter.accept(normalizeNullableText(requestedValue));
+    }
+
+    private void normalizeRequestedGeography(Farm farm, UpdateFarmRequest request) {
+        if (request.country() == null && request.province() == null) {
+            return;
+        }
+
+        String effectiveCountry = request.country() != null ? request.country() : farm.getCountry();
+        String effectiveProvince = request.province() != null ? request.province() : farm.getProvince();
+        String normalizedCountry = northAmericaRegionService.normalizeCountry(effectiveCountry);
+        String normalizedProvince = northAmericaRegionService.normalizeState(normalizedCountry, effectiveProvince);
+
+        if (request.country() != null) {
+            farm.setCountry(normalizedCountry);
+        }
+        if (request.province() != null) {
+            farm.setProvince(normalizedProvince);
+        }
     }
 
     private void applyArchivedState(Farm farm, Boolean requestedArchivedState, LocalDate requestedArchivedDate) {

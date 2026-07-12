@@ -564,7 +564,7 @@ public class AuthService {
     }
 
     private List<LoginFarmResponse> resolveLoginFarms(User user) {
-        if (user == null || user.getRole() == Role.SUPER_ADMIN) {
+        if (user == null || user.getRole() == Role.SUPER_ADMIN || user.getRole() == Role.REGIONAL_ANALYST) {
             return List.of();
         }
 
@@ -725,7 +725,10 @@ public class AuthService {
     }
 
     private void validateSelfServiceRegistration(RegisterRequest request) {
-        if (request.role() == Role.FARM_ADMIN || request.role() == Role.SUPER_ADMIN || request.role() == Role.EDGE_SYNC) {
+        if (request.role() == Role.FARM_ADMIN
+                || request.role() == Role.SUPER_ADMIN
+                || request.role() == Role.REGIONAL_ANALYST
+                || request.role() == Role.EDGE_SYNC) {
             throw new UnauthorizedException("Self-service registration is only available for scout and manager profiles");
         }
         validateSuperAdminFarmScope(request);
@@ -751,6 +754,9 @@ public class AuthService {
     private void validateSuperAdminFarmScope(RegisterRequest request) {
         if (request.role() == Role.SUPER_ADMIN && request.farmId() != null) {
             throw new BadRequestException("Super admin profiles cannot be scoped to a farm");
+        }
+        if (request.role() == Role.REGIONAL_ANALYST && request.farmId() != null) {
+            throw new BadRequestException("Regional analyst profiles cannot be scoped to a farm");
         }
     }
 
